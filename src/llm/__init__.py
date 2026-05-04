@@ -1,0 +1,371 @@
+"""
+LLM 模块 - 提供大语言模型调用能力
+支持 OpenAI API 和本地模型
+"""
+
+import os
+import json
+import sys
+from pathlib import Path
+from typing import Optional, List, Dict, Any
+from dataclasses import dataclass
+
+# Windows UTF-8 encoding setup - only if not already done
+if sys.platform == 'win32' and hasattr(sys.stdout, 'buffer'):
+    try:
+        if sys.stdout.encoding != 'utf-8' or not isinstance(sys.stdout, io.TextIOWrapper):
+            import io
+            sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8', errors='replace')
+            sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding='utf-8', errors='replace')
+    except Exception:
+        pass
+
+script_path = Path(__file__).resolve()
+project_root = script_path.parent.parent.parent
+if str(project_root) not in sys.path:
+    sys.path.insert(0, str(project_root))
+
+
+@dataclass
+class LLMResponse:
+    """LLM响应"""
+    content: str
+    model: str
+    usage: Dict[str, int]
+    finish_reason: str
+
+
+class LLMClient:
+    """LLM客户端基类"""
+    
+    def __init__(self, model: str = "gpt-4o-mini", temperature: float = 0.7, max_tokens: int = 1000):
+        self.model = model
+        self.temperature = temperature
+        self.max_tokens = max_tokens
+    
+    def generate(self, prompt: str, system_prompt: str = None) -> LLMResponse:
+        """生成文本"""
+        raise NotImplementedError
+    
+    def chat(self, messages: List[Dict[str, str]]) -> LLMResponse:
+        """聊天"""
+        raise NotImplementedError
+
+
+class OpenAIClient(LLMClient):
+    """OpenAI API 客户端"""
+    
+    def __init__(
+        self,
+        api_key: str = None,
+        model: str = "gpt-4o-mini",
+        temperature: float = 0.7,
+        max_tokens: int = 1000
+    ):
+        super().__init__(model, temperature, max_tokens)
+
+        # 从环境变量或配置文件获取 API Key
+        if api_key is None:
+            api_key = os.getenv("API_KEY") or os.getenv("OPENAI_API_KEY", "")
+
+        self.api_key = api_key
+        self.client = None
+        self._initialized = False
+
+        # 只要有有效的 API Key 就初始化
+        if self.api_key and self.api_key not in ("", "your_api_key_here"):
+            self._initialize_client()
+    
+    def _initialize_client(self):
+        """初始化 OpenAI 客户端"""
+        try:
+            from openai import OpenAI
+            self.client = OpenAI(api_key=self.api_key)
+            self._initialized = True
+            print(f"[OK] OpenAI 客户端初始化成功 (模型: {self.model})")
+        except ImportError:
+            print("[WARN]  openai 包未安装，将使用 Mock 模式")
+            self.client = None
+        except Exception as e:
+            print(f"[WARN]  OpenAI 客户端初始化失败: {e}")
+            self.client = None
+
+    def is_available(self) -> bool:
+        """检查客户端是否可用"""
+        return self.client is not None
+    
+    def chat(self, messages: List[Dict[str, str]]) -> LLMResponse:
+        """发送聊天请求"""
+        if self.client is None:
+            return self._mock_response(messages)
+        
+        try:
+            response = self.client.chat.completions.create(
+                model=self.model,
+                messages=messages,
+                temperature=self.temperature,
+                max_tokens=self.max_tokens
+            )
+            
+            return LLMResponse(
+                content=response.choices[0].message.content,
+                model=response.model,
+                usage={
+                    "prompt_tokens": response.usage.prompt_tokens,
+                    "completion_tokens": response.usage.completion_tokens,
+                    "total_tokens": response.usage.total_tokens
+                },
+                finish_reason=response.choices[0].finish_reason
+            )
+        except Exception as e:
+            print(f"[ERR] OpenAI API 调用失败: {e}")
+            return self._mock_response(messages)
+    
+    def generate(self, prompt: str, system_prompt: str = None) -> LLMResponse:
+        """生成文本"""
+        messages = []
+        if system_prompt:
+            messages.append({"role": "system", "content": system_prompt})
+        messages.append({"role": "user", "content": prompt})
+        return self.chat(messages)
+    
+    def _mock_response(self, messages: List[Dict[str, str]]) -> LLMResponse:
+        """Mock 响应（当 API 不可用时）"""
+        last_message = messages[-1]["content"] if messages else ""
+        
+        mock_content = f"""[这是Mock响应] 感谢你的提问！
+
+我收到了你的消息: "{last_message[:50]}..."
+
+由于当前使用的是演示模式，完整的AI对话功能需要配置有效的OpenAI API Key。
+
+请确保:
+1. 在 .env 文件中设置了有效的 OPENAI_API_KEY
+2. 已安装 openai 包: pip install openai
+
+如果你已经配置好，可以通过API继续使用AI增强的对话体验！
+"""
+        
+        return LLMResponse(
+            content=mock_content,
+            model="mock",
+            usage={"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0},
+            finish_reason="stop"
+        )
+
+
+class MockLLMClient(LLMClient):
+    """Mock LLM 客户端（用于测试）"""
+    
+    def __init__(self, model: str = "mock", temperature: float = 0.7, max_tokens: int = 1000):
+        super().__init__(model, temperature, max_tokens)
+    
+    def generate(self, prompt: str, system_prompt: str = None) -> LLMResponse:
+        """生成 Mock 响应"""
+        return self._create_response(prompt, system_prompt)
+    
+    def chat(self, messages: List[Dict[str, str]]) -> LLMResponse:
+        """生成 Mock 响应"""
+        last_message = messages[-1]["content"] if messages else ""
+        return self._create_response(last_message)
+    
+    def _create_response(self, user_input: str, system_prompt: str = None) -> LLMResponse:
+        """创建 Mock 响应"""
+        return LLMResponse(
+            content=f"[Mock模式] 收到了: {user_input[:100]}...",
+            model="mock",
+            usage={"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0},
+            finish_reason="stop"
+        )
+
+
+def create_llm_client(
+    provider: str = "openai",
+    model: str = "gpt-4o-mini",
+    api_key: str = None,
+    temperature: float = 0.7,
+    max_tokens: int = 1000
+) -> LLMClient:
+    """
+    工厂函数：创建 LLM 客户端
+
+    Args:
+        provider: 提供商 ("openai", "minimax", "zhipu", "baidu", "ali", "deepseek", "mock")
+        model: 模型名称
+        api_key: API Key
+        temperature: 温度参数
+        max_tokens: 最大 token 数
+
+    Returns:
+        LLMClient 实例
+    """
+    if provider == "openai":
+        return OpenAIClient(
+            api_key=api_key,
+            model=model,
+            temperature=temperature,
+            max_tokens=max_tokens
+        )
+    elif provider == "minimax":
+        from llm.client import MiniMaxClient
+        return MiniMaxClient(api_key=api_key, model=model, temperature=temperature, max_tokens=max_tokens)
+    elif provider == "zhipu":
+        from llm.client import ZhipuClient
+        return ZhipuClient(api_key=api_key, model=model, temperature=temperature, max_tokens=max_tokens)
+    elif provider == "baidu":
+        from llm.client import BaiduClient
+        return BaiduClient(api_key=api_key, model=model, temperature=temperature, max_tokens=max_tokens)
+    elif provider == "ali":
+        from llm.client import AliClient
+        return AliClient(api_key=api_key, model=model, temperature=temperature, max_tokens=max_tokens)
+    elif provider == "deepseek":
+        from llm.client import DeepSeekClient
+        return DeepSeekClient(api_key=api_key, model=model, temperature=temperature, max_tokens=max_tokens)
+    elif provider == "mock":
+        return MockLLMClient(
+            model=model,
+            temperature=temperature,
+            max_tokens=max_tokens
+        )
+    else:
+        print(f"[WARN]  不支持的 LLM 提供商: {provider}，使用 Mock 模式")
+        return MockLLMClient(model=model)
+
+
+# 系统提示词模板
+SYSTEM_PROMPT_TEMPLATE = """你是一个专业的绿色低碳智能助手，名为"绿宝"。
+
+你的职责：
+1. 帮助用户了解碳中和、节能减排等环保知识
+2. 根据用户情况提供个性化的低碳生活建议
+3. 引导用户采取实际行动，减少碳排放
+4. 回答关于环保政策、绿色产品等问题
+
+用户信息：
+- 环保认知水平：{knowledge_level}
+- 行为阶段：{behavior_stage}
+- 关注领域：{interests}
+- 沟通风格：{communication_style}
+
+回复要求：
+1. 使用友好、鼓励的语气
+2. 根据用户认知水平调整解释深度
+3. 每条建议尽量具体可执行
+4. 可以适当引用数据和事实
+5. 回答控制在200-300字左右
+"""
+
+
+def build_system_prompt(personalization_ctx: Dict[str, Any]) -> str:
+    """构建系统提示词"""
+    knowledge_level = personalization_ctx.get("knowledge_level_chinese", "了解")
+    behavior_stage = personalization_ctx.get("behavior_stage", "意向")
+    interests = personalization_ctx.get("confirmed_interests", personalization_ctx.get("primary_interests", []))
+    if isinstance(interests, list):
+        interests = "、".join(interests[:3]) if interests else "绿色生活"
+    communication_style = personalization_ctx.get("communication_style", "平衡")
+    
+    return SYSTEM_PROMPT_TEMPLATE.format(
+        knowledge_level=knowledge_level,
+        behavior_stage=behavior_stage,
+        interests=interests,
+        communication_style=communication_style
+    )
+
+
+def build_conversation_prompt(
+    user_message: str,
+    rag_context: str = "",
+    conversation_history: List[Dict] = None,
+    personalization_ctx: Dict[str, Any] = None
+) -> List[Dict[str, str]]:
+    """构建对话消息列表"""
+    messages = []
+    
+    # 系统提示词
+    if personalization_ctx:
+        system_prompt = build_system_prompt(personalization_ctx)
+    else:
+        system_prompt = """你是一个专业的绿色低碳智能助手，帮助用户了解环保知识、提供低碳生活建议。"""
+    
+    messages.append({"role": "system", "content": system_prompt})
+    
+    # 对话历史
+    if conversation_history:
+        for msg in conversation_history[-6:]:  # 最近3轮对话
+            role = "assistant" if msg.get("role") == "assistant" else "user"
+            messages.append({
+                "role": role,
+                "content": msg.get("content", "")
+            })
+    
+    # RAG 上下文
+    if rag_context:
+        context_msg = f"""[参考知识]
+{rag_context}
+
+[问题]
+{user_message}"""
+        messages.append({"role": "user", "content": context_msg})
+    else:
+        messages.append({"role": "user", "content": user_message})
+    
+    return messages
+
+
+# 全局客户端实例
+_llm_client: Optional[LLMClient] = None
+
+
+def get_llm_client() -> LLMClient:
+    """获取全局 LLM 客户端"""
+    global _llm_client
+    if _llm_client is None:
+        provider = os.getenv("API_PROVIDER", "openai")
+        model = os.getenv("API_MODEL", "gpt-4o-mini")
+        temperature = float(os.getenv("LLM_TEMPERATURE", "0.7"))
+
+        # 根据不同的提供商读取正确的环境变量
+        provider_key_map = {
+            "openai": os.getenv("OPENAI_API_KEY") or os.getenv("API_KEY"),
+            "minimax": os.getenv("MINIMAX_API_KEY") or os.getenv("API_KEY"),
+            "zhipu": os.getenv("ZHIPU_API_KEY") or os.getenv("API_KEY"),
+            "baidu": os.getenv("BAIDU_API_KEY") or os.getenv("API_KEY"),
+            "ali": os.getenv("ALI_API_KEY") or os.getenv("API_KEY"),
+            "deepseek": os.getenv("DEEPSEEK_API_KEY") or os.getenv("API_KEY"),
+        }
+        api_key = provider_key_map.get(provider) or os.getenv("API_KEY")
+
+        print(f"[LLM] 初始化客户端: provider={provider}, model={model}, has_key=({'是' if api_key else '否'})")
+
+        _llm_client = create_llm_client(
+            provider=provider,
+            api_key=api_key,
+            model=model,
+            temperature=temperature
+        )
+
+    return _llm_client
+
+
+def reset_llm_client():
+    """重置LLM客户端（重新初始化）"""
+    global _llm_client
+    _llm_client = None
+
+
+def set_llm_client(client: LLMClient):
+    """设置全局 LLM 客户端"""
+    global _llm_client
+    _llm_client = client
+
+
+# 导出 build_chat_prompt
+from llm.client import build_chat_prompt
+
+__all__ = [
+    'LLMClient', 'LLMResponse', 'OpenAIClient', 'MockLLMClient',
+    'create_llm_client', 'get_llm_client', 'reset_llm_client', 'set_llm_client',
+    'build_chat_prompt', 'build_system_prompt', 'build_conversation_prompt',
+    'SYSTEM_PROMPT_TEMPLATE'
+]

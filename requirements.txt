@@ -1,0 +1,10 @@
+# LangGraph 智能体框架
+langgraph>=0.0.20
+
+# RAG 和嵌入依赖
+sentence-transformers>=2.2.0
+chromadb>=0.4.0
+numpy>=1.24.0
+
+# 可选：支持 OpenAI 嵌入
+# openai>=1.0.0

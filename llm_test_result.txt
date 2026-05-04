@@ -1,0 +1,9 @@
+API_PROVIDER: deepseek
+DEEPSEEK_API_KEY: SET
+Creating client: deepseek
+Client type: DeepSeekClient
+Client available: True
+Response: Excellent question! "Carbon neutral" is a key concept in the fight against climate change. Here’s a clear breakdown:
+
+### Simple Definition
+**Carbon neutral** means achieving a balance between the amo

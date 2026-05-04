@@ -1,0 +1,74 @@
+# 智能体配置
+agent:
+  name: "绿色低碳智能体"
+  version: "1.0.0"
+  description: "基于消费者偏好建模的个性化绿色低碳助手"
+
+# LLM配置
+llm:
+  provider: "openai"  # 支持: openai, local, mock
+  model: "gpt-3.5-turbo"
+  api_key: "${OPENAI_API_KEY}"
+  temperature: 0.7
+  max_tokens: 1000
+
+# 向量数据库配置
+vector_db:
+  type: "chroma"  # 支持: chroma, faiss
+  persist_directory: "./data/chroma_db"
+  embedding_model: "paraphrase-multilingual-MiniLM-L12-v2"
+
+# 短期记忆配置 (Redis)
+short_term_memory:
+  enabled: false  # 本地开发时可关闭，使用内存模拟
+  ttl_days: 7
+  max_conversation_turns: 10
+
+# 长期记忆配置
+long_term_memory:
+  enabled: true
+  db_path: "./data/users.db"
+  vector_collection: "user_memories"
+
+# 知识库配置
+knowledge_base:
+  base_path: "./knowledge_base"
+  update_interval_hours: 24
+  categories:
+    - basic
+    - policy
+    - guide
+
+# 政策更新配置
+policy_updater:
+  enabled: true
+  sources:
+    - name: "国家发改委"
+      url: "https://www.ndrc.gov.cn/"
+    - name: "生态环境部"
+      url: "https://www.mee.gov.cn/"
+  update_schedule: "0 2 * * *"  # 每天凌晨2点
+  last_update: null
+
+# 用户画像配置
+user_profile:
+  dimensions:
+    - eco_knowledge_level
+    - behavior_stage
+    - communication_style
+    - action_willingness
+  update_trigger: "conversation_end"
+
+# 前端配置
+web:
+  host: "0.0.0.0"
+  port: 8000
+  cors_origins:
+    - "http://localhost:8000"
+    - "http://127.0.0.1:8000"
+
+# 日志配置
+logging:
+  level: "INFO"
+  format: "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+  file: "./data/app.log"

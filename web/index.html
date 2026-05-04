@@ -1,0 +1,3716 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>绿色低碳智能体</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            display: flex;
+            justify-content: center;
+            align-items: flex-start;
+            padding: 20px;
+        }
+
+        .container {
+            width: 100%;
+            max-width: 900px;
+            height: calc(100vh - 40px);
+            background: white;
+            border-radius: 20px;
+            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+        }
+
+        @media (max-height: 800px), (max-width: 600px) {
+            body {
+                padding: 0;
+            }
+            .container {
+                border-radius: 0;
+                min-height: 100vh;
+            }
+        }
+
+        /* Onboarding 模态框 */
+        .modal-overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: rgba(0, 0, 0, 0.6);
+            display: flex !important;
+            justify-content: center;
+            align-items: center;
+            z-index: 9999 !important;
+            padding: 20px;
+        }
+
+        .modal {
+            background: white;
+            border-radius: 20px;
+            width: 100%;
+            max-width: 500px;
+            max-height: 90vh;
+            overflow-y: auto;
+            animation: slideUp 0.3s ease;
+            z-index: 10000;
+            position: relative;
+            pointer-events: auto;
+        }
+
+        @keyframes slideUp {
+            from {
+                opacity: 0;
+                transform: translateY(20px);
+            }
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+
+        .modal-header {
+            background: linear-gradient(135deg, #11998e 0%, #38ef7d 100%);
+            color: white;
+            padding: 30px;
+            text-align: center;
+            border-radius: 20px 20px 0 0;
+        }
+
+        .modal-header h2 {
+            font-size: 24px;
+            margin-bottom: 10px;
+        }
+
+        .modal-header p {
+            opacity: 0.9;
+            font-size: 14px;
+        }
+
+        .modal-body {
+            padding: 30px;
+        }
+
+        .form-group {
+            margin-bottom: 20px;
+        }
+
+        .form-group label {
+            display: block;
+            font-size: 14px;
+            color: #374151;
+            margin-bottom: 8px;
+            font-weight: 500;
+        }
+
+        .form-group input,
+        .form-group select {
+            width: 100%;
+            padding: 12px 16px;
+            border: 2px solid #e5e7eb;
+            border-radius: 10px;
+            font-size: 14px;
+            transition: border-color 0.3s;
+        }
+
+        .form-group input:focus,
+        .form-group select:focus {
+            outline: none;
+            border-color: #11998e;
+        }
+
+        .form-row {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 15px;
+        }
+
+        .checkbox-group {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 10px;
+        }
+
+        .checkbox-item {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            padding: 8px 14px;
+            background: #f3f4f6;
+            border-radius: 20px;
+            cursor: pointer;
+            font-size: 13px;
+            transition: all 0.2s;
+        }
+
+        .checkbox-item:hover {
+            background: #e5e7eb;
+        }
+
+        .checkbox-item.selected {
+            background: #11998e;
+            color: white;
+        }
+
+        .checkbox-item input {
+            display: none;
+        }
+
+        .btn-primary {
+            width: 100%;
+            padding: 15px;
+            background: linear-gradient(135deg, #11998e 0%, #38ef7d 100%);
+            color: white;
+            border: none;
+            border-radius: 10px;
+            font-size: 16px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: transform 0.2s, box-shadow 0.2s;
+        }
+
+        .btn-primary:hover {
+            transform: scale(1.02);
+            box-shadow: 0 4px 15px rgba(17, 153, 142, 0.4);
+        }
+
+        .btn-skip {
+            display: block;
+            width: 100%;
+            padding: 12px;
+            background: none;
+            border: none;
+            color: #9ca3af;
+            font-size: 14px;
+            cursor: pointer;
+            margin-top: 10px;
+        }
+
+        .btn-skip:hover {
+            color: #6b7280;
+        }
+
+        /* 头部 */
+        .header {
+            background: linear-gradient(135deg, #11998e 0%, #38ef7d 100%);
+            color: white;
+            padding: 20px 30px;
+            display: flex;
+            align-items: center;
+            gap: 15px;
+            flex-wrap: wrap;
+        }
+
+        .header-icon {
+            width: 50px;
+            height: 50px;
+            background: rgba(255, 255, 255, 0.2);
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 28px;
+        }
+
+        .header-info h1 {
+            font-size: 22px;
+            font-weight: 600;
+            margin-bottom: 4px;
+        }
+
+        .header-info p {
+            font-size: 13px;
+            opacity: 0.9;
+        }
+
+        .header-stats {
+            display: flex;
+            gap: 20px;
+            font-size: 12px;
+            opacity: 0.9;
+        }
+
+        .stat-item {
+            text-align: center;
+        }
+
+        .stat-value {
+            font-size: 18px;
+            font-weight: 600;
+        }
+
+        /* 标签页 */
+        .tabs {
+            display: flex;
+            border-bottom: 1px solid #e5e7eb;
+            background: #f9fafb;
+        }
+
+        .tab {
+            flex: 1;
+            padding: 15px;
+            text-align: center;
+            cursor: pointer;
+            border: none;
+            background: none;
+            font-size: 14px;
+            color: #6b7280;
+            transition: all 0.3s;
+            border-bottom: 3px solid transparent;
+        }
+
+        .tab:hover {
+            background: #f3f4f6;
+            color: #11998e;
+        }
+
+        .tab.active {
+            color: #11998e;
+            border-bottom-color: #11998e;
+            font-weight: 500;
+        }
+
+        /* 主内容区 */
+        .main-content {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            min-height: 0;
+            height: calc(100vh - 120px);
+            overflow: hidden;
+        }
+
+        /* 标签页内容 */
+        .tab-content {
+            display: none;
+            flex: 1;
+            overflow: hidden;
+            min-height: 0;
+        }
+
+        .tab-content.active {
+            display: flex;
+            flex-direction: column;
+        }
+
+        /* 聊天区域 */
+        .chat-container {
+            flex: 1;
+            overflow-y: auto;
+            overflow-x: hidden;
+            padding: 20px;
+            padding-bottom: 100px; /* 留出底部空间 */
+            background: #f9fafb;
+            -webkit-overflow-scrolling: touch;
+        }
+
+        .message {
+            display: flex;
+            gap: 12px;
+            margin-bottom: 20px;
+            animation: fadeIn 0.3s ease;
+        }
+
+        @keyframes fadeIn {
+            from {
+                opacity: 0;
+                transform: translateY(-10px);
+            }
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+
+        @keyframes slideDown {
+            from {
+                opacity: 0;
+                transform: translate(-50%, -20px);
+            }
+            to {
+                opacity: 1;
+                transform: translate(-50%, 0);
+            }
+        }
+
+        .message.user {
+            flex-direction: row-reverse;
+        }
+
+        .message-avatar {
+            width: 40px;
+            height: 40px;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 18px;
+            flex-shrink: 0;
+        }
+
+        .message.user .message-avatar {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+        }
+
+        .message.assistant .message-avatar {
+            background: linear-gradient(135deg, #11998e 0%, #38ef7d 100%);
+            color: white;
+        }
+
+        .message-content {
+            max-width: 70%;
+            padding: 15px 20px;
+            border-radius: 18px;
+            line-height: 1.6;
+            font-size: 14px;
+        }
+
+        .message.user .message-content {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            border-bottom-right-radius: 4px;
+        }
+
+        .message.assistant .message-content {
+            background: white;
+            color: #374151;
+            border-bottom-left-radius: 4px;
+            box-shadow: 0 2px 10px rgba(0, 0, 0, 0.08);
+        }
+
+        .message-content p {
+            margin-bottom: 10px;
+        }
+
+        .message-content p:last-child {
+            margin-bottom: 0;
+        }
+
+        .message-content ul {
+            margin: 10px 0;
+            padding-left: 20px;
+        }
+
+        .message-content li {
+            margin: 5px 0;
+        }
+
+        .knowledge-ref {
+            margin-top: 10px;
+            padding-top: 10px;
+            border-top: 1px dashed #e5e7eb;
+            font-size: 12px;
+            color: #9ca3af;
+        }
+
+        /* 消息反馈区域 */
+        .message-feedback {
+            display: flex;
+            gap: 6px;
+            margin-top: 10px;
+            opacity: 0;
+            transition: opacity 0.2s ease;
+        }
+        .message:hover .message-feedback {
+            opacity: 1;
+        }
+        .message-feedback.liked, .message-feedback.disliked {
+            opacity: 1;
+        }
+
+        /* 反馈按钮 */
+        .feedback-btn {
+            background: transparent;
+            border: 1px solid #e5e7eb;
+            border-radius: 16px;
+            padding: 4px 10px;
+            cursor: pointer;
+            font-size: 12px;
+            display: flex;
+            align-items: center;
+            gap: 3px;
+            color: #6b7280;
+            transition: all 0.2s ease;
+        }
+        .feedback-btn:hover {
+            background: #f3f4f6;
+            border-color: #d1d5db;
+        }
+        .feedback-btn.liked {
+            color: #11998e;
+            border-color: #11998e;
+            background: rgba(17, 153, 142, 0.08);
+        }
+        .feedback-btn.disliked {
+            color: #e74c3c;
+            border-color: #e74c3c;
+            background: rgba(231, 76, 60, 0.08);
+        }
+        .feedback-btn.comment-active {
+            color: #667eea;
+            border-color: #667eea;
+            background: rgba(102, 126, 234, 0.08);
+        }
+
+        /* 反馈原因选择框 */
+        .dislike-reason-box {
+            background: #fff;
+            border: 1px solid #e5e7eb;
+            border-radius: 8px;
+            padding: 12px;
+            margin-top: 10px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.08);
+            animation: slideDown 0.2s ease;
+        }
+        @keyframes slideDown {
+            from { opacity: 0; transform: translateY(-8px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+        .dislike-reason-box p {
+            margin: 0 0 8px 0;
+            font-size: 13px;
+            color: #374151;
+            font-weight: 500;
+        }
+        .dislike-reason-box label {
+            display: flex;
+            align-items: center;
+            margin: 6px 0;
+            cursor: pointer;
+            font-size: 13px;
+            color: #4b5563;
+        }
+        .dislike-reason-box label:hover {
+            color: #667eea;
+        }
+        .dislike-reason-box input[type="radio"] {
+            margin-right: 8px;
+            accent-color: #667eea;
+        }
+        .dislike-reason-box textarea {
+            width: 100%;
+            margin-top: 8px;
+            border: 1px solid #e5e7eb;
+            border-radius: 6px;
+            padding: 8px;
+            resize: vertical;
+            min-height: 50px;
+            font-family: inherit;
+            font-size: 13px;
+            box-sizing: border-box;
+        }
+        .dislike-reason-box textarea:focus {
+            outline: none;
+            border-color: #667eea;
+        }
+        .reason-actions {
+            display: flex;
+            gap: 8px;
+            margin-top: 10px;
+            justify-content: flex-end;
+        }
+        .reason-submit-btn {
+            background: linear-gradient(135deg, #667eea, #764ba2);
+            color: white;
+            border: none;
+            border-radius: 6px;
+            padding: 6px 16px;
+            font-size: 13px;
+            cursor: pointer;
+            transition: transform 0.1s;
+        }
+        .reason-submit-btn:hover {
+            transform: scale(1.02);
+        }
+        .reason-cancel-btn {
+            background: #f3f4f6;
+            color: #6b7280;
+            border: 1px solid #e5e7eb;
+            border-radius: 6px;
+            padding: 6px 16px;
+            font-size: 13px;
+            cursor: pointer;
+        }
+        .reason-cancel-btn:hover {
+            background: #e5e7eb;
+        }
+
+        /* 评论框 */
+        .comment-box {
+            background: #fff;
+            border: 1px solid #e5e7eb;
+            border-radius: 8px;
+            padding: 12px;
+            margin-top: 10px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.08);
+            animation: slideDown 0.2s ease;
+        }
+        .comment-box p {
+            margin: 0 0 8px 0;
+            font-size: 13px;
+            color: #374151;
+            font-weight: 500;
+        }
+        .comment-box textarea {
+            width: 100%;
+            border: 1px solid #e5e7eb;
+            border-radius: 6px;
+            padding: 8px;
+            resize: vertical;
+            min-height: 60px;
+            font-family: inherit;
+            font-size: 13px;
+            box-sizing: border-box;
+        }
+        .comment-box textarea:focus {
+            outline: none;
+            border-color: #667eea;
+        }
+        .comment-actions {
+            display: flex;
+            gap: 8px;
+            margin-top: 10px;
+            justify-content: flex-end;
+        }
+
+        /* 反馈成功提示 */
+        .feedback-toast {
+            position: fixed;
+            bottom: 30px;
+            left: 50%;
+            transform: translateX(-50%);
+            background: #1f2937;
+            color: white;
+            padding: 10px 20px;
+            border-radius: 8px;
+            font-size: 14px;
+            z-index: 10000;
+            animation: toastIn 0.3s ease;
+        }
+        @keyframes toastIn {
+            from { opacity: 0; transform: translateX(-50%) translateY(10px); }
+            to { opacity: 1; transform: translateX(-50%) translateY(0); }
+        }
+        .feedback-toast.error {
+            background: #e74c3c;
+        }
+        .feedback-toast.success {
+            background: #11998e;
+        }
+
+        /* 账号登录区域 */
+        .header-user-area {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        /* 账号按钮样式 */
+        .auth-btn {
+            padding: 7px 16px;
+            border-radius: 20px;
+            font-size: 13px;
+            cursor: pointer;
+            border: none;
+            transition: all 0.2s;
+            display: inline-flex;
+            align-items: center;
+            gap: 4px;
+            font-family: inherit;
+            white-space: nowrap;
+        }
+        .auth-btn-primary {
+            background: linear-gradient(135deg, #667eea, #764ba2);
+            color: white;
+        }
+        .auth-btn-primary:hover {
+            transform: scale(1.05);
+            box-shadow: 0 2px 12px rgba(102, 126, 234, 0.4);
+        }
+        .auth-btn-secondary {
+            background: rgba(255,255,255,0.2);
+            color: rgba(255,255,255,0.9);
+            border: 1px solid rgba(255,255,255,0.3);
+        }
+        .auth-btn-secondary:hover {
+            background: rgba(255,255,255,0.3);
+        }
+        .auth-username {
+            font-size: 13px;
+            color: rgba(255,255,255,0.95);
+            font-weight: 500;
+            max-width: 100px;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+
+        /* 登录注册模态框 */
+        .auth-modal-overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: rgba(0,0,0,0.5);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            z-index: 10000;
+            animation: fadeIn 0.2s ease;
+        }
+        @keyframes fadeIn {
+            from { opacity: 0; }
+            to { opacity: 1; }
+        }
+        .auth-modal-content {
+            background: white;
+            border-radius: 16px;
+            padding: 30px;
+            width: 380px;
+            max-width: 90vw;
+            box-shadow: 0 10px 40px rgba(0,0,0,0.2);
+            animation: modalSlideIn 0.3s ease;
+        }
+        @keyframes modalSlideIn {
+            from { opacity: 0; transform: scale(0.95) translateY(-20px); }
+            to { opacity: 1; transform: scale(1) translateY(0); }
+        }
+        .auth-modal-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 24px;
+        }
+        .auth-modal-header h2 {
+            margin: 0;
+            font-size: 20px;
+            color: #1f2937;
+        }
+        .auth-close-btn {
+            background: none;
+            border: none;
+            font-size: 24px;
+            cursor: pointer;
+            color: #9ca3af;
+            padding: 0;
+            line-height: 1;
+        }
+        .auth-close-btn:hover {
+            color: #6b7280;
+        }
+        .auth-tabs {
+            display: flex;
+            gap: 0;
+            margin-bottom: 20px;
+            border-bottom: 2px solid #e5e7eb;
+        }
+        .auth-tab {
+            flex: 1;
+            padding: 10px;
+            text-align: center;
+            font-size: 15px;
+            font-weight: 500;
+            color: #6b7280;
+            background: none;
+            border: none;
+            cursor: pointer;
+            border-bottom: 2px solid transparent;
+            margin-bottom: -2px;
+            transition: all 0.2s;
+        }
+        .auth-tab.active {
+            color: #667eea;
+            border-bottom-color: #667eea;
+        }
+        .auth-tab:hover:not(.active) {
+            color: #374151;
+        }
+        .auth-form {
+            display: none;
+        }
+        .auth-form.active {
+            display: block;
+        }
+        .auth-form-group {
+            margin-bottom: 16px;
+        }
+        .auth-form-group label {
+            display: block;
+            font-size: 13px;
+            font-weight: 500;
+            color: #374151;
+            margin-bottom: 6px;
+        }
+        .auth-form-group input {
+            width: 100%;
+            padding: 12px 14px;
+            border: 1px solid #e5e7eb;
+            border-radius: 10px;
+            font-size: 14px;
+            box-sizing: border-box;
+            transition: border-color 0.2s, box-shadow 0.2s;
+            background: #f9fafb;
+        }
+        .auth-form-group input:focus {
+            outline: none;
+            border-color: #667eea;
+            box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.15);
+            background: white;
+        }
+        .auth-form-group input.error {
+            border-color: #e74c3c;
+        }
+        .auth-error {
+            color: #e74c3c;
+            font-size: 13px;
+            margin-top: 4px;
+        }
+        .auth-submit-btn {
+            width: 100%;
+            padding: 12px;
+            background: linear-gradient(135deg, #667eea, #764ba2);
+            color: white;
+            border: none;
+            border-radius: 8px;
+            font-size: 15px;
+            font-weight: 500;
+            cursor: pointer;
+            transition: transform 0.1s, box-shadow 0.2s;
+        }
+        .auth-submit-btn:hover {
+            transform: translateY(-1px);
+            box-shadow: 0 4px 12px rgba(102, 126, 234, 0.4);
+        }
+        .auth-submit-btn:active {
+            transform: translateY(0);
+        }
+        .auth-submit-btn:disabled {
+            background: #d1d5db;
+            cursor: not-allowed;
+            transform: none;
+            box-shadow: none;
+        }
+        .auth-switch {
+            text-align: center;
+            margin-top: 16px;
+            font-size: 13px;
+            color: #6b7280;
+        }
+        .auth-switch a {
+            color: #667eea;
+            text-decoration: none;
+            font-weight: 500;
+            cursor: pointer;
+        }
+        .auth-switch a:hover {
+            text-decoration: underline;
+        }
+        .auth-loading {
+            display: inline-block;
+            width: 16px;
+            height: 16px;
+            border: 2px solid rgba(255,255,255,0.3);
+            border-top-color: white;
+            border-radius: 50%;
+            animation: spin 0.8s linear infinite;
+            margin-right: 6px;
+            vertical-align: middle;
+        }
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+
+        .suggestions {
+            margin-top: 15px;
+            padding-top: 15px;
+            border-top: 1px solid #e5e7eb;
+        }
+
+        .suggestions-title {
+            font-size: 12px;
+            color: #9ca3af;
+            margin-bottom: 8px;
+        }
+
+        .suggestion-btn {
+            display: inline-block;
+            padding: 8px 14px;
+            background: #f3f4f6;
+            border-radius: 20px;
+            font-size: 12px;
+            color: #11998e;
+            cursor: pointer;
+            margin: 4px;
+            transition: all 0.2s;
+            border: none;
+        }
+
+        .suggestion-btn:hover {
+            background: #11998e;
+            color: white;
+        }
+
+        /* 欢迎消息 */
+        .welcome {
+            text-align: center;
+            padding: 40px 20px;
+        }
+
+        .welcome-icon {
+            font-size: 60px;
+            margin-bottom: 20px;
+        }
+
+        .welcome h2 {
+            color: #374151;
+            margin-bottom: 10px;
+        }
+
+        .welcome p {
+            color: #6b7280;
+            margin-bottom: 20px;
+        }
+
+        .quick-actions {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 10px;
+            justify-content: center;
+        }
+
+        .quick-btn {
+            padding: 12px 20px;
+            background: white;
+            border: 2px solid #e5e7eb;
+            border-radius: 25px;
+            font-size: 14px;
+            color: #374151;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+
+        .quick-btn:hover {
+            border-color: #11998e;
+            color: #11998e;
+            background: #f0fdf9;
+        }
+
+        /* 输入区 */
+        .input-area {
+            padding: 20px;
+            background: white;
+            border-top: 1px solid #e5e7eb;
+        }
+
+        .input-wrapper {
+            display: flex;
+            gap: 12px;
+            align-items: flex-end;
+        }
+
+        .input-box {
+            flex: 1;
+            padding: 15px 20px;
+            border: 2px solid #e5e7eb;
+            border-radius: 25px;
+            font-size: 14px;
+            outline: none;
+            transition: border-color 0.3s;
+            resize: none;
+            max-height: 120px;
+            font-family: inherit;
+        }
+
+        .input-box:focus {
+            border-color: #11998e;
+        }
+
+        .input-box::placeholder {
+            color: #9ca3af;
+        }
+
+        .send-btn {
+            width: 50px;
+            height: 50px;
+            border-radius: 50%;
+            border: none;
+            background: linear-gradient(135deg, #11998e 0%, #38ef7d 100%);
+            color: white;
+            font-size: 20px;
+            cursor: pointer;
+            transition: transform 0.2s, box-shadow 0.2s;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .send-btn:hover {
+            transform: scale(1.05);
+            box-shadow: 0 4px 15px rgba(17, 153, 142, 0.4);
+        }
+
+        .send-btn:active {
+            transform: scale(0.95);
+        }
+
+        /* 政策页面 */
+        .policy-container {
+            flex: 1;
+            overflow-y: auto;
+            padding: 20px;
+        }
+
+        .policy-card {
+            background: white;
+            border-radius: 12px;
+            padding: 20px;
+            margin-bottom: 15px;
+            box-shadow: 0 2px 10px rgba(0, 0, 0, 0.05);
+            border-left: 4px solid #11998e;
+        }
+
+        .policy-card h3 {
+            color: #374151;
+            font-size: 16px;
+            margin-bottom: 10px;
+        }
+
+        .policy-meta {
+            display: flex;
+            gap: 15px;
+            font-size: 12px;
+            color: #9ca3af;
+            margin-bottom: 10px;
+        }
+
+        .policy-summary {
+            color: #6b7280;
+            font-size: 14px;
+            line-height: 1.5;
+        }
+
+        .policy-tags {
+            margin-top: 10px;
+            display: flex;
+            gap: 8px;
+        }
+
+        .policy-tag {
+            padding: 4px 10px;
+            background: #f0fdf9;
+            color: #11998e;
+            border-radius: 12px;
+            font-size: 12px;
+        }
+
+        /* 画像页面 */
+        .profile-container {
+            flex: 1;
+            overflow-y: auto;
+            padding: 20px;
+        }
+
+        .profile-card {
+            background: white;
+            border-radius: 12px;
+            padding: 25px;
+            margin-bottom: 20px;
+            box-shadow: 0 2px 10px rgba(0, 0, 0, 0.05);
+        }
+
+        .profile-card h3 {
+            color: #374151;
+            font-size: 16px;
+            margin-bottom: 15px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .profile-item {
+            display: flex;
+            justify-content: space-between;
+            padding: 12px 0;
+            border-bottom: 1px solid #f3f4f6;
+        }
+
+        .profile-item:last-child {
+            border-bottom: none;
+        }
+
+        .profile-label {
+            color: #6b7280;
+            font-size: 14px;
+        }
+
+        .profile-value {
+            color: #374151;
+            font-size: 14px;
+            font-weight: 500;
+        }
+
+        .profile-badge {
+            display: inline-block;
+            padding: 4px 12px;
+            background: #f0fdf9;
+            color: #11998e;
+            border-radius: 20px;
+            font-size: 13px;
+        }
+
+        .profile-progress {
+            margin-top: 15px;
+        }
+
+        .progress-item {
+            margin-bottom: 15px;
+        }
+
+        .progress-label {
+            display: flex;
+            justify-content: space-between;
+            font-size: 13px;
+            color: #6b7280;
+            margin-bottom: 6px;
+        }
+
+        .progress-bar {
+            width: 100%;
+            height: 8px;
+            background: #e5e7eb;
+            border-radius: 4px;
+            overflow: hidden;
+        }
+
+        .progress-fill {
+            height: 100%;
+            background: linear-gradient(135deg, #11998e 0%, #38ef7d 100%);
+            border-radius: 4px;
+            transition: width 0.3s;
+        }
+
+        .interests-list {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 8px;
+            margin-top: 10px;
+        }
+
+        .interest-tag {
+            padding: 6px 12px;
+            background: #f3f4f6;
+            border-radius: 15px;
+            font-size: 12px;
+            color: #374151;
+        }
+
+        /* 推荐显示 */
+        .recommendations {
+            margin-top: 15px;
+            padding-top: 15px;
+            border-top: 1px solid #e5e7eb;
+        }
+
+        .recommendations-title {
+            font-size: 12px;
+            color: #11998e;
+            font-weight: 500;
+            margin-bottom: 10px;
+        }
+
+        .recommendation-item {
+            background: #f0fdf9;
+            border-radius: 10px;
+            padding: 12px;
+            margin-bottom: 8px;
+        }
+
+        .recommendation-action {
+            font-size: 13px;
+            color: #374151;
+            font-weight: 500;
+            margin-bottom: 6px;
+        }
+
+        .recommendation-meta {
+            display: flex;
+            gap: 10px;
+            font-size: 11px;
+            color: #9ca3af;
+        }
+
+        .recommendation-category {
+            background: #11998e;
+            color: white;
+            padding: 2px 8px;
+            border-radius: 10px;
+        }
+
+        .recommendation-carbon {
+            color: #11998e;
+        }
+
+        .recommendation-example {
+            font-size: 12px;
+            color: #6b7280;
+            margin-top: 6px;
+            font-style: italic;
+        }
+
+        /* 隐藏状态 */
+        .hidden {
+            display: none !important;
+        }
+
+        /* 隐藏状态 - 备选方案 */
+        .hidden-fallback {
+            display: none !important;
+        }
+
+        .active {
+            display: flex !important;
+            flex-direction: column;
+        }
+
+        /* 加载动画 */
+        .typing-indicator {
+            display: flex;
+            gap: 5px;
+            padding: 15px 20px;
+        }
+
+        .typing-dot {
+            width: 8px;
+            height: 8px;
+            background: #9ca3af;
+            border-radius: 50%;
+            animation: bounce 1.4s infinite ease-in-out;
+        }
+
+        .typing-dot:nth-child(1) { animation-delay: -0.32s; }
+        .typing-dot:nth-child(2) { animation-delay: -0.16s; }
+
+        .typing-status {
+            font-size: 12px;
+            color: #9ca3af;
+            margin-top: 5px;
+            text-align: center;
+        }
+
+        @keyframes bounce {
+            0%, 80%, 100% { transform: scale(0); }
+            40% { transform: scale(1); }
+        }
+
+        /* 个性化标签 */
+        .personalization-indicator {
+            position: fixed;
+            bottom: 100px;
+            right: 30px;
+            background: white;
+            padding: 10px 15px;
+            border-radius: 20px;
+            box-shadow: 0 4px 15px rgba(0, 0, 0, 0.1);
+            font-size: 12px;
+            color: #11998e;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            z-index: 100;
+        }
+
+        /* API Key 设置 */
+        .api-key-btn {
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            background: white;
+            border: none;
+            padding: 8px 15px;
+            border-radius: 20px;
+            font-size: 12px;
+            color: #11998e;
+            cursor: pointer;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+            z-index: 100;
+        }
+
+        .api-key-modal {
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: rgba(0,0,0,0.5);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            z-index: 2000;
+            padding: 20px;
+        }
+
+        .api-key-content {
+            background: white;
+            border-radius: 20px;
+            padding: 30px;
+            width: 100%;
+            max-width: 450px;
+        }
+
+        .api-key-content h3 {
+            color: #374151;
+            margin-bottom: 15px;
+            font-size: 18px;
+        }
+
+        .api-key-content p {
+            color: #6b7280;
+            font-size: 14px;
+            margin-bottom: 20px;
+        }
+
+        .api-key-content input {
+            width: 100%;
+            padding: 12px 16px;
+            border: 2px solid #e5e7eb;
+            border-radius: 10px;
+            font-size: 14px;
+            margin-bottom: 20px;
+        }
+
+        .api-key-content input:focus {
+            outline: none;
+            border-color: #11998e;
+        }
+
+        .api-key-actions {
+            display: flex;
+            gap: 10px;
+        }
+
+        .btn-save {
+            flex: 1;
+            padding: 12px;
+            background: #11998e;
+            color: white;
+            border: none;
+            border-radius: 10px;
+            font-size: 14px;
+            cursor: pointer;
+        }
+
+        .btn-cancel {
+            padding: 12px 20px;
+            background: #f3f4f6;
+            color: #6b7280;
+            border: none;
+            border-radius: 10px;
+            font-size: 14px;
+            cursor: pointer;
+        }
+
+        .api-key-content select {
+            width: 100%;
+            padding: 12px 16px;
+            border: 2px solid #e5e7eb;
+            border-radius: 10px;
+            font-size: 14px;
+            margin-bottom: 15px;
+            background: white;
+            cursor: pointer;
+        }
+
+        .api-key-content select:focus {
+            outline: none;
+            border-color: #11998e;
+        }
+
+        .model-recommend {
+            font-size: 12px;
+            color: #9ca3af;
+            margin-bottom: 15px;
+            padding: 10px;
+            background: #f9fafb;
+            border-radius: 8px;
+        }
+
+        /* 连接状态 */
+        .connection-status {
+            position: fixed;
+            top: 20px;
+            left: 20px;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            padding: 8px 12px;
+            border-radius: 20px;
+            font-size: 12px;
+            z-index: 100;
+        }
+
+        .status-connected {
+            background: #d1fae5;
+            color: #059669;
+        }
+
+        .status-disconnected {
+            background: #fee2e2;
+            color: #dc2626;
+        }
+
+        .status-dot {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+        }
+
+        .status-connected .status-dot {
+            background: #059669;
+        }
+
+        .status-disconnected .status-dot {
+            background: #dc2626;
+            animation: pulse 1.5s infinite;
+        }
+
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.4; }
+        }
+
+        /* 响应式 */
+        @media (max-width: 600px) {
+            body {
+                padding: 0;
+            }
+
+            .container {
+                border-radius: 0;
+                min-height: 100vh;
+                max-height: none;
+            }
+
+            .main-content {
+                max-height: none;
+                flex: 1;
+            }
+
+            .message-content {
+                max-width: 85%;
+            }
+
+            .header-stats {
+                display: none;
+            }
+
+            .form-row {
+                grid-template-columns: 1fr;
+            }
+        }
+
+        /* 触摸滚动支持 */
+        @media (hover: none) and (pointer: coarse) {
+            .chat-container,
+            .policy-container,
+            .profile-container {
+                -webkit-overflow-scrolling: touch;
+                overscroll-behavior: contain;
+            }
+        }
+    </style>
+</head>
+<body>
+    <!-- Onboarding 模态框 - 欢迎页 -->
+    <div class="modal-overlay" id="onboarding-modal">
+        <div class="modal">
+            <div class="modal-header">
+                <h2>🌱 欢迎使用绿色低碳助手</h2>
+                <p>为了给你更个性化的建议，请先告诉我一些关于你的信息</p>
+            </div>
+            <div class="modal-body">
+                <form id="onboarding-form">
+                    <!-- 欢迎页 -->
+                    <div id="onboarding-welcome" class="onboarding-step active">
+                        <div class="onboarding-icon">🌍</div>
+                        <p class="onboarding-desc">
+                            你好！我是绿色低碳智能体。<br>
+                            在开始之前，我想先了解一下你的情况，这样可以为你提供更精准的个性化建议。
+                        </p>
+                        <p class="onboarding-hint">这个过程大约需要1-2分钟，回答没有对错之分。</p>
+                        <button type="button" class="btn-primary" id="btn-start" onclick="startOnboarding()">开始设置</button>
+                        <p style="text-align: center; margin-top: 15px;">
+                            <a href="#" onclick="skipOnboarding(); return false;" style="color: #6b7280; text-decoration: underline;">跳过设置，直接开始使用</a>
+                        </p>
+                    </div>
+
+                    <!-- 问题页 - 基础信息 -->
+                    <div id="onboarding-questions" class="onboarding-step">
+                        <div class="progress-indicator">
+                            <div class="progress-dot active"></div>
+                            <div class="progress-line"></div>
+                            <div class="progress-dot"></div>
+                            <div class="progress-line"></div>
+                            <div class="progress-dot"></div>
+                            <div class="progress-line"></div>
+                            <div class="progress-dot"></div>
+                            <div class="progress-line"></div>
+                            <div class="progress-dot"></div>
+                        </div>
+                        <h3 id="question-title" class="question-title">你的年龄段是？</h3>
+                        <div id="question-options" class="question-options">
+                            <!-- 动态填充 -->
+                        </div>
+                        <div class="onboarding-nav">
+                            <button type="button" class="btn-back" onclick="prevOnboardingStep()">上一步</button>
+                            <button type="button" class="btn-primary" id="btn-next" onclick="nextOnboardingStep()">下一步</button>
+                        </div>
+                    </div>
+
+                    <!-- 完成页 -->
+                    <div id="onboarding-complete" class="onboarding-step">
+                        <div class="onboarding-icon">✅</div>
+                        <h3>设置完成！</h3>
+                        <p class="onboarding-desc">太好了！你已经完成了初始设置。现在让我们开始吧！</p>
+                        <button type="button" class="btn-primary" id="btn-start-using">开始使用</button>
+                    </div>
+
+                    <!-- 隐藏的传统表单（快速跳过用） -->
+                    <div id="onboarding-legacy" class="onboarding-step">
+                        <div class="form-row">
+                            <div class="form-group">
+                                <label>年龄</label>
+                                <select id="user-age" required>
+                                    <option value="">请选择</option>
+                                    <option value="18-25">18-25岁</option>
+                                    <option value="26-35">26-35岁</option>
+                                    <option value="36-45">36-45岁</option>
+                                    <option value="46-55">46-55岁</option>
+                                    <option value="56+">56岁以上</option>
+                                </select>
+                            </div>
+                            <div class="form-group">
+                                <label>性别</label>
+                                <select id="user-gender">
+                                    <option value="">请选择</option>
+                                    <option value="male">男</option>
+                                    <option value="female">女</option>
+                                    <option value="other">其他</option>
+                                </select>
+                            </div>
+                        </div>
+
+                        <div class="form-group">
+                            <label>所在地区</label>
+                            <select id="user-region">
+                                <option value="">请选择</option>
+                                <option value="华北">华北地区</option>
+                                <option value="东北">东北地区</option>
+                                <option value="华东">华东地区</option>
+                                <option value="华中">华中地区</option>
+                                <option value="华南">华南地区</option>
+                                <option value="西南">西南地区</option>
+                                <option value="西北">西北地区</option>
+                            </select>
+                        </div>
+
+                        <div class="form-group">
+                            <label>家庭规模</label>
+                            <select id="user-family">
+                                <option value="">请选择</option>
+                                <option value="1">独居</option>
+                                <option value="2">两人</option>
+                                <option value="3-4">3-4人</option>
+                                <option value="5+">5人及以上</option>
+                            </select>
+                        </div>
+
+                        <div class="form-group">
+                            <label>你对低碳环保的了解程度？</label>
+                            <select id="user-awareness">
+                                <option value="low">不太了解，刚接触</option>
+                                <option value="medium" selected>有一些了解</option>
+                                <option value="high">非常了解，关注很久了</option>
+                            </select>
+                        </div>
+
+                        <div class="form-group">
+                            <label>你关注哪些环保话题？（可多选）</label>
+                            <div class="checkbox-group" id="interests-group">
+                                <label class="checkbox-item" data-value="low_carbon_travel">
+                                    <input type="checkbox" name="interests" value="low_carbon_travel">
+                                    🚲 低碳出行
+                                </label>
+                                <label class="checkbox-item" data-value="energy_saving">
+                                    <input type="checkbox" name="interests" value="energy_saving">
+                                    💡 节能减排
+                                </label>
+                                <label class="checkbox-item" data-value="waste_classification">
+                                    <input type="checkbox" name="interests" value="waste_classification">
+                                    🗑️ 垃圾分类
+                                </label>
+                                <label class="checkbox-item" data-value="green_consumption">
+                                    <input type="checkbox" name="interests" value="green_consumption">
+                                    🛒 绿色消费
+                                </label>
+                                <label class="checkbox-item" data-value="water_conservation">
+                                    <input type="checkbox" name="interests" value="water_conservation">
+                                    💧 水资源保护
+                                </label>
+                                <label class="checkbox-item" data-value="carbon_offset">
+                                    <input type="checkbox" name="interests" value="carbon_offset">
+                                    🌲 碳补偿
+                                </label>
+                            </div>
+                        </div>
+
+                        <button type="submit" class="btn-primary">开始使用</button>
+                        <button type="button" class="btn-skip" onclick="skipOnboarding()">稍后再说</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+
+    <style>
+        /* Onboarding 步骤样式 */
+        .onboarding-step {
+            display: none;
+            width: 100%;
+        }
+
+        .onboarding-step.active {
+            display: block !important;
+        }
+
+        .onboarding-icon {
+            font-size: 60px;
+            text-align: center;
+            margin-bottom: 20px;
+        }
+
+        .onboarding-desc {
+            text-align: center;
+            color: #374151;
+            font-size: 15px;
+            line-height: 1.6;
+            margin-bottom: 15px;
+        }
+
+        .onboarding-hint {
+            text-align: center;
+            color: #9ca3af;
+            font-size: 13px;
+            margin-bottom: 25px;
+        }
+
+        .progress-indicator {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            margin-bottom: 25px;
+        }
+
+        .progress-dot {
+            width: 10px;
+            height: 10px;
+            border-radius: 50%;
+            background: #e5e7eb;
+        }
+
+        .progress-dot.active {
+            background: #11998e;
+        }
+
+        .progress-line {
+            width: 30px;
+            height: 2px;
+            background: #e5e7eb;
+        }
+
+        .question-title {
+            text-align: center;
+            font-size: 18px;
+            color: #374151;
+            margin-bottom: 20px;
+        }
+
+        .question-options {
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+            margin-bottom: 25px;
+        }
+
+        .option-btn {
+            width: 100%;
+            padding: 15px 20px;
+            background: #f9fafb;
+            border: 2px solid #e5e7eb;
+            border-radius: 12px;
+            font-size: 14px;
+            color: #374151;
+            cursor: pointer;
+            transition: all 0.2s;
+            text-align: left;
+        }
+
+        .option-btn:hover {
+            border-color: #11998e;
+            background: #f0fdf9;
+        }
+
+        .option-btn.selected {
+            border-color: #11998e;
+            background: #11998e;
+            color: white;
+        }
+
+        .multi-option-btn {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .multi-option-btn input {
+            display: none;
+        }
+
+        .option-check {
+            width: 20px;
+            height: 20px;
+            border: 2px solid #e5e7eb;
+            border-radius: 4px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 12px;
+        }
+
+        .multi-option-btn.selected .option-check {
+            background: white;
+            border-color: white;
+        }
+
+        .onboarding-nav {
+            display: flex;
+            gap: 15px;
+        }
+
+        .btn-back {
+            flex: 1;
+            padding: 15px;
+            background: #f3f4f6;
+            color: #6b7280;
+            border: none;
+            border-radius: 10px;
+            font-size: 14px;
+            cursor: pointer;
+        }
+
+        .btn-back:hover {
+            background: #e5e7eb;
+        }
+    </style>
+
+        <div class="container">
+        <!-- 头部 -->
+        <div class="header">
+            <div class="header-icon">🌱</div>
+            <div class="header-info">
+                <h1>绿色低碳智能体</h1>
+                <p id="header-subtitle">你的个性化低碳生活助手</p>
+            </div>
+            <!-- 账号登录区域 -->
+            <div class="header-user-area" id="header-user-area">
+                <!-- 动态渲染 -->
+            </div>
+            <div class="header-stats">
+                <div class="stat-item">
+                    <div class="stat-value" id="doc-count">0</div>
+                    <div>知识条目</div>
+                </div>
+                <div class="stat-item">
+                    <div class="stat-value" id="msg-count">0</div>
+                    <div>对话轮次</div>
+                </div>
+            </div>
+        </div>
+
+        <!-- 标签页 -->
+        <div class="tabs">
+            <button class="tab active" data-tab="chat">💬 对话</button>
+            <button class="tab" data-tab="policy">📰 政策</button>
+            <button class="tab" data-tab="profile">👤 画像</button>
+        </div>
+
+        <!-- 主内容区 -->
+        <div class="main-content">
+            <!-- 聊天页面 -->
+            <div id="chat-tab" class="tab-content active">
+                <div class="chat-container" id="chat-container">
+                    <!-- 欢迎消息 -->
+                    <div class="welcome" id="welcome">
+                        <div class="welcome-icon">🌍</div>
+                        <h2>欢迎使用绿色低碳智能体</h2>
+                        <p>我可以帮你解答低碳环保问题，提供个性化建议</p>
+                        <div class="quick-actions">
+                            <button class="quick-btn" onclick="sendQuickMessage('什么是碳中和？')">什么是碳中和？</button>
+                            <button class="quick-btn" onclick="sendQuickMessage('给我一些低碳生活建议')">低碳生活建议</button>
+                            <button class="quick-btn" onclick="sendQuickMessage('电动车和燃油车哪个更环保？')">电动车vs燃油车</button>
+                            <button class="quick-btn" onclick="sendQuickMessage('有什么最新的环保政策？')">最新环保政策</button>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- 输入区 -->
+                <div class="input-area">
+                    <div class="input-wrapper">
+                        <textarea
+                            class="input-box"
+                            id="message-input"
+                            placeholder="输入你的问题..."
+                            rows="1"
+                            onkeydown="handleKeyDown(event)"
+                        ></textarea>
+                        <button class="send-btn" onclick="sendMessage()">➤</button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 政策页面 -->
+            <div id="policy-tab" class="tab-content hidden">
+                <div class="policy-container" id="policy-container">
+                    <p style="text-align: center; color: #9ca3af;">加载中...</p>
+                </div>
+            </div>
+
+            <!-- 画像页面 -->
+            <div id="profile-tab" class="tab-content hidden">
+                <div class="profile-container" id="profile-container">
+                    <!-- 动态加载 -->
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 个性化指示器 -->
+    <div class="personalization-indicator hidden" id="personalization-indicator">
+        <span>✨</span>
+        <span id="indicator-text">个性化已启用</span>
+    </div>
+
+    <!-- API Key 设置按钮 -->
+    <button class="api-key-btn" onclick="showApiKeyModal()">⚙️ 设置</button>
+
+    <!-- API Key 设置弹窗 -->
+    <div class="api-key-modal hidden" id="api-key-modal">
+        <div class="api-key-content">
+            <h3>🤖 大模型 API Key 设置</h3>
+            <p>配置 API Key 以启用更智能的对话能力。不配置也可以正常使用，但功能受限。</p>
+            
+            <label style="font-size: 13px; color: #6b7280; margin-bottom: 5px; display: block;">选择模型提供商</label>
+            <select id="api-provider-select" onchange="onProviderChange()">
+                <option value="openai">OpenAI (GPT 系列)</option>
+                <option value="minimax">MiniMax (海螺 AI)</option>
+                <option value="zhipu">智谱 AI (GLM 系列)</option>
+                <option value="baidu">百度文心一言</option>
+                <option value="ali">阿里通义千问</option>
+                <option value="deepseek">DeepSeek</option>
+            </select>
+            
+            <div class="model-recommend" id="model-recommend">
+                <strong>推荐模型：</strong>gpt-4o-mini（性价比高，响应快）<br/>
+                如需更强能力可选 gpt-4o，但成本较高
+            </div>
+            
+            <label style="font-size: 13px; color: #6b7280; margin-bottom: 5px; display: block;">API Key</label>
+            <input type="password" id="api-key-input" placeholder="输入你的 API Key..." />
+            
+            <label style="font-size: 13px; color: #6b7280; margin-bottom: 5px; display: block;">模型名称（可选）</label>
+            <input type="text" id="api-model-input" placeholder="留空使用默认模型，如：gpt-4o-mini" />
+            
+            <div class="api-key-actions">
+                <button class="btn-save" onclick="saveApiKey()">保存</button>
+                <button class="btn-cancel" onclick="hideApiKeyModal()">取消</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- 连接状态 -->
+    <div class="connection-status status-disconnected" id="connection-status">
+        <span class="status-dot"></span>
+        <span id="connection-text">连接中...</span>
+    </div>
+
+    <script>
+        // 全局变量
+        let userId = localStorage.getItem('green_agent_user_id') || null;
+        let conversationId = null;
+        let messageCount = 0;
+        let isRegistered = !!userId;
+        let onboardingData = {};
+        let currentOnboardingStep = 0;
+        let onboardingQuestions = [];
+        let selectedMultiOptions = [];
+
+        // Onboarding 问题列表
+        const defaultQuestions = [
+            {
+                step: 1,
+                field: "age_group",
+                question: "你的年龄段是？",
+                type: "single",
+                options: [
+                    {value: "18-25", label: "18-25岁 (青年)"},
+                    {value: "26-35", label: "26-35岁 (中青年)"},
+                    {value: "36-45", label: "36-45岁 (中年)"},
+                    {value: "46-55", label: "46-55岁 (中老年)"},
+                    {value: "56+", label: "56岁以上 (老年)"}
+                ]
+            },
+            {
+                step: 2,
+                field: "gender",
+                question: "你的性别是？",
+                type: "single",
+                options: [
+                    {value: "male", label: "男"},
+                    {value: "female", label: "女"},
+                    {value: "other", label: "其他/不愿透露"}
+                ]
+            },
+            {
+                step: 3,
+                field: "region",
+                question: "你生活在哪个地区？",
+                type: "single",
+                options: [
+                    {value: "华北", label: "华北地区"},
+                    {value: "东北", label: "东北地区"},
+                    {value: "华东", label: "华东地区"},
+                    {value: "华中", label: "华中地区"},
+                    {value: "华南", label: "华南地区"},
+                    {value: "西南", label: "西南地区"},
+                    {value: "西北", label: "西北地区"}
+                ]
+            },
+            {
+                step: 4,
+                field: "income_level",
+                question: "你的月收入水平大约是？",
+                type: "single",
+                options: [
+                    {value: "低收入", label: "5000元以下"},
+                    {value: "中等收入", label: "5000-15000元"},
+                    {value: "中高收入", label: "15000-30000元"},
+                    {value: "高收入", label: "30000元以上"}
+                ]
+            },
+            {
+                step: 5,
+                field: "family_type",
+                question: "你的家庭构成是怎样的？",
+                type: "single",
+                options: [
+                    {value: "1", label: "独居"},
+                    {value: "2", label: "两口之家"},
+                    {value: "3-4", label: "三口/四口之家"},
+                    {value: "5+", label: "大家庭（5人及以上）"}
+                ]
+            },
+            {
+                step: 6,
+                field: "primary_interests",
+                question: "你最关注哪些环保领域？（可选1-3个）",
+                type: "multi",
+                options: [
+                    {value: "low_carbon_travel", label: "🚲 低碳出行"},
+                    {value: "energy_saving", label: "💡 节能减排"},
+                    {value: "waste_classification", label: "🗑️ 垃圾分类"},
+                    {value: "green_consumption", label: "🛒 绿色消费"},
+                    {value: "diet_eco", label: "🥗 饮食环保"},
+                    {value: "water_conservation", label: "💧 水资源保护"},
+                    {value: "renewable_energy", label: "☀️ 清洁能源"},
+                    {value: "carbon_offset", label: "🌳 碳补偿"}
+                ]
+            },
+            {
+                step: 7,
+                field: "eco_knowledge",
+                question: "你对低碳环保的了解程度如何？",
+                type: "single",
+                options: [
+                    {value: "low", label: "刚了解，还不太清楚"},
+                    {value: "medium", label: "知道一些，想学习更多"},
+                    {value: "high", label: "比较了解，关注了很久"}
+                ]
+            },
+            {
+                step: 8,
+                field: "behavior_stage",
+                question: "你在低碳生活方面目前处于哪个阶段？",
+                type: "single",
+                options: [
+                    {value: "无意向", label: "还没开始考虑"},
+                    {value: "意向", label: "有想法，但还没行动"},
+                    {value: "准备", label: "正在准备采取行动"},
+                    {value: "行动", label: "已经在做低碳生活"},
+                    {value: "维持", label: "已经成为习惯了"}
+                ]
+            }
+        ];
+
+        // 初始化
+        document.addEventListener('DOMContentLoaded', function() {
+            console.log('[DEBUG] DOMContentLoaded 触发');
+            console.log('[DEBUG] modal是否存在:', !!document.getElementById('onboarding-modal'));
+            console.log('[DEBUG] btn-start是否存在:', !!document.getElementById('btn-start'));
+            console.log('[DEBUG] userId:', userId);
+            console.log('[DEBUG] isRegistered:', isRegistered);
+
+            // 检查是否已注册（用户已完成设置）
+            if (isRegistered) {
+                // 已注册用户，不显示引导模态框
+                const modal = document.getElementById('onboarding-modal');
+                if (modal) {
+                    modal.style.display = 'none';
+                    modal.style.visibility = 'hidden';
+                }
+                console.log('[DEBUG] 已注册用户，隐藏引导模态框');
+            } else {
+                // 未注册用户，显示引导模态框
+                console.log('[DEBUG] 新用户，显示引导模态框');
+            }
+
+            // 确保有用户ID
+            if (!userId) {
+                userId = 'user_' + Date.now() + '_' + Math.random().toString(36).substr(2, 6);
+                localStorage.setItem('green_agent_user_id', userId);
+                console.log('[DEBUG] 自动生成userId:', userId);
+            }
+
+            document.querySelectorAll('.checkbox-item').forEach(item => {
+                item.addEventListener('click', function(e) {
+                    if (e.target.tagName !== 'INPUT') {
+                        const checkbox = this.querySelector('input[type="checkbox"]');
+                        checkbox.checked = !checkbox.checked;
+                        this.classList.toggle('selected', checkbox.checked);
+                    }
+                });
+
+                const checkbox = item.querySelector('input[type="checkbox"]');
+                if (checkbox.checked) {
+                    item.classList.add('selected');
+                }
+            });
+
+            document.getElementById('onboarding-form').addEventListener('submit', handleOnboardingSubmit);
+
+            // 完成页"开始使用"按钮
+            document.getElementById('btn-start-using').addEventListener('click', async function(e) {
+                e.preventDefault();
+                console.log('[Onboarding] 点击开始使用按钮');
+                console.log('[Onboarding] 当前onboardingData:', onboardingData);
+
+                // 确保有正式用户ID
+                let finalUserId = localStorage.getItem('green_agent_user_id');
+                
+                // 如果没有或是非正式的，创建一个
+                if (!finalUserId || finalUserId.startsWith('temp_') || finalUserId.startsWith('guest_') || finalUserId.startsWith('anonymous_')) {
+                    finalUserId = 'user_' + Date.now();
+                }
+
+                // 如果有收集到的数据，调用注册API
+                if (Object.keys(onboardingData).length > 0) {
+                    const userInfo = {
+                        age_group: onboardingData.age_group,
+                        gender: onboardingData.gender,
+                        region: onboardingData.region,
+                        family_type: onboardingData.family_type,
+                        income_level: onboardingData.income_level,
+                        eco_awareness: onboardingData.eco_knowledge,
+                        interests: Array.isArray(onboardingData.primary_interests) ? onboardingData.primary_interests : (onboardingData.primary_interests ? [onboardingData.primary_interests] : [])
+                    };
+
+                    try {
+                        const response = await fetch('/api/user/register', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ user_info: userInfo })
+                        });
+
+                        if (response.ok) {
+                            const data = await response.json();
+                            finalUserId = data.user_id;
+                            console.log('[Onboarding] 注册成功, userId:', finalUserId);
+                        } else {
+                            console.warn('[Onboarding] 注册API失败，使用本地ID');
+                        }
+                    } catch (err) {
+                        console.error('[Onboarding] 注册请求失败:', err);
+                    }
+                }
+
+                // 保存最终用户ID
+                userId = finalUserId;
+                isRegistered = true;
+                localStorage.setItem('green_agent_user_id', userId);
+                console.log('[Onboarding] 最终userId:', userId);
+
+                // 隐藏模态框
+                const modal = document.getElementById('onboarding-modal');
+                modal.style.display = 'none';
+                modal.style.visibility = 'hidden';
+
+                showPersonalizationIndicator('个性化设置已完成');
+            });
+        });
+
+        // 开始引导流程
+        function startOnboarding() {
+            try {
+                console.log('[Onboarding] 开始引导流程...');
+
+                // 直接使用前端默认问题列表，不需要请求服务器
+                onboardingQuestions = defaultQuestions;
+                console.log('[Onboarding] 使用默认问题列表，共', onboardingQuestions.length, '个问题');
+
+                currentOnboardingStep = 1;
+                showOnboardingStep('onboarding-questions');
+                renderOnboardingQuestion();
+                console.log('[Onboarding] 引导流程已启动');
+            } catch (e) {
+                console.error('[Onboarding] startOnboarding 错误:', e);
+                alert('启动引导流程失败: ' + e.message);
+            }
+        }
+
+        // 渲染当前问题
+        function renderOnboardingQuestion() {
+            const question = onboardingQuestions.find(q => q.step === currentOnboardingStep);
+            if (!question) return;
+
+            document.getElementById('question-title').textContent = question.question;
+            const optionsContainer = document.getElementById('question-options');
+            optionsContainer.innerHTML = '';
+
+            if (question.type === 'multi') {
+                selectedMultiOptions = [];
+                question.options.forEach(opt => {
+                    const btn = document.createElement('button');
+                    btn.className = 'option-btn multi-option-btn';
+                    btn.dataset.value = opt.value;
+                    btn.innerHTML = `<span class="option-check"></span> ${opt.label}`;
+                    btn.onclick = () => toggleMultiOption(btn, opt.value);
+                    optionsContainer.appendChild(btn);
+                });
+                document.getElementById('btn-next').textContent = '完成';
+            } else {
+                question.options.forEach(opt => {
+                    const btn = document.createElement('button');
+                    btn.className = 'option-btn';
+                    btn.dataset.value = opt.value;
+                    btn.textContent = opt.label;
+                    btn.onclick = () => selectOnboardingOption(btn, opt.value);
+                    optionsContainer.appendChild(btn);
+                });
+                document.getElementById('btn-next').textContent = '下一步';
+            }
+
+            updateProgressIndicator();
+        }
+
+        // 单选选项
+        function selectOnboardingOption(btn, value) {
+            const siblings = btn.parentElement.querySelectorAll('.option-btn');
+            siblings.forEach(s => s.classList.remove('selected'));
+            btn.classList.add('selected');
+            onboardingData[onboardingQuestions.find(q => q.step === currentOnboardingStep).field] = value;
+        }
+
+        // 多选选项
+        function toggleMultiOption(btn, value) {
+            btn.classList.toggle('selected');
+            if (btn.classList.contains('selected')) {
+                if (!selectedMultiOptions.includes(value)) {
+                    selectedMultiOptions.push(value);
+                }
+            } else {
+                selectedMultiOptions = selectedMultiOptions.filter(v => v !== value);
+            }
+            onboardingData[onboardingQuestions.find(q => q.step === currentOnboardingStep).field] = [...selectedMultiOptions];
+        }
+
+        // 下一步
+        async function nextOnboardingStep() {
+            const question = onboardingQuestions.find(q => q.step === currentOnboardingStep);
+            if (!question) return;
+
+            // 保存当前步骤的答案到后端
+            try {
+                const answer = onboardingData[question.field];
+                if (answer !== undefined && answer !== null && answer !== '' && answer.length !== 0) {
+                    // 如果没有userId，先创建一个
+                    if (!userId) {
+                        userId = 'temp_' + Date.now();
+                    }
+                    
+                    const response = await fetch('/api/onboarding/answer', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({
+                            user_id: userId,
+                            step: currentOnboardingStep,
+                            answer: answer
+                        })
+                    });
+                    
+                    if (response.ok) {
+                        const result = await response.json();
+                        // 如果返回了新的 user_id，更新并保存
+                        if (result.user_id && result.user_id !== userId) {
+                            userId = result.user_id;
+                            localStorage.setItem('green_agent_user_id', userId);
+                            isRegistered = true;
+                            console.log('[Onboarding] 获得正式用户ID:', userId);
+                        }
+                        console.log('[Onboarding] 步骤', currentOnboardingStep, '答案已保存');
+                    }
+                }
+            } catch (err) {
+                console.warn('[Onboarding] 保存步骤失败:', err);
+            }
+
+            if (currentOnboardingStep === onboardingQuestions.length) {
+                // 完成引导 - 确保有正式 userId
+                if (!userId || userId.startsWith('temp_') || userId.startsWith('guest_') || userId.startsWith('anonymous_')) {
+                    userId = 'user_' + Date.now();
+                    localStorage.setItem('green_agent_user_id', userId);
+                }
+                showOnboardingStep('onboarding-complete');
+                return;
+            }
+
+            currentOnboardingStep++;
+            renderOnboardingQuestion();
+        }
+
+        // 上一步
+        function prevOnboardingStep() {
+            if (currentOnboardingStep > 1) {
+                currentOnboardingStep--;
+                renderOnboardingQuestion();
+            } else {
+                showOnboardingStep('onboarding-welcome');
+            }
+        }
+
+        // 显示引导步骤
+        function showOnboardingStep(stepId) {
+            console.log('[Onboarding] 切换到步骤:', stepId);
+            document.querySelectorAll('.onboarding-step').forEach(s => {
+                s.classList.remove('active');
+            });
+            const target = document.getElementById(stepId);
+            if (target) {
+                target.classList.add('active');
+            } else {
+                console.error('[Onboarding] 未找到步骤元素:', stepId);
+            }
+        }
+
+        // 更新进度指示器
+        function updateProgressIndicator() {
+            const dots = document.querySelectorAll('.progress-dot');
+            dots.forEach((dot, idx) => {
+                dot.classList.toggle('active', idx < currentOnboardingStep);
+            });
+        }
+
+        // 处理 onboarding 提交
+        async function handleOnboardingSubmit(e) {
+            e.preventDefault();
+            console.log('[Onboarding] 提交表单...');
+
+            const userInfo = {
+                age_group: onboardingData.age_group || document.getElementById('user-age').value,
+                gender: onboardingData.gender || document.getElementById('user-gender').value,
+                region: onboardingData.region || document.getElementById('user-region').value,
+                family_type: onboardingData.family_type || document.getElementById('user-family').value,
+                income_level: onboardingData.income_level,
+                eco_awareness: onboardingData.eco_knowledge || document.getElementById('user-awareness').value,
+                interests: onboardingData.primary_interests || Array.from(document.querySelectorAll('input[name="interests"]:checked')).map(cb => cb.value)
+            };
+
+            console.log('[Onboarding] 提交数据:', userInfo);
+
+            try {
+                const response = await fetch('/api/user/register', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ user_info: userInfo })
+                });
+
+                if (!response.ok) {
+                    throw new Error(`HTTP ${response.status}`);
+                }
+
+                const data = await response.json();
+                userId = data.user_id;
+                isRegistered = true;
+
+                localStorage.setItem('green_agent_user_id', userId);
+                console.log('[Onboarding] 注册成功, userId:', userId, 'data:', JSON.stringify(data));
+
+                // 直接隐藏模态框
+                const modal = document.getElementById('onboarding-modal');
+                modal.style.display = 'none';
+                modal.style.visibility = 'hidden';
+
+                showPersonalizationIndicator('个性化设置已完成');
+
+                // 延迟刷新画像
+                setTimeout(() => {
+                    const activeTab = document.querySelector('.tab.active');
+                    if (activeTab && activeTab.dataset.tab === 'profile') {
+                        loadProfile();
+                    }
+                }, 300);
+
+            } catch (error) {
+                console.error('[Onboarding] 注册失败:', error);
+                // 即使 API 失败，也允许跳过继续使用
+                userId = 'guest_' + Math.random().toString(36).substr(2, 8);
+                isRegistered = true;
+                localStorage.setItem('green_agent_user_id', userId);
+                // 直接隐藏模态框
+                const modal = document.getElementById('onboarding-modal');
+                modal.style.display = 'none';
+                modal.style.visibility = 'hidden';
+                console.log('[Onboarding] 使用访客模式继续, userId:', userId);
+            }
+        }
+
+        // 跳过 onboarding
+        function skipOnboarding() {
+            try {
+                console.log('[Onboarding] skipOnboarding 被调用');
+                const modal = document.getElementById('onboarding-modal');
+                if (!modal) {
+                    console.error('[Onboarding] 找不到 modal 元素');
+                    return;
+                }
+                modal.style.display = 'none';
+                modal.style.visibility = 'hidden';
+                userId = 'anonymous_' + Math.random().toString(36).substr(2, 8);
+                isRegistered = true;
+                localStorage.setItem('green_agent_user_id', userId);
+                console.log('[Onboarding] 跳过引导，使用匿名用户:', userId);
+            } catch (e) {
+                console.error('[Onboarding] skipOnboarding 错误:', e);
+                alert('跳过失败: ' + e.message);
+            }
+        }
+
+        // 显示个性化指示器
+        function showPersonalizationIndicator(text = '个性化已启用') {
+            const indicator = document.getElementById('personalization-indicator');
+            const indicatorText = document.getElementById('indicator-text');
+            indicatorText.textContent = '✨ ' + text;
+            indicator.classList.remove('hidden');
+            setTimeout(() => {
+                indicator.classList.add('hidden');
+            }, 3000);
+        }
+
+        // 显示注册弹窗
+        function showOnboardingModal() {
+            const modal = document.getElementById('onboarding-modal');
+            modal.style.display = 'flex';
+            modal.style.visibility = 'visible';
+        }
+
+        // 标签页切换
+        document.querySelectorAll('.tab').forEach(tab => {
+            tab.addEventListener('click', function() {
+                document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+                this.classList.add('active');
+
+                document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
+                document.getElementById(this.dataset.tab + '-tab').classList.add('active');
+
+                if (this.dataset.tab === 'policy') {
+                    loadPolicies();
+                } else if (this.dataset.tab === 'profile') {
+                    loadProfile();
+                }
+            });
+        });
+
+        // 发送消息
+        async function sendMessage() {
+            const input = document.getElementById('message-input');
+            const message = input.value.trim();
+
+            console.log('[Chat] sendMessage 被调用, message:', message);
+            console.log('[Chat] isRegistered:', isRegistered, 'userId:', userId, 'accountId:', accountId);
+
+            if (!message) {
+                console.log('[Chat] 消息为空，直接返回');
+                return;
+            }
+
+            input.value = '';
+            input.style.height = 'auto';
+
+            document.getElementById('welcome').classList.add('hidden');
+
+            addMessage('user', message);
+            messageCount++;
+            updateStats();
+
+            showTypingIndicator('正在思考...');
+
+            // 设置超时
+            const controller = new AbortController();
+            const timeoutId = setTimeout(() => {
+                console.log('[Chat] 请求超时，取消请求');
+                controller.abort();
+            }, 60000); // 60秒超时
+
+            try {
+                // 优先使用账号ID（已登录），否则使用临时用户ID
+                const effectiveUserId = accountId || userId;
+                const endpoint = isRegistered ? '/api/chat/enhanced' : '/api/chat';
+                console.log('[Chat] 发送请求到:', endpoint, 'userId:', effectiveUserId);
+
+                // 逐步更新状态，让用户知道进度
+                updateTypingStatus('正在思考...');
+
+                const response = await fetch(endpoint, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        user_id: effectiveUserId,
+                        message: message,
+                        conversation_id: conversationId
+                    }),
+                    signal: controller.signal
+                });
+
+                clearTimeout(timeoutId);
+
+                if (!response.ok) {
+                    throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+                }
+
+                updateTypingStatus('正在检索知识库...');
+
+                const data = await response.json();
+
+                updateTypingStatus('正在整理回答...');
+
+                conversationId = data.conversation_id;
+
+                // 显示完成状态
+                updateTypingStatus('✓ 回答完成');
+
+                // 短暂显示完成状态后移除
+                setTimeout(() => {
+                    removeTypingIndicator();
+                }, 300);
+
+                addMessage('assistant', data.message, data.suggestions, data.knowledge_refs, data.recommendations);
+                messageCount++;
+                updateStats();
+
+                if (data.personalization) {
+                    updatePersonalizationIndicator(data.personalization);
+                }
+
+                if (data.profile_updates && Object.keys(data.profile_updates).length > 0) {
+                    showPersonalizationIndicator('画像已更新 ✨');
+                }
+
+            } catch (error) {
+                removeTypingIndicator();
+                console.error('[Chat] 请求失败:', error);
+                // 改进错误提示
+                let errorMsg = '抱歉，发生了错误。';
+                if (error.name === 'AbortError') {
+                    errorMsg = '请求超时，服务器响应时间过长。请稍后再试，或检查API Key是否有效。';
+                } else if (error.message.includes('Failed to fetch') || error.message.includes('NetworkError')) {
+                    errorMsg = '无法连接到服务器，请确保服务已启动。';
+                } else {
+                    errorMsg = '抱歉，发生了错误：' + error.message;
+                }
+                addMessage('assistant', errorMsg, [], [], []);
+            }
+        }
+
+        // 更新个性化指示器
+        function updatePersonalizationIndicator(info) {
+            if (info && info.profile_updated) {
+                showPersonalizationIndicator('画像已更新');
+            }
+        }
+
+        // 发送快捷消息
+        function sendQuickMessage(message) {
+            document.getElementById('message-input').value = message;
+            sendMessage();
+        }
+
+        // 添加消息到聊天区
+        function addMessage(role, content, suggestions = [], knowledgeRefs = [], recommendations = []) {
+            const container = document.getElementById('chat-container');
+
+            const messageDiv = document.createElement('div');
+            messageDiv.className = `message ${role}`;
+
+            const avatar = role === 'user' ? '🙂' : '🌱';
+            const messageId = 'msg_' + Date.now() + '_' + Math.random().toString(36).substr(2, 6);
+
+            let recommendationsHtml = '';
+            if (recommendations && recommendations.length > 0 && role === 'assistant') {
+                recommendationsHtml = `
+                    <div class="recommendations">
+                        <div class="recommendations-title">💡 为你推荐：</div>
+                        ${recommendations.map((r, idx) => `
+                            <div class="recommendation-item">
+                                <div class="recommendation-action">${r.action}</div>
+                                <div class="recommendation-meta">
+                                    <span class="recommendation-category">${r.category}</span>
+                                    <span class="recommendation-carbon">${r.carbon_saving || ''}</span>
+                                </div>
+                                ${r.examples && r.examples.length > 0 ? `<div class="recommendation-example">例如：${r.examples[0]}</div>` : ''}
+                            </div>
+                        `).join('')}
+                    </div>
+                `;
+            }
+
+            let suggestionsHtml = '';
+            if (suggestions.length > 0 && role === 'assistant') {
+                suggestionsHtml = `
+                    <div class="suggestions">
+                        <div class="suggestions-title">你可以尝试：</div>
+                        ${suggestions.map(s => `<button class="suggestion-btn" onclick="sendQuickMessage('${s.replace(/'/g, "\\'")}')">${s}</button>`).join('')}
+                    </div>
+                `;
+            }
+
+            let knowledgeRefHtml = '';
+            if (knowledgeRefs && knowledgeRefs.length > 0 && role === 'assistant') {
+                knowledgeRefHtml = `
+                    <div class="knowledge-ref">
+                        📚 参考: ${knowledgeRefs.join(', ')}
+                    </div>
+                `;
+            }
+
+            // 反馈按钮（仅助手消息）
+            let feedbackHtml = '';
+            if (role === 'assistant') {
+                feedbackHtml = `
+                    <div class="message-feedback" id="feedback-${messageId}" data-msg-id="${messageId}">
+                        <button class="feedback-btn like-btn" onclick="submitFeedback('like', '${messageId}')" title="有帮助">
+                            <span>👍</span> <span class="fb-count" data-type="like">0</span>
+                        </button>
+                        <button class="feedback-btn dislike-btn" onclick="submitFeedback('dislike', '${messageId}')" title="没帮助">
+                            <span>👎</span> <span class="fb-count" data-type="dislike">0</span>
+                        </button>
+                        <button class="feedback-btn comment-btn" onclick="showCommentBox('${messageId}')" title="评论">
+                            💬 <span class="fb-count" data-type="comment">0</span>
+                        </button>
+                    </div>
+                    <div class="dislike-reason-box hidden" id="reason-box-${messageId}">
+                        <p>请选择原因：</p>
+                        <label><input type="radio" name="reason-${messageId}" value="inaccurate"> 不准确</label>
+                        <label><input type="radio" name="reason-${messageId}" value="irrelevant"> 不相关</label>
+                        <label><input type="radio" name="reason-${messageId}" value="too_complex"> 太复杂</label>
+                        <label><input type="radio" name="reason-${messageId}" value="harmful"> 有害信息</label>
+                        <label><input type="radio" name="reason-${messageId}" value="other"> 其他</label>
+                        <textarea id="reason-extra-${messageId}" placeholder="补充说明（可选）..."></textarea>
+                        <div class="reason-actions">
+                            <button class="reason-cancel-btn" onclick="hideDislikeReasonBox('${messageId}')">取消</button>
+                            <button class="reason-submit-btn" onclick="submitDislikeReason('${messageId}')">提交</button>
+                        </div>
+                    </div>
+                    <div class="comment-box hidden" id="comment-box-${messageId}">
+                        <p>请输入您的反馈意见：</p>
+                        <textarea id="comment-text-${messageId}" placeholder="请输入您的反馈意见..."></textarea>
+                        <div class="comment-actions">
+                            <button class="reason-cancel-btn" onclick="hideCommentBox('${messageId}')">取消</button>
+                            <button class="reason-submit-btn" onclick="submitComment('${messageId}')">发送</button>
+                        </div>
+                    </div>
+                `;
+            }
+
+            messageDiv.innerHTML = `
+                <div class="message-avatar">${avatar}</div>
+                <div class="message-content">
+                    ${formatContent(content)}
+                    ${knowledgeRefHtml}
+                    ${recommendationsHtml}
+                    ${suggestionsHtml}
+                    ${feedbackHtml}
+                </div>
+            `;
+
+            container.appendChild(messageDiv);
+            container.scrollTop = container.scrollHeight;
+
+            // 如果是助手消息，获取反馈数量
+            if (role === 'assistant') {
+                updateFeedbackCounts(messageId);
+            }
+        }
+
+        // 格式化内容
+        function formatContent(content) {
+            return content
+                .replace(/\n\n/g, '</p><p>')
+                .replace(/\n/g, '<br>')
+                .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
+                .replace(/^/, '<p>')
+                .replace(/$/, '</p>');
+        }
+
+        // 显示反馈成功提示
+        function showFeedbackToast(message, type = 'success') {
+            const toast = document.createElement('div');
+            toast.className = `feedback-toast ${type}`;
+            toast.textContent = message;
+            document.body.appendChild(toast);
+            setTimeout(() => {
+                toast.style.opacity = '0';
+                setTimeout(() => toast.remove(), 300);
+            }, 2000);
+        }
+
+        // ============ 账号认证系统 ============
+
+        // 账号相关全局变量
+        let sessionId = localStorage.getItem('green_agent_session_id') || null;
+        let accountId = localStorage.getItem('green_agent_account_id') || null;
+        let loggedInUsername = localStorage.getItem('green_agent_username') || null;
+        let authModalVisible = false;
+
+        // 检查并渲染登录状态
+        function checkAuthStatus() {
+            if (sessionId && accountId) {
+                // 验证会话是否有效
+                fetch('/api/auth/check', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ session_id: sessionId })
+                })
+                .then(res => res.json())
+                .then(data => {
+                    if (data.valid) {
+                        loggedInUsername = data.username;
+                        renderLoggedInStatus();
+                    } else {
+                        clearAuthSession();
+                        renderGuestStatus();
+                    }
+                })
+                .catch(() => {
+                    // 网络错误时显示本地状态
+                    if (accountId) {
+                        renderLoggedInStatus();
+                    } else {
+                        renderGuestStatus();
+                    }
+                });
+            } else {
+                renderGuestStatus();
+            }
+        }
+
+        // 渲染访客状态 - 只显示登录按钮
+        function renderGuestStatus() {
+            const area = document.getElementById('header-user-area');
+            if (!area) return;
+            area.innerHTML = `
+                <button class="auth-btn auth-btn-outline" onclick="showAuthModal('login')">
+                    登录 / 注册
+                </button>
+            `;
+        }
+
+        // 渲染已登录状态
+        function renderLoggedInStatus() {
+            const area = document.getElementById('header-user-area');
+            if (!area) return;
+            area.innerHTML = `
+                <span class="auth-username">${loggedInUsername || '用户'}</span>
+                <button class="auth-btn auth-btn-outline" onclick="handleLogout()">
+                    退出
+                </button>
+            `;
+        }
+
+        /* 账号按钮样式 */
+        .auth-btn {
+            padding: 7px 16px;
+            border-radius: 20px;
+            font-size: 13px;
+            cursor: pointer;
+            border: none;
+            transition: all 0.2s;
+            display: inline-flex;
+            align-items: center;
+            gap: 4px;
+            font-family: inherit;
+            white-space: nowrap;
+        }
+        .auth-btn-primary {
+            background: linear-gradient(135deg, #667eea, #764ba2);
+            color: white;
+        }
+        .auth-btn-primary:hover {
+            transform: scale(1.05);
+            box-shadow: 0 2px 12px rgba(102, 126, 234, 0.4);
+        }
+        .auth-btn-outline {
+            background: transparent;
+            color: white;
+            border: 1px solid rgba(255,255,255,0.6);
+        }
+        .auth-btn-outline:hover {
+            background: rgba(255,255,255,0.15);
+            border-color: rgba(255,255,255,0.8);
+        }
+        .auth-username {
+            font-size: 13px;
+            color: rgba(255,255,255,0.95);
+            font-weight: 500;
+            max-width: 100px;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+
+        // 显示登录注册模态框
+        function showAuthModal(tab = 'login') {
+            const existing = document.getElementById('auth-modal-overlay');
+            if (existing) existing.remove();
+
+            const overlay = document.createElement('div');
+            overlay.className = 'auth-modal-overlay';
+            overlay.id = 'auth-modal-overlay';
+            overlay.onclick = (e) => {
+                if (e.target === overlay) hideAuthModal();
+            };
+
+            overlay.innerHTML = `
+                <div class="auth-modal-content">
+                    <div class="auth-modal-header">
+                        <h2>${tab === 'login' ? '登录' : '注册'}</h2>
+                        <button class="auth-close-btn" onclick="hideAuthModal()">&times;</button>
+                    </div>
+                    <div class="auth-tabs">
+                        <button class="auth-tab ${tab === 'login' ? 'active' : ''}" onclick="switchAuthTab('login')">登录</button>
+                        <button class="auth-tab ${tab === 'register' ? 'active' : ''}" onclick="switchAuthTab('register')">注册</button>
+                    </div>
+                    <!-- 登录表单 -->
+                    <form class="auth-form ${tab === 'login' ? 'active' : ''}" id="login-form" onsubmit="handleLogin(event)">
+                        <div class="auth-form-group">
+                            <label>用户名</label>
+                            <input type="text" id="login-username" placeholder="请输入用户名" required autocomplete="username">
+                        </div>
+                        <div class="auth-form-group">
+                            <label>密码</label>
+                            <input type="password" id="login-password" placeholder="请输入密码" required autocomplete="current-password">
+                        </div>
+                        <div id="login-error" class="auth-error hidden"></div>
+                        <button type="submit" class="auth-submit-btn" id="login-submit">登录</button>
+                        <p class="auth-switch">还没有账号？<a onclick="switchAuthTab('register')">立即注册</a></p>
+                    </form>
+                    <!-- 注册表单 -->
+                    <form class="auth-form ${tab === 'register' ? 'active' : ''}" id="register-form" onsubmit="handleRegister(event)">
+                        <div class="auth-form-group">
+                            <label>设置用户名</label>
+                            <input type="text" id="reg-username" placeholder="3-20位字母、数字或下划线" required minlength="3" maxlength="20" autocomplete="username">
+                        </div>
+                        <div class="auth-form-group">
+                            <label>设置密码</label>
+                            <input type="password" id="reg-password" placeholder="至少6位" required minlength="6" autocomplete="new-password">
+                        </div>
+                        <div class="auth-form-group">
+                            <label>确认密码</label>
+                            <input type="password" id="reg-password-confirm" placeholder="再次输入密码" required autocomplete="new-password">
+                        </div>
+                        <div id="register-error" class="auth-error hidden"></div>
+                        <button type="submit" class="auth-submit-btn" id="register-submit">注册</button>
+                        <p class="auth-switch">已有账号？<a onclick="switchAuthTab('login')">立即登录</a></p>
+                    </form>
+                </div>
+            `;
+
+            document.body.appendChild(overlay);
+            authModalVisible = true;
+
+            // 自动聚焦用户名输入框
+            setTimeout(() => {
+                const input = document.getElementById(tab === 'login' ? 'login-username' : 'reg-username');
+                if (input) input.focus();
+            }, 100);
+        }
+
+        // 隐藏模态框
+        function hideAuthModal() {
+            const overlay = document.getElementById('auth-modal-overlay');
+            if (overlay) overlay.remove();
+            authModalVisible = false;
+        }
+
+        // 切换登录/注册标签
+        function switchAuthTab(tab) {
+            // 更新标签样式
+            document.querySelectorAll('.auth-tab').forEach(t => {
+                t.classList.toggle('active', t.textContent === (tab === 'login' ? '登录' : '注册'));
+            });
+            // 更新表单显示
+            document.getElementById('login-form').classList.toggle('active', tab === 'login');
+            document.getElementById('register-form').classList.toggle('active', tab === 'register');
+            // 清除错误信息
+            document.getElementById('login-error')?.classList.add('hidden');
+            document.getElementById('register-error')?.classList.add('hidden');
+        }
+
+        // 显示错误信息
+        function showAuthError(formType, message) {
+            const errorEl = document.getElementById(formType === 'login' ? 'login-error' : 'register-error');
+            if (errorEl) {
+                errorEl.textContent = message;
+                errorEl.classList.remove('hidden');
+            }
+        }
+
+        // 清除错误信息
+        function clearAuthError(formType) {
+            const errorEl = document.getElementById(formType === 'login' ? 'login-error' : 'register-error');
+            if (errorEl) {
+                errorEl.classList.add('hidden');
+            }
+        }
+
+        // 设置按钮加载状态
+        function setAuthButtonLoading(formType, loading) {
+            const btn = document.getElementById(formType === 'login' ? 'login-submit' : 'register-submit');
+            if (!btn) return;
+            if (loading) {
+                btn.disabled = true;
+                btn.innerHTML = '<span class="auth-loading"></span>处理中...';
+            } else {
+                btn.disabled = false;
+                btn.textContent = formType === 'login' ? '登录' : '注册';
+            }
+        }
+
+        // 处理登录
+        async function handleLogin(event) {
+            event.preventDefault();
+            clearAuthError('login');
+
+            const username = document.getElementById('login-username').value.trim();
+            const password = document.getElementById('login-password').value;
+
+            if (!username || !password) {
+                showAuthError('login', '请输入用户名和密码');
+                return;
+            }
+
+            setAuthButtonLoading('login', true);
+
+            try {
+                const response = await fetch('/api/auth/login', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ username, password })
+                });
+
+                const data = await response.json();
+
+                if (response.ok && data.status === 'success') {
+                    // 保存登录信息
+                    sessionId = data.session_id;
+                    accountId = data.account_id;
+                    loggedInUsername = data.username;
+
+                    localStorage.setItem('green_agent_session_id', sessionId);
+                    localStorage.setItem('green_agent_account_id', accountId);
+                    localStorage.setItem('green_agent_username', loggedInUsername);
+
+                    // 同步用户ID到全局变量
+                    userId = accountId;
+
+                    hideAuthModal();
+                    renderLoggedInStatus();
+                    showFeedbackToast('登录成功！欢迎回来，' + loggedInUsername, 'success');
+
+                    // 如果已有对话，提示用户
+                    if (messageCount > 0) {
+                        console.log('[Auth] 登录后用户ID已同步到: ' + userId);
+                    }
+                } else {
+                    showAuthError('login', data.message || data.error || '登录失败');
+                }
+            } catch (error) {
+                console.error('[Auth] 登录请求失败:', error);
+                showAuthError('login', '网络错误，请检查服务器连接');
+            } finally {
+                setAuthButtonLoading('login', false);
+            }
+        }
+
+        // 处理注册
+        async function handleRegister(event) {
+            event.preventDefault();
+            clearAuthError('register');
+
+            const username = document.getElementById('reg-username').value.trim();
+            const password = document.getElementById('reg-password').value;
+            const passwordConfirm = document.getElementById('reg-password-confirm').value;
+
+            // 前端验证
+            if (username.length < 3 || username.length > 20) {
+                showAuthError('register', '用户名长度必须在3-20个字符之间');
+                return;
+            }
+
+            if (!/^[a-zA-Z0-9_]+$/.test(username)) {
+                showAuthError('register', '用户名只能包含字母、数字和下划线');
+                return;
+            }
+
+            if (password.length < 6) {
+                showAuthError('register', '密码长度至少6位');
+                return;
+            }
+
+            if (password !== passwordConfirm) {
+                showAuthError('register', '两次输入的密码不一致');
+                return;
+            }
+
+            setAuthButtonLoading('register', true);
+
+            try {
+                const response = await fetch('/api/auth/register', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ username, password })
+                });
+
+                const data = await response.json();
+
+                if (response.ok && data.status === 'success') {
+                    showFeedbackToast('注册成功！请登录', 'success');
+
+                    // 切换到登录标签并填充用户名
+                    switchAuthTab('login');
+                    document.getElementById('login-username').value = username;
+                    document.getElementById('login-password').focus();
+                } else {
+                    showAuthError('register', data.message || data.error || '注册失败');
+                }
+            } catch (error) {
+                console.error('[Auth] 注册请求失败:', error);
+                showAuthError('register', '网络错误，请检查服务器连接');
+            } finally {
+                setAuthButtonLoading('register', false);
+            }
+        }
+
+        // 处理登出
+        async function handleLogout() {
+            try {
+                await fetch('/api/auth/logout', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ session_id: sessionId })
+                });
+            } catch (error) {
+                console.error('[Auth] 登出请求失败:', error);
+            }
+
+            const username = loggedInUsername;
+            clearAuthSession();
+            renderGuestStatus();
+            showFeedbackToast('已退出登录' + (username ? '，再见 ' + username : ''), 'success');
+
+            // 重置用户ID为临时ID
+            userId = 'user_' + Date.now() + '_' + Math.random().toString(36).substr(2, 6);
+            localStorage.setItem('green_agent_user_id', userId);
+        }
+
+        // 清除会话数据
+        function clearAuthSession() {
+            sessionId = null;
+            accountId = null;
+            loggedInUsername = null;
+            localStorage.removeItem('green_agent_session_id');
+            localStorage.removeItem('green_agent_account_id');
+            localStorage.removeItem('green_agent_username');
+        }
+
+        // 提交反馈
+        async function submitFeedback(type, msgId) {
+            const feedbackEl = document.getElementById('feedback-' + msgId);
+            const likeBtn = feedbackEl.querySelector('.like-btn');
+            const dislikeBtn = feedbackEl.querySelector('.dislike-btn');
+
+            // 点踩显示原因选择框
+            if (type === 'dislike') {
+                if (dislikeBtn.classList.contains('disliked')) {
+                    // 再次点击取消点踩
+                    dislikeBtn.classList.remove('disliked');
+                    feedbackEl.classList.remove('disliked');
+                    // 移除反馈
+                    try {
+                        await fetch('/api/feedback', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({
+                                message_id: msgId,
+                                user_id: userId || 'anonymous',
+                                conversation_id: conversationId,
+                                type: 'remove_dislike'
+                            })
+                        });
+                        // 更新反馈数量显示
+                        updateFeedbackCounts(msgId);
+                    } catch (e) { console.error('移除反馈失败:', e); }
+                    return;
+                }
+                // 显示原因选择框
+                showDislikeReasonBox(msgId);
+                return;
+            }
+
+            // 点赞处理
+            if (type === 'like') {
+                const wasLiked = likeBtn.classList.contains('liked');
+                // 清除所有状态
+                likeBtn.classList.remove('liked');
+                feedbackEl.classList.remove('liked');
+
+                if (wasLiked) {
+                    // 取消点赞
+                    feedbackEl.classList.remove('liked');
+                    try {
+                        await fetch('/api/feedback', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({
+                                message_id: msgId,
+                                user_id: userId || 'anonymous',
+                                conversation_id: conversationId,
+                                type: 'remove_like'
+                            })
+                        });
+                        // 更新反馈数量显示
+                        updateFeedbackCounts(msgId);
+                    } catch (e) { console.error('移除反馈失败:', e); }
+                    return;
+                }
+
+                // 提交点赞
+                likeBtn.classList.add('liked');
+                feedbackEl.classList.add('liked');
+                try {
+                    const res = await fetch('/api/feedback', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({
+                            message_id: msgId,
+                            user_id: userId || 'anonymous',
+                            conversation_id: conversationId,
+                            type: 'like'
+                        })
+                    });
+                    const data = await res.json();
+                    if (data.status === 'success') {
+                        showFeedbackToast('感谢您的反馈！');
+                        // 更新反馈数量显示
+                        updateFeedbackCounts(msgId);
+                    }
+                } catch (e) {
+                    console.error('提交反馈失败:', e);
+                    showFeedbackToast('提交失败，请重试', 'error');
+                    likeBtn.classList.remove('liked');
+                    feedbackEl.classList.remove('liked');
+                }
+            }
+        }
+
+        // 显示点踩原因选择框
+        function showDislikeReasonBox(msgId) {
+            const reasonBox = document.getElementById('reason-box-' + msgId);
+            const commentBox = document.getElementById('comment-box-' + msgId);
+            if (commentBox) commentBox.classList.add('hidden');
+            reasonBox.classList.remove('hidden');
+            // 默认选中第一个选项
+            const firstRadio = reasonBox.querySelector('input[type="radio"]');
+            if (firstRadio) firstRadio.checked = true;
+        }
+
+        // 更新反馈数量显示
+        async function updateFeedbackCounts(msgId) {
+            const feedbackEl = document.getElementById('feedback-' + msgId);
+            if (!feedbackEl) return;
+
+            try {
+                const effectiveUserId = accountId || userId || 'anonymous';
+                const res = await fetch('/api/feedback/message', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        message_id: msgId,
+                        user_id: effectiveUserId
+                    })
+                });
+
+                if (res.ok) {
+                    const data = await res.json();
+
+                    // 更新点赞数
+                    const likeBtn = feedbackEl.querySelector('.like-btn');
+                    const likeCount = likeBtn.querySelector('.fb-count');
+                    if (likeCount) likeCount.textContent = data.like_count || 0;
+
+                    // 更新点踩数
+                    const dislikeBtn = feedbackEl.querySelector('.dislike-btn');
+                    const dislikeCount = dislikeBtn.querySelector('.fb-count');
+                    if (dislikeCount) dislikeCount.textContent = data.dislike_count || 0;
+
+                    // 更新评论数
+                    const commentBtn = feedbackEl.querySelector('.comment-btn');
+                    const commentCount = commentBtn.querySelector('.fb-count');
+                    if (commentCount) commentCount.textContent = data.comment_count || 0;
+
+                    // 更新用户的反馈状态
+                    if (data.user_status) {
+                        if (data.user_status.liked) {
+                            likeBtn.classList.add('liked');
+                            feedbackEl.classList.add('liked');
+                        }
+                        if (data.user_status.disliked) {
+                            dislikeBtn.classList.add('disliked');
+                            feedbackEl.classList.add('disliked');
+                        }
+                        if (data.user_status.commented) {
+                            commentBtn.classList.add('comment-active');
+                        }
+                    }
+                }
+            } catch (e) {
+                console.error('更新反馈数量失败:', e);
+            }
+        }
+
+        // 隐藏点踩原因选择框
+        function hideDislikeReasonBox(msgId) {
+            const reasonBox = document.getElementById('reason-box-' + msgId);
+            reasonBox.classList.add('hidden');
+        }
+
+        // 提交点踩原因
+        async function submitDislikeReason(msgId) {
+            const reasonBox = document.getElementById('reason-box-' + msgId);
+            const feedbackEl = document.getElementById('feedback-' + msgId);
+            const dislikeBtn = feedbackEl.querySelector('.dislike-btn');
+
+            const selected = reasonBox.querySelector('input[name="reason-' + msgId + '"]:checked');
+            const extraText = document.getElementById('reason-extra-' + msgId).value;
+
+            if (!selected) {
+                showFeedbackToast('请选择原因', 'error');
+                return;
+            }
+
+            const reason = selected.value + (extraText ? ': ' + extraText : '');
+
+            dislikeBtn.classList.add('disliked');
+            feedbackEl.classList.add('disliked');
+            reasonBox.classList.add('hidden');
+
+            try {
+                const res = await fetch('/api/feedback', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        message_id: msgId,
+                        user_id: userId || 'anonymous',
+                        conversation_id: conversationId,
+                        type: 'dislike',
+                        reason: reason
+                    })
+                });
+                const data = await res.json();
+                if (data.status === 'success') {
+                    showFeedbackToast('感谢您的反馈，我们会改进！');
+                    // 更新反馈数量显示
+                    updateFeedbackCounts(msgId);
+                }
+            } catch (e) {
+                console.error('提交反馈失败:', e);
+                showFeedbackToast('提交失败，请重试', 'error');
+                dislikeBtn.classList.remove('disliked');
+                feedbackEl.classList.remove('disliked');
+            }
+        }
+
+        // 显示评论框
+        function showCommentBox(msgId) {
+            const commentBox = document.getElementById('comment-box-' + msgId);
+            const reasonBox = document.getElementById('reason-box-' + msgId);
+            if (reasonBox) reasonBox.classList.add('hidden');
+            commentBox.classList.remove('hidden');
+            // 自动聚焦到文本框
+            setTimeout(() => {
+                document.getElementById('comment-text-' + msgId).focus();
+            }, 100);
+        }
+
+        // 隐藏评论框
+        function hideCommentBox(msgId) {
+            const commentBox = document.getElementById('comment-box-' + msgId);
+            commentBox.classList.add('hidden');
+        }
+
+        // 提交评论
+        async function submitComment(msgId) {
+            const commentText = document.getElementById('comment-text-' + msgId).value.trim();
+            const feedbackEl = document.getElementById('feedback-' + msgId);
+            const commentBtn = feedbackEl.querySelector('.comment-btn');
+
+            if (!commentText) {
+                showFeedbackToast('请输入反馈内容', 'error');
+                return;
+            }
+
+            const commentBox = document.getElementById('comment-box-' + msgId);
+            commentBox.classList.add('hidden');
+
+            try {
+                const res = await fetch('/api/feedback', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        message_id: msgId,
+                        user_id: userId || 'anonymous',
+                        conversation_id: conversationId,
+                        type: 'comment',
+                        comment: commentText
+                    })
+                });
+                const data = await res.json();
+                if (data.status === 'success') {
+                    commentBtn.classList.add('comment-active');
+                    document.getElementById('comment-text-' + msgId).value = '';
+                    showFeedbackToast('反馈已提交，感谢您的意见！');
+                    // 更新反馈数量显示
+                    updateFeedbackCounts(msgId);
+                }
+            } catch (e) {
+                console.error('提交评论失败:', e);
+                showFeedbackToast('提交失败，请重试', 'error');
+            }
+        }
+
+        // 显示加载指示器
+        function showTypingIndicator(status = '正在思考...') {
+            removeTypingIndicator(); // 先移除旧的
+            const container = document.getElementById('chat-container');
+            const indicator = document.createElement('div');
+            indicator.id = 'typing-indicator';
+            indicator.className = 'message assistant';
+            indicator.innerHTML = `
+                <div class="message-avatar">🌱</div>
+                <div class="message-content">
+                    <div class="typing-indicator" id="typing-dots">
+                        <div class="typing-dot"></div>
+                        <div class="typing-dot"></div>
+                        <div class="typing-dot"></div>
+                    </div>
+                    <div class="typing-status" id="typing-status">${status}</div>
+                </div>
+            `;
+            container.appendChild(indicator);
+            container.scrollTop = container.scrollHeight;
+        }
+
+        // 更新加载状态文字
+        function updateTypingStatus(status) {
+            const statusEl = document.getElementById('typing-status');
+            if (statusEl) {
+                statusEl.textContent = status;
+            }
+        }
+
+        // 移除加载指示器
+        function removeTypingIndicator() {
+            const indicator = document.getElementById('typing-indicator');
+            if (indicator) {
+                indicator.remove();
+            }
+        }
+
+        // 处理键盘事件
+        function handleKeyDown(event) {
+            if (event.key === 'Enter' && !event.shiftKey) {
+                event.preventDefault();
+                sendMessage();
+            }
+        }
+
+        // 自动调整输入框高度
+        document.getElementById('message-input').addEventListener('input', function() {
+            this.style.height = 'auto';
+            this.style.height = Math.min(this.scrollHeight, 120) + 'px';
+        });
+
+        // 更新统计
+        function updateStats() {
+            document.getElementById('msg-count').textContent = messageCount;
+        }
+
+        // 加载知识库统计
+        async function loadKnowledgeStats() {
+            try {
+                const response = await fetch('/api/knowledge/stats');
+                const data = await response.json();
+                document.getElementById('doc-count').textContent = data.total_documents || 0;
+
+                if (data.rag_enabled) {
+                    document.getElementById('header-subtitle').textContent = 'RAG + 个性化已启用';
+                }
+            } catch (error) {
+                console.error('Error loading stats:', error);
+            }
+        }
+
+        // 加载政策
+        async function loadPolicies() {
+            const container = document.getElementById('policy-container');
+
+            try {
+                const response = await fetch('/api/policy/latest?limit=20');
+                const policies = await response.json();
+
+                if (policies.length === 0) {
+                    container.innerHTML = '<p style="text-align: center; color: #9ca3af;">暂无最新政策</p>';
+                    return;
+                }
+
+                container.innerHTML = policies.map(policy => `
+                    <div class="policy-card">
+                        <h3>${policy.title}</h3>
+                        <div class="policy-meta">
+                            <span>📅 ${policy.publish_date || '未知日期'}</span>
+                            <span>🏛️ ${policy.source || '未知来源'}</span>
+                            <span>🏷️ ${policy.category || '其他'}</span>
+                        </div>
+                        <p class="policy-summary">${policy.summary || '暂无摘要'}</p>
+                        ${policy.key_points && policy.key_points.length > 0 ? `
+                            <div class="policy-tags">
+                                ${policy.key_points.map(point => `<span class="policy-tag">${point}</span>`).join('')}
+                            </div>
+                        ` : ''}
+                    </div>
+                `).join('');
+
+            } catch (error) {
+                container.innerHTML = '<p style="text-align: center; color: #ef4444;">加载失败，请稍后再试</p>';
+                console.error('Error loading policies:', error);
+            }
+        }
+
+        // 加载用户画像
+        async function loadProfile() {
+            const container = document.getElementById('profile-container');
+            console.log('[Profile] 加载画像, isRegistered:', isRegistered, 'userId:', userId);
+
+            // 检查是否登录 - 只有真正的注册用户才能看画像
+            const isGuestUser = !isRegistered || !userId || 
+                userId.startsWith('anonymous_') || 
+                userId.startsWith('guest_') ||
+                userId.startsWith('temp_');
+            
+            if (isGuestUser) {
+                console.log('[Profile] 访客用户，显示提示');
+                container.innerHTML = `
+                    <div class="profile-card">
+                        <h3>👤 用户画像</h3>
+                        <p style="color: #6b7280; text-align: center; padding: 20px;">
+                            完成注册后即可查看完整画像<br><br>
+                            <button class="quick-btn" onclick="showOnboardingModal()">
+                                立即注册
+                            </button>
+                        </p>
+                    </div>
+                `;
+                return;
+            }
+
+            console.log('[Profile] 正式用户，加载画像数据, userId:', userId);
+
+            try {
+                const response = await fetch(`/api/personalization/${userId}`);
+                console.log('[Profile] API响应状态:', response.status);
+                
+                if (!response.ok) {
+                    throw new Error(`HTTP ${response.status}`);
+                }
+                
+                const data = await response.json();
+                console.log('[Profile] 获取到数据:', JSON.stringify(data));
+                const ctx = data.context || {};
+
+                const knowledgeLevel = ctx.knowledge_level || 'intermediate';
+                const behaviorStage = ctx.behavior_stage || '意向';
+
+                const knowledgeProgress = {
+                    'beginner': 25,
+                    'intermediate': 50,
+                    'advanced': 75
+                }[knowledgeLevel] || 50;
+
+                const stageProgress = {
+                    '无意向': 10,
+                    '意向': 30,
+                    '准备': 50,
+                    '行动': 70,
+                    '维持': 90
+                }[behaviorStage] || 30;
+
+                const interests = ctx.primary_interests || [];
+                const interestIcons = ctx.interest_icons || '';
+
+                container.innerHTML = `
+                    <div class="profile-card">
+                        <h3>🎯 个性化画像</h3>
+                        <div class="profile-item">
+                            <span class="profile-label">环保认知</span>
+                            <span class="profile-badge">${getKnowledgeLevelText(knowledgeLevel)}</span>
+                        </div>
+                        <div class="profile-item">
+                            <span class="profile-label">行为阶段</span>
+                            <span class="profile-badge">${behaviorStage}</span>
+                        </div>
+                        <div class="profile-item">
+                            <span class="profile-label">沟通风格</span>
+                            <span class="profile-value">${getCommunicationStyleText(ctx.communication_style)}</span>
+                        </div>
+                        <div class="profile-item">
+                            <span class="profile-label">基本信息</span>
+                            <span class="profile-value">${ctx.basic_info_summary || '新用户'}</span>
+                        </div>
+
+                        <div class="profile-progress">
+                            <div class="progress-item">
+                                <div class="progress-label">
+                                    <span>环保知识水平</span>
+                                    <span>${knowledgeProgress}%</span>
+                                </div>
+                                <div class="progress-bar">
+                                    <div class="progress-fill" style="width: ${knowledgeProgress}%"></div>
+                                </div>
+                            </div>
+                            <div class="progress-item">
+                                <div class="progress-label">
+                                    <span>行动阶段</span>
+                                    <span>${stageProgress}%</span>
+                                </div>
+                                <div class="progress-bar">
+                                    <div class="progress-fill" style="width: ${stageProgress}%"></div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="profile-card">
+                        <h3>📊 交互统计</h3>
+                        <div class="profile-item">
+                            <span class="profile-label">对话轮次</span>
+                            <span class="profile-value">${ctx.conversation_count || 0}</span>
+                        </div>
+                        <div class="profile-item">
+                            <span class="profile-label">建议采纳率</span>
+                            <span class="profile-value">${Math.round((ctx.suggestion_acceptance_rate || 0.5) * 100)}%</span>
+                        </div>
+                    </div>
+
+                    <div class="profile-card">
+                        <h3>💡 关注领域 ${interestIcons}</h3>
+                        ${interests.length > 0 ? `
+                            <div class="interests-list">
+                                ${interests.map(i => `<span class="interest-tag">${getInterestName(i)}</span>`).join('')}
+                            </div>
+                        ` : '<p style="color: #9ca3af; font-size: 14px;">继续对话，我会学习你的兴趣</p>'}
+                    </div>
+
+                    <div class="profile-card">
+                        <h3>🎯 推荐策略</h3>
+                        <p style="color: #6b7280; font-size: 14px; line-height: 1.6;">
+                            ${getSuggestionStrategy(knowledgeLevel, behaviorStage, ctx)}
+                        </p>
+                    </div>
+                `;
+
+            } catch (error) {
+                container.innerHTML = '<p style="text-align: center; color: #ef4444;">加载失败</p>';
+                console.error('Error loading profile:', error);
+            }
+        }
+
+        // 辅助函数
+        function getKnowledgeLevelText(level) {
+            const map = {
+                'beginner': '🌱 入门',
+                'intermediate': '🌿 了解',
+                'advanced': '🌳 精通'
+            };
+            return map[level] || '🌿 了解';
+        }
+
+        function getBehaviorStageText(stage) {
+            const map = {
+                '无意向': '🚫 无意向',
+                '意向': '🤔 意向',
+                '准备': '📋 准备',
+                '行动': '🚀 行动',
+                '维持': '⭐ 维持'
+            };
+            return map[stage] || '🤔 意向';
+        }
+
+        function getCommunicationStyleText(style) {
+            const map = {
+                'casual': '轻松随意',
+                'balanced': '平衡',
+                'detailed': '详细耐心',
+                'professional': '专业',
+                '通俗': '通俗易懂',
+                '专业': '专业详细',
+                '数据驱动': '数据支持',
+                '故事型': '案例分享'
+            };
+            return map[style] || '平衡';
+        }
+
+        function getInterestName(interestId) {
+            const map = {
+                'low_carbon_travel': '🚲 低碳出行',
+                'energy_saving': '💡 节能减排',
+                'waste_classification': '🗑️ 垃圾分类',
+                'green_consumption': '🛒 绿色消费',
+                'diet_eco': '🥗 饮食环保',
+                'water_conservation': '💧 水资源保护',
+                'renewable_energy': '☀️ 清洁能源',
+                'carbon_offset': '🌳 碳补偿'
+            };
+            return map[interestId] || interestId;
+        }
+
+        function getSuggestionStrategy(knowledgeLevel, behaviorStage, ctx) {
+            const stageStrategies = {
+                '无意向': '我会从最简单的行动开始，帮助你逐步培养低碳意识。',
+                '意向': '我来帮你分析利弊，解答疑惑，坚定你的低碳决心。',
+                '准备': '我会提供具体的行动计划，帮你迈出第一步。',
+                '行动': '继续坚持！我会提供进阶技巧，帮助你做得更好。',
+                '维持': '你是低碳达人！我会分享最新资讯和创新方法。'
+            };
+
+            const baseStrategy = stageStrategies[behaviorStage] || stageStrategies['意向'];
+
+            if (ctx && ctx.confirmed_interests && ctx.confirmed_interests.length > 0) {
+                return `根据你关注 ${ctx.confirmed_interests.join('、')} 的情况，${baseStrategy}`;
+            }
+
+            return baseStrategy;
+        }
+
+        // 页面加载时获取统计
+        loadKnowledgeStats();
+
+        // 检查服务器连接状态
+        checkConnection();
+
+        // 检查登录状态
+        checkAuthStatus();
+
+        // API Key 相关函数
+        const MODEL_RECOMMENDATIONS = {
+            'openai': '<strong>推荐模型：</strong>gpt-4o-mini（性价比高，响应快）<br/>如需更强能力可选 gpt-4o，但成本较高',
+            'minimax': '<strong>推荐模型：</strong>abab6.5s（速度快，价格低）<br/>支持200k上下文，MoE架构',
+            'zhipu': '<strong>推荐模型：</strong>glm-4-flash（免费额度充足）<br/>高性能可选 glm-4',
+            'baidu': '<strong>推荐模型：</strong>ernie-4.0-8k（综合能力强）<br/>高速可选 ernie-speed-128k',
+            'ali': '<strong>推荐模型：</strong>qwen-plus（性价比高）<br/>最强能力可选 qwen-max',
+            'deepseek': '<strong>推荐模型：</strong>deepseek-chat（成本极低）<br/>最强推理可选 deepseek-coder'
+        };
+
+        function onProviderChange() {
+            const provider = document.getElementById('api-provider-select').value;
+            document.getElementById('model-recommend').innerHTML = MODEL_RECOMMENDATIONS[provider] || '';
+            
+            // 清空 API Key 输入
+            document.getElementById('api-key-input').value = '';
+            document.getElementById('api-model-input').value = '';
+        }
+
+        function showApiKeyModal() {
+            const modal = document.getElementById('api-key-modal');
+            modal.classList.remove('hidden');
+            
+            // 读取已保存的设置
+            const savedProvider = localStorage.getItem('api_provider') || 'openai';
+            document.getElementById('api-provider-select').value = savedProvider;
+            onProviderChange();
+            
+            document.getElementById('api-key-input').value = localStorage.getItem('api_key') || '';
+            document.getElementById('api-model-input').value = localStorage.getItem('api_model') || '';
+        }
+
+        function hideApiKeyModal() {
+            document.getElementById('api-key-modal').classList.add('hidden');
+        }
+
+        function saveApiKey() {
+            const provider = document.getElementById('api-provider-select').value;
+            const apiKey = document.getElementById('api-key-input').value.trim();
+            const model = document.getElementById('api-model-input').value.trim();
+
+            if (apiKey) {
+                // 保存到 localStorage
+                localStorage.setItem('api_provider', provider);
+                localStorage.setItem('api_key', apiKey);
+                if (model) {
+                    localStorage.setItem('api_model', model);
+                } else {
+                    localStorage.removeItem('api_model');
+                }
+
+                // 自动注册（如果还没注册）
+                if (!userId) {
+                    userId = 'user_' + Date.now();
+                    localStorage.setItem('green_agent_user_id', userId);
+                    isRegistered = true;
+                    console.log('[API Key] 自动注册用户:', userId);
+
+                    // 隐藏 onboarding 弹窗
+                    const modal = document.getElementById('onboarding-modal');
+                    if (modal) {
+                        modal.style.display = 'none';
+                        modal.style.visibility = 'hidden';
+                    }
+                }
+
+                // 将设置发送到后端
+                fetch('/api/settings/api-key', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        provider: provider,
+                        api_key: apiKey,
+                        model: model || null
+                    })
+                }).then((response) => {
+                    if (response.ok) {
+                        // 显示成功提示
+                        showApiKeySuccessIndicator();
+                        hideApiKeyModal();
+                    } else {
+                        throw new Error('保存失败');
+                    }
+                }).catch(err => {
+                    console.warn('保存设置失败:', err);
+                    showPersonalizationIndicator('保存失败，请重试');
+                });
+            } else {
+                localStorage.removeItem('api_key');
+                localStorage.removeItem('api_model');
+                hideApiKeyModal();
+            }
+        }
+
+        // 显示 API Key 保存成功提示
+        function showApiKeySuccessIndicator() {
+            const indicator = document.createElement('div');
+            indicator.style.cssText = `
+                position: fixed;
+                top: 80px;
+                left: 50%;
+                transform: translateX(-50%);
+                background: linear-gradient(135deg, #10b981, #059669);
+                color: white;
+                padding: 15px 30px;
+                border-radius: 25px;
+                font-size: 15px;
+                font-weight: 500;
+                box-shadow: 0 4px 20px rgba(16, 185, 129, 0.4);
+                z-index: 3000;
+                animation: slideDown 0.3s ease;
+            `;
+            indicator.innerHTML = '✅ API Key 保存成功！智能体已准备就绪';
+            indicator.id = 'api-key-success';
+            document.body.appendChild(indicator);
+
+            // 3秒后自动消失
+            setTimeout(() => {
+                indicator.style.opacity = '0';
+                indicator.style.transition = 'opacity 0.5s ease';
+                setTimeout(() => indicator.remove(), 500);
+            }, 3000);
+        }
+
+        // 检查服务器连接
+        function checkConnection() {
+            const statusEl = document.getElementById('connection-status');
+            const textEl = document.getElementById('connection-text');
+
+            fetch('/api/health')
+                .then(response => {
+                    if (response.ok) {
+                        statusEl.className = 'connection-status status-connected';
+                        textEl.textContent = '已连接';
+                    } else {
+                        statusEl.className = 'connection-status status-disconnected';
+                        textEl.textContent = '连接异常';
+                    }
+                })
+                .catch(err => {
+                    console.error('[连接] 无法连接到后端:', err);
+                    statusEl.className = 'connection-status status-disconnected';
+                    textEl.textContent = '未连接';
+                });
+        }
+
+        // 立即检查一次连接状态
+        checkConnection();
+        // 定期检查连接状态
+        setInterval(checkConnection, 30000);
+    </script>
+</body>
+</html>
