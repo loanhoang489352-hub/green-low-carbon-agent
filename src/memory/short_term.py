@@ -283,5 +283,35 @@ class ShortTermMemory:
                     preferences["actions"].append(content)
                 elif intent in ["feedback", "suggestion_accept", "suggestion_reject"]:
                     preferences["feedback"].append(content)
-        
+
         return preferences
+
+
+# ============================================================
+# 单例工厂
+# ============================================================
+import threading
+
+_short_term_instance: Optional["ShortTermMemory"] = None
+_short_term_lock = threading.Lock()
+
+
+def get_short_term_memory() -> "ShortTermMemory":
+    """获取共享的 ShortTermMemory 单例。
+
+    GreenAgent / LangGraphAgent / MemoryConsolidator 必须共享同一个实例,
+    否则会出现写入与读取不在同一对象上的数据竞争,导致记忆丢失。
+    """
+    global _short_term_instance
+    if _short_term_instance is None:
+        with _short_term_lock:
+            if _short_term_instance is None:
+                _short_term_instance = ShortTermMemory()
+    return _short_term_instance
+
+
+def reset_short_term_memory() -> None:
+    """重置单例(仅供测试使用)。"""
+    global _short_term_instance
+    with _short_term_lock:
+        _short_term_instance = None

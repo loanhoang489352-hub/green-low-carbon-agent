@@ -22,7 +22,7 @@ from agent.graph import (
 )
 from user_profile.user_profile import UserProfileManager
 from user_profile.dynamic_updater import get_profile_updater
-from memory.short_term import ShortTermMemory
+from memory.short_term import ShortTermMemory, get_short_term_memory
 from memory.long_term import LongTermMemory
 
 
@@ -79,7 +79,7 @@ class LangGraphAgent:
             knowledge_base_path = str(project_root / "knowledge_base")
         self.knowledge_base_path = knowledge_base_path
 
-        self.short_term_memory = ShortTermMemory()
+        self.short_term_memory = get_short_term_memory()
         self.long_term_memory = LongTermMemory()
         self.profile_manager = UserProfileManager()
         self.dynamic_updater = get_profile_updater()

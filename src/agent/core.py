@@ -125,7 +125,8 @@ class GreenAgent:
         if enable_rag:
             self._init_rag_engine(knowledge_base_path)
 
-        self.short_term_memory = ShortTermMemory()
+        from memory.short_term import get_short_term_memory
+        self.short_term_memory = get_short_term_memory()
         self.long_term_memory = LongTermMemory()
         self.profile_manager = UserProfileManager()
         self.dynamic_updater = get_profile_updater()
@@ -254,7 +255,8 @@ class GreenAgent:
                 next_question = q
                 break
 
-        if step == len(questions):
+        # 已完成所有问题
+        if next_step >= len(questions):
             self.profile_manager.complete_onboarding(user_id, profile.get("basic_info", {}))
             return {
                 "success": True,

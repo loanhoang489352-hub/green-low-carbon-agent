@@ -16,7 +16,7 @@ from src.agent.response import ResponseGenerator, ResponseContext
 from src.knowledge.manager import KnowledgeManager
 from src.memory.short_term import ShortTermMemory
 from src.memory.long_term import LongTermMemory
-from src.profile.user_profile import UserProfileManager
+from src.user_profile.user_profile import UserProfileManager
 from src.policy.updater import PolicyUpdater
 
 
