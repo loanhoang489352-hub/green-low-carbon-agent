@@ -236,24 +236,9 @@ class ResponseGenerator:
         }
 
     def _determine_response_type(self, context: ResponseContext) -> str:
-        """根据上下文确定响应类型"""
-        type_mapping = {
-            "knowledge_query": "knowledge",
-            "advice_request": "advice",
-            "action_report": "encouragement",
-            "feedback": "acknowledgment",
-            "greeting": "greeting",
-            "suggestion_accept": "positive",
-            "suggestion_reject": "alternative",
-            "question": "knowledge",
-            "unknown": "clarification",
-        }
-        intent = getattr(context, "intent_type", None)
-        if isinstance(intent, str):
-            return type_mapping.get(intent, "general")
-        if hasattr(intent, "value"):
-            return type_mapping.get(intent.value, "general")
-        return "general"
+        """根据上下文确定响应类型(委托给 response_mapper)"""
+        from agent.response_mapper import map_intent_to_response_type
+        return map_intent_to_response_type(getattr(context, "intent_type", None))
 
     def _generate_greeting(self, context: ResponseContext) -> str:
         """生成问候响应"""
