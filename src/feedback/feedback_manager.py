@@ -132,6 +132,7 @@ class FeedbackManager:
         if feedback_type == 'comment' and not comment:
             return {"success": False, "error": "评论内容不能为空"}
 
+        result: Dict[str, Any] = {"success": False, "error": "uninitialized"}
         try:
             conn = _get_connection()
             cursor = conn.cursor()
@@ -155,12 +156,14 @@ class FeedbackManager:
                         ''', (feedback_type, reason, None, datetime.now().isoformat(), row['id']))
                         conn.commit()
                         conn.close()
-                        return {
+                        result = {
                             "success": True,
                             "action": "updated",
                             "feedback_type": feedback_type,
                             "message_id": message_id
                         }
+                        self._publish_feedback_event(user_id, feedback_type, reason, comment, message_id)
+                        return result
 
             # 如果是评论，允许同一条消息多条评论
             if feedback_type == 'comment':
@@ -171,12 +174,14 @@ class FeedbackManager:
                 ''', (message_id, user_id, conversation_id, feedback_type, None, comment, datetime.now().isoformat()))
                 conn.commit()
                 conn.close()
-                return {
+                result = {
                     "success": True,
                     "action": "added",
                     "feedback_type": feedback_type,
                     "message_id": message_id
                 }
+                self._publish_feedback_event(user_id, feedback_type, reason, comment, message_id)
+                return result
 
             # 新增点赞/点踩
             cursor.execute('''
@@ -187,18 +192,43 @@ class FeedbackManager:
             conn.commit()
             conn.close()
 
-            return {
+            result = {
                 "success": True,
                 "action": "added",
                 "feedback_type": feedback_type,
                 "message_id": message_id
             }
+            self._publish_feedback_event(user_id, feedback_type, reason, comment, message_id)
+            return result
 
         except sqlite3.IntegrityError:
             return {"success": False, "error": "该反馈已存在"}
         except Exception as e:
             print(f"[FeedbackManager] 添加反馈失败: {e}")
             return {"success": False, "error": str(e)}
+
+    def _publish_feedback_event(
+        self,
+        user_id: str,
+        feedback_type: str,
+        reason: Optional[str],
+        comment: Optional[str],
+        message_id: str,
+    ) -> None:
+        """发布反馈事件,让用户画像/长期记忆订阅并回流"""
+        try:
+            from events import get_event_bus, EventType
+            get_event_bus().publish(
+                EventType.FEEDBACK_RECEIVED,
+                user_id=user_id,
+                feedback_type=feedback_type,
+                reason=reason,
+                comment=comment,
+                message_id=message_id,
+            )
+        except Exception as e:
+            # 事件发布失败不应阻塞反馈主流程
+            print(f"[FeedbackManager] 事件发布失败(非阻塞): {e}")
 
     def remove_feedback(self, message_id: str, user_id: str, feedback_type: str = None) -> bool:
         """

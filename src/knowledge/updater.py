@@ -658,6 +658,9 @@ class KnowledgeUpdater:
 
     def process_updates(self, results: List[UpdateResult]):
         """处理更新内容：智能合并到知识库"""
+        from events import get_event_bus, EventType
+
+        affected_paths = []
         for result in results:
             if not result.has_update or not result.new_content:
                 continue
@@ -677,12 +680,23 @@ class KnowledgeUpdater:
                 merged_content = self._merger.merge_content(existing_path, parsed)
                 existing_path.write_text(merged_content, encoding='utf-8')
                 print(f"[KnowledgeUpdater] 已合并更新到: {existing_path.name}")
+                affected_paths.append(str(existing_path))
             else:
                 # 保存为新文档
-                self._save_new_document(parsed, result.source)
+                new_path = self._save_new_document(parsed, result.source)
+                if new_path:
+                    affected_paths.append(str(new_path))
 
-    def _save_new_document(self, content: ParsedContent, source_name: str):
-        """保存为新文档"""
+        # 发布事件,让 RAG 引擎订阅并重载
+        if affected_paths:
+            get_event_bus().publish(
+                EventType.KNOWLEDGE_UPDATED,
+                paths=affected_paths,
+                count=len(affected_paths),
+            )
+
+    def _save_new_document(self, content: ParsedContent, source_name: str) -> Optional[str]:
+        """保存为新文档,返回保存的文件路径字符串"""
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         safe_title = re.sub(r'[^\w一-鿿]+', '_', content.title)[:50]
         filename = f"{safe_title}_{timestamp}.md"
@@ -701,8 +715,10 @@ processed_at: {datetime.now().isoformat()}
                 f.write(front_matter)
                 f.write(content.content)
             print(f"[KnowledgeUpdater] 已保存新文档: {filename}")
+            return str(filepath)
         except Exception as e:
             print(f"[KnowledgeUpdater] 保存文档失败: {e}")
+            return None
 
     def save_updates(self, updates: List[UpdateResult]):
         """保存更新内容到知识库（兼容旧接口）"""
