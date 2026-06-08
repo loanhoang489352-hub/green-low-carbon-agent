@@ -527,4 +527,62 @@ def adjust_preference(user_profile, feedback):
 
 ---
 
-*文档版本: v2.0 | 创建日期: 2026-04-11 | 更新日期: 2026-04-11*
+## 10. 已知缺陷与重构计划(2026-06 增补)
+
+### 10.1 已完成的重构阶段(P0–P3,7 个 commit)
+
+| 阶段 | Commit | 摘要 |
+|---|---|---|
+| P0 | `0b06688` | 4 个真实 API 密钥轮换 + git-filter-repo 清理历史 + 5 个致命 Bug |
+| P1 | `cd32f86` | ThreadingHTTPServer + DB WAL + 工具超时 + ReAct step_count |
+| P2 | `ac722eb` | `paths.py` + `config.py` + `response_mapper.py` + 死代码清理 |
+| P2-余 | `57808a4` | `config/cities.yaml` + `config/sources.yaml` 外部化 |
+| P2-余 | `2d38ad0` | main.py 1045 行 → `src/server/{routers,app}.py` 13 路由 |
+| P1-余 | `a668c28` | planner 失败任务显式化 + GraphRAG O(N²)→O(N) |
+| P3 | `37966cc` | 事件总线 + 知识库更新事件 + 反馈→画像回流 + Schema Registry |
+
+### 10.2 核心愿景差距(2026-06 三路审计识别 24 项)
+
+#### 10.2.1 三层记忆未真正打通
+- `MemoryConsolidator` 是死代码,`get_consolidator` 全代码库 0 处调用(`src/memory/consolidation.py:282`)
+- LangGraph 6 节点(`src/agent/graph/nodes.py`)完全未调 `short_term_memory.add_message`
+- 长期记忆的 `importance` / `access_count` / `last_accessed` 写入后**永不更新**
+- "记忆召回"是假的:仅按 `created_at DESC` 取最近 3 条,无语义检索
+- `langgraph_agent.py:89` 独立 `active_conversations`,与 `core.py:142` 不互通
+- 缺少"短期→长期"与"对话→画像"的端到端测试
+
+#### 10.2.2 用户画像未图谱化
+- `UserProfileManager` 实际只读写 `profile_data` 单 JSON 字段,**7 字段表 schema 形同虚设**
+- `profile_graph.py`(500 行 `UserProfileGraph`)**未在 `__init__.py` 导出**,全代码库 0 引用
+- `BehaviorTracker` 用 `behaviors` 表,与 Schema Registry 的 `behavior_events` 表**双表分裂**,无写入 `behavior_events`
+- `goal_tracker.py:82` / `achievement_system.py:192` / `carbon_footprint.py` 全是内存 dict,进程重启即清零
+
+#### 10.2.3 知行闭环未真正闭环
+- `get_suggestion_strategy` 返回的 `focus` / `suggestion_intensity` / `action_complexity` 在 `llm/response_generator.py:212-228` **未消费**,LLM 只看到 `behavior_stage` 字符串
+- `main.py` 未调 `register_feedback_subscribers()`,反馈事件"注册了但没接上"
+
+#### 10.2.4 知识/政策同步断点
+- `rag_subscriber.py:18-20` 是占位,只打日志不重载 RAG
+- `schedule_daily_update` / `start_auto_update` 无任何调用点
+- `policy/updater.py:411` 自承"模拟检查",`check_updates` 是空操作
+- 知识库无个性化,`retrieve_knowledge` 节点不传 `filter_metadata`
+
+### 10.3 重构计划(2026 年 6 月起)
+
+详见 `~/.claude/plans/bug-agent-groovy-flute.md`,8 个子阶段:
+
+| 阶段 | 主题 | 状态 |
+|---|---|---|
+| P3-余 | 文档同步 + 依赖瘦身 + 抽象收敛 | 🔵 进行中 |
+| P4-A | 启动时事件订阅 + APScheduler + LangGraph Checkpointer | 🔵 待开始 |
+| P4-B | 三层记忆真正打通(consolidation 接入、节点写短记、热度衰减、记忆召回、ConversationStore) | 🔵 待开始 |
+| P4-C | 用户画像图谱化(JSON 内嵌图谱 + 行为事件统一 + Goal/Achievement/CarbonFootprint 持久化) | 🔵 待开始 |
+| P4-D | 行为阶段真正驱动 LLM(差异化 system prompt) | 🔵 待开始 |
+| P4-E | 实时知识/政策同步 + RAG 自动重载(httpx+BS4 政策爬取 + content_hash 去重) | 🔵 待开始 |
+| P4-F | 知识库个性化(按地区/兴趣过滤 + 推荐混合 RAG+静态库) | 🔵 待开始 |
+| P4-G | 9 个端到端测试补全 | 🔵 待开始 |
+
+---
+
+*文档版本: v2.1 | 创建日期: 2026-04-11 | 更新日期: 2026-06-09*
+

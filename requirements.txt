@@ -1,10 +1,25 @@
-# LangGraph 智能体框架
-langgraph>=0.0.20
+# 绿色低碳智能体 — 生产依赖
+# 锁版本,基于 2026-06 Python 3.14 环境实测
 
-# RAG 和嵌入依赖
-sentence-transformers>=2.2.0
-chromadb>=0.4.0
-numpy>=1.24.0
+# LangGraph / LangChain
+langgraph>=0.2.0
+langchain-core>=0.3.0
+typing-extensions>=4.12.0
 
-# 可选：支持 OpenAI 嵌入
-# openai>=1.0.0
+# RAG 与嵌入
+chromadb>=1.5.0
+sentence-transformers>=5.0.0
+numpy>=2.0.0
+
+# 数据存储 / 持久化
+pydantic>=2.12.0
+bcrypt>=5.0.0
+
+# 知识/政策更新
+requests>=2.33.0
+beautifulsoup4>=4.12.0
+trafilatura>=1.6.0
+urllib3>=2.0.0
+
+# 配置
+pyyaml>=6.0.0

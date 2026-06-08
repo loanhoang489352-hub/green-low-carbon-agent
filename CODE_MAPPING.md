@@ -8,11 +8,17 @@
 
 | SPEC 章节 | 实现位置 | 说明 |
 |-----------|---------|------|
-| 技术架构概览 | `src/main.py` | HTTP服务器入口，路由分发 |
-| 核心引擎 | `src/agent/core.py` | `GreenAgent` 类，整合所有模块 |
+| 技术架构概览 | `src/main.py` → `src/server/app.py` | HTTP 入口(委托给 RoutedRequestHandler) |
+| HTTP 路由 | `src/server/routers/` | 8 个 router 文件,13 条路由 |
+| 路由注册 | `src/server/router.py` | `RouterRegistry` + `Route` dataclass |
+| 核心引擎 | `src/agent/core.py` | `GreenAgent` 类,整合所有模块 |
 | 意图理解 | `src/agent/intent.py` | `IntentRecognizer` 类 |
-| 响应生成 | `src/agent/response.py` | `ResponseGenerator` 类 |
-| LangGraph架构 | `src/agent/langgraph_agent.py` | 预留扩展接口 |
+| 响应生成 | `src/agent/response.py` + `src/agent/response_mapper.py` | IntentType → response_type 单一映射 |
+| LangGraph 架构 | `src/agent/langgraph_agent.py` | StateGraph 替代实现 |
+| 路径管理 | `src/paths.py` | PROJECT_ROOT / DATA_DIR / 各 DB 路径 |
+| 配置管理 | `src/config.py` + `src/config_loader.py` | Pydantic Settings + YAML 加载 |
+| Schema Registry | `src/db_schema.py` | 6 个 SQLite DB 集中管理 |
+| 事件总线 | `src/events.py` | EventBus + EventType(订阅/发布) |
 
 ---
 
@@ -93,9 +99,19 @@
 
 | SPEC 功能 | 代码实现 | 说明 |
 |-----------|---------|------|
-| 政策更新器 | `src/policy/updater.py` | `PolicyUpdater` 类 |
-| 政策数据库 | 内存存储 | `get_latest_policies()` 方法 |
+| 政策更新器 | `src/policy/updater.py` | `PolicyUpdater` 类(2026 计划实爬 httpx+BS4) |
+| 政策源配置 | `config/sources.yaml` | P2-余 外部化 |
+| 政策数据库 | `data/policy_updates.db` | SQLite(policies + update_logs) |
 | 政策摘要 | `src/policy/updater.py` | `generate_policy_summary()` 方法 |
+| 政策→RAG 事件 | `src/policy/updater.py` → `src/rag/rag_subscriber.py` | 2026 计划(P4-E) |
+
+### 2.6 用户引导流程(Onboarding)
+
+| SPEC 功能 | 代码实现 | 说明 |
+|-----------|---------|------|
+| 引导路由 | `src/server/routers/onboarding.py` | `/api/onboarding/{start,answer,status}` |
+| 引导核心 | `src/agent/core.py` | `start_onboarding()` / `process_onboarding_answer()` |
+| 8 步问卷 | `src/user_profile/user_profile.py:701-796` | 年龄/性别/地区/收入/家庭/兴趣/知识/阶段 |
 
 ---
 
@@ -180,22 +196,24 @@ hybrid_score = semantic_weight × semantic_similarity + (1 - semantic_weight) ×
 
 | 接口端点 | 方法 | 实现位置 | 功能 |
 |---------|------|---------|------|
-| `/api/chat` | POST | `main.py` | 基础对话 |
-| `/api/chat/enhanced` | POST | `main.py` | 增强对话(RAG+个性化) |
-| `/api/user/register` | POST | `main.py` | 用户注册 |
-| `/api/user/update` | POST | `main.py` | 更新画像 |
-| `/api/profile/{user_id}` | GET | `main.py` | 获取画像 |
-| `/api/personalization/{user_id}` | GET | `main.py` | 获取个性化上下文 |
-| `/api/stats/{user_id}` | GET | `main.py` | 用户统计 |
-| `/api/knowledge/stats` | GET | `main.py` | 知识库统计 |
-| `/api/rag/stats` | GET | `main.py` | RAG统计 |
-| `/api/policy/latest` | GET | `main.py` | 最新政策 |
-| `/api/policy/summary` | GET | `main.py` | 政策摘要 |
-| `/api/onboarding/status` | POST | `main.py` | 引导状态 |
-| `/api/onboarding/start` | POST | `main.py` | 开始引导 |
-| `/api/onboarding/answer` | POST | `main.py` | 回答引导问题 |
-| `/api/onboarding/questions` | GET | `main.py` | 引导问题列表 |
-| `/api/health` | GET | `main.py` | 健康检查 |
+| `/api/health` | GET | `server/routers/system.py` | 健康检查 |
+| `/api/chat` | POST | `server/routers/system.py` | 基础对话 |
+| `/api/chat/enhanced` | POST | `server/routers/system.py` | 增强对话(RAG+个性化) |
+| `/api/auth/register` | POST | `server/routers/auth.py` | 用户注册 |
+| `/api/auth/login` | POST | `server/routers/auth.py` | 登录 |
+| `/api/auth/logout` | POST | `server/routers/auth.py` | 登出 |
+| `/api/profile` | GET/PUT | `server/routers/profile.py` | 获取/更新画像 |
+| `/api/onboarding/start` | POST | `server/routers/onboarding.py` | 开始引导 |
+| `/api/onboarding/answer` | POST | `server/routers/onboarding.py` | 回答引导问题 |
+| `/api/feedback` | POST | `server/routers/feedback.py` | 提交反馈 |
+| `/api/knowledge/stats` | GET | `server/routers/knowledge.py` | 知识库统计 |
+| `/api/knowledge/query` | POST | `server/routers/knowledge.py` | 知识库查询 |
+| `/api/knowledge/reload` | POST | `server/routers/knowledge.py` | 强制 RAG 重建 |
+| `/api/policy/latest` | GET | `server/routers/policy.py` | 最新政策 |
+| `/api/policy/summary` | GET | `server/routers/policy.py` | 政策摘要 |
+| `/api/policy/sync` | POST | `server/routers/policy.py` | 触发政策爬取 |
+| `/api/memory/short` | GET | `server/routers/memory.py` | 短期记忆 |
+| `/api/memory/long` | GET | `server/routers/memory.py` | 长期记忆 |
 
 ---
 
@@ -213,18 +231,46 @@ hybrid_score = semantic_weight × semantic_similarity + (1 - semantic_weight) ×
 
 ## 六、测试文件
 
-| 测试类型 | 文件 |
-|---------|------|
-| 核心修复验证 | `verify_fixes.py` |
-| 全面功能测试 | `test_comprehensive.py` |
-| 单元测试 | `tests/test_unit.py` |
-| 原有的测试 | `tests/test_agent.py` |
+| 测试类型 | 文件 | 覆盖点 |
+|---------|------|--------|
+| 事件总线 + 反馈回流 | `tests/test_p3_integration.py` | EventBus / FEEDBACK_RECEIVED / KNOWLEDGE_UPDATED |
+| Schema Registry | `tests/test_schema_registry.py` | 6 DB 初始化/幂等/元数据 |
+| 短期记忆单例 | `tests/test_memory_singleton.py` | 双检锁、并发 |
+| 响应映射 | `tests/test_response_mapper.py` | IntentType → response_type 覆盖 |
+| 路由系统 | `tests/test_router_system.py` | 13 路由注册与分发 |
+| 配置外部化 | `tests/test_config_externalization.py` | cities.yaml / sources.yaml 加载 |
+| P1-余 Bug | `tests/test_p1_remaining.py` | planner 失败可见 + GraphRAG O(N) 去重 |
+| 密钥安全 | `tests/test_secrets.py` | .env 占位符、.gitignore 命中 |
+| 原有功能 | `tests/test_agent.py`, `tests/test_intent.py`, `tests/test_knowledge.py` | 意图/知识库 |
+| **2026 计划补全** | `tests/test_memory_e2e.py` 等 9 个 | 见 P4-G |
 
 ---
 
 ## 七、修复记录
 
-本次开发计划中修复的Bug：
+### P0–P3 重构期间修复(7 个 commit)
+
+| Bug | 文件:行 | 修复内容 |
+|-----|---------|---------|
+| 4 个真实 API 密钥入库 | `.env` | 轮换为 `__SET_ME__` 占位符,`git-filter-repo` 清理历史 |
+| `provider_key_map["minimax"]` | `src/main.py:553-577` | 改为正确大小写 `"MiniMax"` |
+| onboarding 步骤分支重叠 | `src/agent/core.py:266` | `step >= len(questions) - 1`,显式 return |
+| `_determine_response_type` 签名参数 | `src/agent/response.py:88-90` | 改为基于 `intent_type + entities` 计算 |
+| `ShortTermMemory` 数据竞争 | `src/memory/short_term.py` | 双检锁单例,`get_short_term_memory()` 工厂 |
+| `ThreadingHTTPServer` 缺失 | `src/main.py` | 改用 ThreadingHTTPServer 支持并发 |
+| `Content-Length` 早返 413 缺失 | `src/main.py:222-228` | body 解析前 `int(headers.get('Content-Length',0)) > 2_000_000` |
+| SQLite WAL 模式未启用 | `src/memory/long_term.py:117-132` 等 | 所有连接加 `PRAGMA journal_mode=WAL` + busy_timeout |
+| `replace(day=32)` 月底溢出 | `src/knowledge/updater.py:760-787` | `calendar.monthrange(year, month)[1]` |
+| `graphrag.py` 4 层 parent 路径错误 | `src/rag/graphrag.py:260-263` | 显式"根→子类→实体→实例" |
+| `graphrag.py` 关系去重 O(N²) | `src/rag/graphrag.py:357` | `set` + frozenset 降到 O(N) |
+| planner 失败任务静默 | `src/agent/planner/planner.py:168-174` | 记入 `failed_tasks`,返回结构化错误 |
+| 城市/URL 硬编码 | `src/agent/graph/nodes.py:100` 等 | 外部化到 `config/cities.yaml` / `config/sources.yaml` |
+| 知识库更新不触发 RAG | `src/knowledge/updater.py` | 完成后 `publish KNOWLEDGE_UPDATED` |
+| 反馈不回流画像 | `src/feedback/feedback_manager.py` | 成功后 `publish FEEDBACK_RECEIVED` → `profile_subscriber` 消费 |
+| main.py 1045 行巨石 | `src/main.py` | 拆为 `src/server/{routers,app}.py` 13 路由 |
+| 6 个 SQLite DB schema 散落 | 各模块 `_init_database` | `src/db_schema.py` Schema Registry 统一管理 |
+
+### 历史修复
 
 | Bug | 文件 | 修复内容 |
 |-----|------|---------|
@@ -236,4 +282,4 @@ hybrid_score = semantic_weight × semantic_similarity + (1 - semantic_weight) ×
 
 ---
 
-*文档生成时间：2026-04-16*
+*文档生成时间: 2026-04-16 | 最后更新: 2026-06-09*
