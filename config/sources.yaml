@@ -1,0 +1,12 @@
+# 政策数据源
+# 供 policy/updater.py 加载,避免 URL 硬编码
+policy_sources:
+  - name: "国家发改委"
+    url: "https://www.ndrc.gov.cn/"
+    enabled: true
+  - name: "生态环境部"
+    url: "https://www.mee.gov.cn/"
+    enabled: true
+  - name: "中国政府网"
+    url: "https://www.gov.cn/"
+    enabled: true

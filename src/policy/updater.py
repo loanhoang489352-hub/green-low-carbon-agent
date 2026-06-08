@@ -13,6 +13,17 @@ import sys
 
 # 添加项目根目录
 project_root = Path(__file__).parent.parent.parent
+if str(project_root / 'src') not in sys.path:
+    sys.path.insert(0, str(project_root / 'src'))
+
+try:
+    from config_loader import get_policy_sources
+    _POLICY_SOURCES = get_policy_sources()
+except Exception:
+    _POLICY_SOURCES = [
+        {"name": "国家发改委", "url": "https://www.ndrc.gov.cn/", "enabled": True},
+        {"name": "生态环境部", "url": "https://www.mee.gov.cn/", "enabled": True},
+    ]
 if str(project_root) not in sys.path:
     sys.path.insert(0, str(project_root))
 
@@ -28,27 +39,13 @@ class PolicyUpdater:
     - 政策分类和标签
     """
     
-    # 政策来源配置
-    POLICY_SOURCES = [
-        {
-            "name": "国家发展改革委",
-            "url": "https://www.ndrc.gov.cn/",
-            "type": "national",
-            "check_interval_hours": 24
-        },
-        {
-            "name": "生态环境部",
-            "url": "https://www.mee.gov.cn/",
-            "type": "environmental",
-            "check_interval_hours": 24
-        },
-        {
-            "name": "国务院",
-            "url": "https://www.gov.cn/",
-            "type": "government",
-            "check_interval_hours": 48
-        }
+    # 政策来源配置(从 config/sources.yaml 加载,失败时回退到硬编码)
+    POLICY_SOURCES = _POLICY_SOURCES + [
+        # 若 YAML 未配置 type/check_interval_hours 时,补默认值
     ]
+    for _src in POLICY_SOURCES:
+        _src.setdefault("type", "national")
+        _src.setdefault("check_interval_hours", 24)
     
     # 政策分类
     POLICY_CATEGORIES = [

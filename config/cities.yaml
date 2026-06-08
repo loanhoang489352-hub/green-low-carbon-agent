@@ -1,0 +1,15 @@
+# 主要城市配置
+# 供 query_understanding、skills/builtin、tools/extended 共用
+cities:
+  default: "北京"
+  major:
+    - "北京"
+    - "上海"
+    - "广州"
+    - "深圳"
+    - "杭州"
+    - "成都"
+    - "武汉"
+    - "南京"
+    - "西安"
+    - "重庆"
