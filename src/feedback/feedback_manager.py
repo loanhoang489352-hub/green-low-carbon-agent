@@ -31,8 +31,11 @@ DB_PATH = str(data_dir / "feedback.db")
 
 
 def _get_connection() -> sqlite3.Connection:
-    """获取数据库连接"""
+    """获取数据库连接(启用 WAL 模式以支持并发)"""
     conn = sqlite3.connect(DB_PATH, check_same_thread=False)
+    conn.execute("PRAGMA journal_mode=WAL")
+    conn.execute("PRAGMA busy_timeout=5000")
+    conn.execute("PRAGMA synchronous=NORMAL")
     conn.row_factory = sqlite3.Row
     return conn
 

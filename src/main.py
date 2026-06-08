@@ -48,8 +48,12 @@ print("[DEBUG] Encoding setup done", flush=True)
 
 import json
 import uuid
-from http.server import HTTPServer, BaseHTTPRequestHandler
+from http.server import HTTPServer, BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import urlparse, parse_qs
+
+# 常量
+MAX_BODY_SIZE = 2_000_000  # 单次请求 body 最大 2MB
+DEFAULT_CORS_ORIGINS = "http://localhost:3000,http://127.0.0.1:3000,http://localhost:8000"
 
 print("[DEBUG] Imports done", flush=True)
 
@@ -212,6 +216,12 @@ class RequestHandler(BaseHTTPRequestHandler):
         path = parsed.path
 
         content_length = int(self.headers.get('Content-Length', 0))
+        if content_length > MAX_BODY_SIZE:
+            self.send_error(413, f"Request body too large (max {MAX_BODY_SIZE} bytes)")
+            return
+        if content_length < 0:
+            self.send_error(400, "Invalid Content-Length")
+            return
         body = self.rfile.read(content_length).decode('utf-8')
 
         try:
@@ -633,16 +643,25 @@ class RequestHandler(BaseHTTPRequestHandler):
 
         self.send_response(200)
         self.send_header("Content-type", "application/json; charset=utf-8")
-        self.send_header("Access-Control-Allow-Origin", "*")
+        self.send_header("Access-Control-Allow-Origin", self._cors_origin())
         self.send_header("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
         self.send_header("Access-Control-Allow-Headers", "Content-Type")
         self.end_headers()
         self.wfile.write(json_str.encode("utf-8"))
 
+    @staticmethod
+    def _cors_origin() -> str:
+        """根据环境变量决定 CORS 来源,未配置时仅允许本地"""
+        allowed = os.environ.get("CORS_ORIGINS", DEFAULT_CORS_ORIGINS)
+        origins = [o.strip() for o in allowed.split(",") if o.strip()]
+        if not origins:
+            return "http://127.0.0.1:8000"
+        return ",".join(origins)
+
     def do_OPTIONS(self):
         """处理CORS预检请求"""
         self.send_response(200)
-        self.send_header("Access-Control-Allow-Origin", "*")
+        self.send_header("Access-Control-Allow-Origin", self._cors_origin())
         self.send_header("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
         self.send_header("Access-Control-Allow-Headers", "Content-Type")
         self.end_headers()
@@ -661,7 +680,7 @@ def run_server(host="0.0.0.0", port=8000):
     # Agent 会在第一次请求时才初始化
 
     print("[DEBUG] Creating HTTPServer...", flush=True)
-    server = HTTPServer((host, port), RequestHandler)
+    server = ThreadingHTTPServer((host, port), RequestHandler)
     print(f"[DEBUG] HTTPServer created on {(host, port)}", flush=True)
 
     print(f"\n" + "=" * 50, flush=True)
@@ -764,15 +783,19 @@ if __name__ == "__main__":
     parser.add_argument("--port", type=int, default=8000, help="服务器端口")
     parser.add_argument("--cli", action="store_true", help="使用命令行模式")
     parser.add_argument("--use-langgraph", action="store_true", help="使用 LangGraph 架构")
+    parser.add_argument("--no-langgraph", action="store_true", help="强制关闭 LangGraph(覆盖 .env)")
     parser.add_argument("--use-react", action="store_true", help="使用 ReAct 模式的 LangGraph")
 
     args = parser.parse_args()
 
-    if args.use_langgraph or args.use_react:
+    if args.no_langgraph:
+        os.environ["USE_LANGGRAPH"] = "false"
+        os.environ["LANGGRAPH_MODE"] = ""
+    elif args.use_langgraph or args.use_react:
         os.environ["USE_LANGGRAPH"] = "true"
         if args.use_react:
             os.environ["LANGGRAPH_MODE"] = "react"
-        print(f"[启动] LangGraph 模式已启用 (ReAct: {args.use_react})")
+    print(f"[启动] LangGraph 模式: USE_LANGGRAPH={os.environ.get('USE_LANGGRAPH', 'false')}, MODE={os.environ.get('LANGGRAPH_MODE', '')}")
 
     if args.cli:
         run_cli()

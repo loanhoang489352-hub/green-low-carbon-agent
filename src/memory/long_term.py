@@ -49,6 +49,10 @@ class LongTermMemory:
     def _init_database(self):
         """初始化数据库表"""
         conn = sqlite3.connect(str(self.db_path))
+        # 启用 WAL 模式支持并发读写,设置 busy_timeout 避免短时间锁定
+        conn.execute("PRAGMA journal_mode=WAL")
+        conn.execute("PRAGMA busy_timeout=5000")
+        conn.execute("PRAGMA synchronous=NORMAL")
         cursor = conn.cursor()
         
         # 用户记忆表

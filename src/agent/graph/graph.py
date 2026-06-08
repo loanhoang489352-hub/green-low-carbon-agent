@@ -170,11 +170,15 @@ class ReActAgentGraph:
     def _think_node(self, state: AgentState) -> AgentState:
         """思考节点: 分析当前状态，决定下一步行动"""
         nodes = get_nodes()
+        metadata = state.get("metadata", {})
+        # 递增 step_count 用于 ReAct 循环终止判断
+        step_count = metadata.get("step_count", 0) + 1
 
         return {
             "metadata": {
-                **state.get("metadata", {}),
+                **metadata,
                 "step": "think",
+                "step_count": step_count,
                 "thought": f"分析意图: {state.get('intent_type', 'unknown')}"
             }
         }
