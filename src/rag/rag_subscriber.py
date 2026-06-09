@@ -28,19 +28,32 @@ def _reload_rag(event_type, paths=None, count=None, **kwargs) -> None:
 
 
 def _do_rebuild(paths, count) -> None:
-    """实际执行重建
+    """实际执行重建(P4-E.1:优先用 RAGEngine 单例)
 
     路径:
-    1) 优先:调 main.get_agent().rag_engine.rebuild_index()(如果 agent 已初始化)
-    2) 退化:仅记录日志(P4-E 引入 RAGEngine 单例后改为路径 1)
+    1) 优先:通过 RAGEngine 单例 rebuild_index
+    2) 退化:调 main.get_agent().rag_engine(向后兼容)
+    3) 兜底:仅记录日志
     """
     try:
+        from paths import KNOWLEDGE_BASE_DIR
+        # 1) 优先单例
+        try:
+            from rag.rag_engine import get_rag_engine
+            engine = get_rag_engine()
+            if engine.is_enabled:
+                n = engine.rebuild_index(str(KNOWLEDGE_BASE_DIR))
+                logger.info("[RAG Subscriber] 索引已重建(单例): %d 个文档", n)
+                return
+        except Exception as e:
+            logger.warning("[RAG Subscriber] 单例方式失败, 退化: %s", e)
+
+        # 2) 退化到 main.get_agent()
         from main import get_agent
         agent = get_agent()
         if agent is not None and getattr(agent, "rag_engine", None) is not None:
-            from paths import KNOWLEDGE_BASE_DIR
             n = agent.rag_engine.rebuild_index(str(KNOWLEDGE_BASE_DIR))
-            logger.info("[RAG Subscriber] 索引已重建: %d 个文档, 共 %d 路径", n, count or 0)
+            logger.info("[RAG Subscriber] 索引已重建(agent): %d 个文档", n)
             return
         logger.info(
             "[RAG Subscriber] 知识库更新事件: %d 个文件, agent 未就绪, 仅记录日志",

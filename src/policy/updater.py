@@ -400,23 +400,25 @@ class PolicyUpdater:
             "errors": []
         }
         
-        # 模拟检查（实际使用时需要爬取网页）
+        # 实际爬取(P4-E.3):用 httpx + bs4 拿网页,失败回退通用提取
         for source in self.POLICY_SOURCES:
             try:
                 last_check = self._get_last_check_time(source["name"])
                 should_check = self._should_check_source(source, last_check)
-                
+
                 if should_check:
-                    # 实际环境中这里会爬取网页
-                    # 现在只是记录检查
-                    self._record_check(source["name"], 0, "checked")
-                    report["sources_checked"].append(source["name"])
+                    added = self._fetch_and_ingest(source)
+                    self._record_check(source["name"], added, "checked")
+                    report["new_policies"] += added
+                    report["sources_checked"].append(
+                        f"{source['name']} (新增 {added} 条)"
+                    )
                 else:
                     report["sources_checked"].append(f"{source['name']} (跳过: 未到更新时间)")
-            
+
             except Exception as e:
                 report["errors"].append(f"{source['name']}: {str(e)}")
-        
+
         return report
     
     def _get_last_check_time(self, source_name: str) -> Optional[str]:
@@ -458,7 +460,146 @@ class PolicyUpdater:
         
         conn.commit()
         conn.close()
-    
+
+    # ============== P4-E.3: 实际抓取 ==============
+
+    def _fetch_url(self, url: str, timeout: int = 30) -> Optional[str]:
+        """P4-E.3: 抓取 URL HTML(httpx,失败返回 None)"""
+        try:
+            import httpx
+            r = httpx.get(
+                url,
+                timeout=timeout,
+                follow_redirects=True,
+                headers={"User-Agent": "GreenAgent/1.0 (+https://example.com/bot)"},
+            )
+            r.raise_for_status()
+            # 检测编码
+            if r.encoding and r.encoding.lower() not in ("utf-8", "utf8"):
+                r.encoding = r.encoding or "utf-8"
+            return r.text
+        except Exception as e:
+            import logging
+            logging.getLogger(__name__).warning(
+                "[PolicyUpdater] 抓取失败: url=%s err=%s", url, e,
+            )
+            return None
+
+    def _extract_content(self, html: str, source_url: str = "") -> str:
+        """P4-E.3: 从 HTML 提取正文
+
+        优先级:
+        1) BeautifulSoup 针对 mee.gov.cn / ndrc.gov.cn 已知源用 CSS selector
+        2) trafilatura 通用提取(若已安装)
+        3) 退化:返回 body 文本
+        """
+        text = ""
+        try:
+            from bs4 import BeautifulSoup
+            soup = BeautifulSoup(html, "html.parser")
+            # 优先:常见正文容器
+            for selector in [
+                "div.TRS_Editor",
+                "div.article-content",
+                "div.content",
+                "div.main-content",
+                "article",
+                "main",
+            ]:
+                node = soup.select_one(selector)
+                if node:
+                    text = node.get_text(separator="\n", strip=True)
+                    if len(text) > 200:
+                        return text
+            # 退化:body 全部文本
+            body = soup.body
+            if body:
+                text = body.get_text(separator="\n", strip=True)
+            return text
+        except Exception:
+            pass
+
+        # 退化到 trafilatura(若可用)
+        try:
+            import trafilatura
+            extracted = trafilatura.extract(html)
+            if extracted:
+                return extracted
+        except ImportError:
+            pass
+        except Exception:
+            pass
+
+        return text
+
+    def _fetch_and_ingest(self, source: Dict) -> int:
+        """P4-E.3: 抓取源 → 提取 → 入库 → 发 KNOWLEDGE_UPDATED 事件
+
+        Args:
+            source: {name, url, type?, check_interval_hours?}
+
+        Returns:
+            新增政策数量
+        """
+        url = source.get("url", "")
+        if not url:
+            return 0
+        html = self._fetch_url(url)
+        if not html:
+            return 0
+        content = self._extract_content(html, url)
+        if not content or len(content) < 100:
+            return 0
+
+        # 提取标题(简单从 <title> 取)
+        title = source.get("name", "未命名政策")
+        try:
+            from bs4 import BeautifulSoup
+            soup = BeautifulSoup(html, "html.parser")
+            if soup.title and soup.title.string:
+                t = soup.title.string.strip()
+                if t and len(t) < 200:
+                    title = t
+        except Exception:
+            pass
+
+        # 入库(去重靠 policy_id)
+        try:
+            self.add_policy(
+                title=title,
+                content=content[:10000],  # 防过大
+                category=source.get("type", "其他"),
+                source=source.get("name", "unknown"),
+                source_url=url,
+                publish_date=datetime.now().strftime("%Y-%m-%d"),
+                summary=content[:200],
+                key_points=[],
+                impact_level="medium",
+            )
+        except Exception as e:
+            import logging
+            logging.getLogger(__name__).warning(
+                "[PolicyUpdater] 入库失败: %s", e,
+            )
+            return 0
+
+        # 发事件 → RAG 重建
+        try:
+            from events import get_event_bus, EventType
+            get_event_bus().publish(
+                EventType.KNOWLEDGE_UPDATED,
+                paths=[url],
+                count=1,
+                source="policy_updater",
+            )
+        except Exception as e:
+            import logging
+            logging.getLogger(__name__).warning(
+                "[PolicyUpdater] 发事件失败: %s", e,
+            )
+
+        return 1
+
     def generate_policy_summary(self, days: int = 7) -> str:
         """
         生成政策摘要

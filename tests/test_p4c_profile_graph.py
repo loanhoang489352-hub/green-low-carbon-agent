@@ -7,24 +7,56 @@
 """
 import sys
 import os
+import gc
 import tempfile
 import sqlite3
 import json
+import uuid
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
 
 
+def _unique(prefix: str = "u") -> str:
+    """每次调用生成唯一 user_id,避免测试间数据污染(Windows 文件锁场景)"""
+    return f"{prefix}_{uuid.uuid4().hex[:8]}"
+
+
 def _reset_behavior_db():
-    """删除 behavior_tracker.db 强制重建(P4-C 验证用)"""
-    for f in ("data/behavior_tracker.db",
-              "data/behavior_tracker.db-wal",
-              "data/behavior_tracker.db-shm"):
-        if os.path.exists(f):
+    """删除 behavior_tracker.db 强制重建(P4-C 验证用)
+
+    兜底:若删除失败(Windows 文件锁),改为 TRUNCATE 所有表。
+    """
+    db_path = Path("data/behavior_tracker.db")
+    deleted = False
+    for f in (db_path, db_path.with_suffix(".db-wal"), db_path.with_suffix(".db-shm")):
+        if f.exists():
             try:
-                os.remove(f)
+                f.unlink()
+                deleted = True
             except OSError:
                 pass
+    # 重置单例,让下次实例化时用新 db
+    try:
+        from user_profile import persistence as _p
+        _p._persistence = None
+    except ImportError:
+        pass
+    gc.collect()  # 释放 Python 侧的 sqlite3 Connection 引用
+    # 兜底:文件删不掉时,清空所有表的内容(只影响本测试用户的数据)
+    if not deleted and db_path.exists():
+        try:
+            conn = sqlite3.connect(str(db_path))
+            for table in ("behavior_events", "user_goals",
+                          "user_achievements", "carbon_footprint_log"):
+                try:
+                    conn.execute(f"DELETE FROM {table}")
+                except sqlite3.OperationalError:
+                    pass
+            conn.commit()
+            conn.close()
+        except sqlite3.Error:
+            pass
 
 
 def test_profile_graph_serialization():
@@ -119,10 +151,14 @@ def test_behavior_events_persistence():
     init_all_schemas()
 
     from user_profile.persistence import get_behavior_persistence
-    pers = get_behavior_persistence()
+    from user_profile import persistence as _pers_mod
+    # 强制用新 db 路径(单例重置)
+    _pers_mod._persistence = None
+    pers = _pers_mod.BehaviorPersistence()
+    uid = _unique("u_ev")
 
     ev_id = pers.record_event(
-        user_id="u_ev",
+        user_id=uid,
         event_type="出行",
         event_data={"vehicle": "公交"},
         intent_type="action_report",
@@ -131,7 +167,7 @@ def test_behavior_events_persistence():
     )
     assert ev_id > 0
 
-    events = pers.get_user_events("u_ev")
+    events = pers.get_user_events(uid)
     assert len(events) == 1
     e = events[0]
     assert e["event_type"] == "出行"
@@ -147,19 +183,22 @@ def test_goal_persistence():
     from db_schema import init_all_schemas
     init_all_schemas()
 
-    from user_profile.persistence import get_behavior_persistence
-    pers = get_behavior_persistence()
+    from user_profile import persistence as _pers_mod
+    _pers_mod._persistence = None
+    from user_profile.persistence import BehaviorPersistence
+    pers = BehaviorPersistence()
+    uid = _unique("u_g")
 
-    gid = pers.create_goal("u_g", "carbon_reduction", 5.0, deadline="2026-12-31")
+    gid = pers.create_goal(uid, "carbon_reduction", 5.0, deadline="2026-12-31")
     pers.update_goal_progress(gid, 3.0)
-    active = pers.get_active_goals("u_g")
+    active = pers.get_active_goals(uid)
     assert len(active) == 1
     assert active[0]["current_value"] == 3.0
     print(f"   goal {gid}: 3.0 / 5.0 active")
 
     # 完成
     pers.update_goal_progress(gid, 6.0)
-    active = pers.get_active_goals("u_g")
+    active = pers.get_active_goals(uid)
     assert len(active) == 0
     print(f"   goal {gid} auto-completed")
     print("✅ test_goal_persistence PASSED")
@@ -171,14 +210,17 @@ def test_achievement_persistence():
     from db_schema import init_all_schemas
     init_all_schemas()
 
-    from user_profile.persistence import get_behavior_persistence
-    pers = get_behavior_persistence()
+    from user_profile import persistence as _pers_mod
+    _pers_mod._persistence = None
+    from user_profile.persistence import BehaviorPersistence
+    pers = BehaviorPersistence()
+    uid = _unique("u_a")
 
-    ok1 = pers.grant_achievement("u_a", "first_ride", {"points": 10})
-    ok2 = pers.grant_achievement("u_a", "first_ride", {"points": 10})
+    ok1 = pers.grant_achievement(uid, "first_ride", {"points": 10})
+    ok2 = pers.grant_achievement(uid, "first_ride", {"points": 10})
     assert ok1 is True
     assert ok2 is False  # UNIQUE 冲突
-    achs = pers.get_user_achievements("u_a")
+    achs = pers.get_user_achievements(uid)
     assert len(achs) == 1
     print(f"   achievements: {[a['code'] for a in achs]}")
     print("✅ test_achievement_persistence PASSED")
@@ -190,12 +232,15 @@ def test_carbon_footprint_persistence():
     from db_schema import init_all_schemas
     init_all_schemas()
 
-    from user_profile.persistence import get_behavior_persistence
-    pers = get_behavior_persistence()
+    from user_profile import persistence as _pers_mod
+    _pers_mod._persistence = None
+    from user_profile.persistence import BehaviorPersistence
+    pers = BehaviorPersistence()
+    uid = _unique("u_c")
 
-    pers.record_carbon("u_c", "出行", 1.5, source="test")
-    pers.record_carbon("u_c", "用电", 2.0, source="test")
-    total = pers.calculate_weekly_total("u_c")
+    pers.record_carbon(uid, "出行", 1.5, source="test")
+    pers.record_carbon(uid, "用电", 2.0, source="test")
+    total = pers.calculate_weekly_total(uid)
     assert total >= 3.5
     print(f"   weekly total: {total}kg CO2e")
     print("✅ test_carbon_footprint_persistence PASSED")
@@ -207,17 +252,20 @@ def test_behavior_tracker_uses_persistence():
     from db_schema import init_all_schemas
     init_all_schemas()
 
-    from user_profile.persistence import get_behavior_persistence
+    from user_profile import persistence as _pers_mod
+    _pers_mod._persistence = None
+    from user_profile.persistence import BehaviorPersistence
     from user_profile.behavior_tracker import BehaviorTracker
 
-    pers = get_behavior_persistence()
+    pers = BehaviorPersistence()
     bt = BehaviorTracker()
-    bt.record_travel("u_bt", "自行车", 3.0)
+    uid = _unique("u_bt")
+    bt.record_travel(uid, "自行车", 3.0)
     # 注: record_diet / record_electricity 触发 AchievementSystem 中
     # 一个 _check_milestone 拼写错误的预存在 bug(非 P4-C 范围),
     # 此处仅验证 record_travel 路径
 
-    events = pers.get_user_events("u_bt", limit=20)
+    events = pers.get_user_events(uid, limit=20)
     assert len(events) >= 1
     types = {e["event_type"] for e in events}
     assert "出行" in types

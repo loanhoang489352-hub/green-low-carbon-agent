@@ -249,6 +249,7 @@ def _migrate_existing_columns() -> None:
     """
     migrations: List[Tuple[str, str, str, str]] = [
         # (db_path, table, column, type_with_default)
+        (str(BEHAVIOR_TRACKER_DB), "behavior_events", "event_data", "TEXT"),
         (str(BEHAVIOR_TRACKER_DB), "behavior_events", "intent_type", "TEXT"),
         (str(BEHAVIOR_TRACKER_DB), "behavior_events", "context", "TEXT"),
         (str(BEHAVIOR_TRACKER_DB), "behavior_events", "carbon_impact", "REAL"),

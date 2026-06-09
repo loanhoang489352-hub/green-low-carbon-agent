@@ -22,6 +22,7 @@ from dataclasses import dataclass
 import json
 import uuid
 import time
+import threading
 
 from .embedder import Embedder, create_embedder, SentenceTransformerEmbedder
 from .vector_store import VectorStore, Document, create_vector_store
@@ -459,3 +460,28 @@ class RAGEngine:
 def create_rag_engine(config: RAGConfig = None) -> RAGEngine:
     """工厂函数：创建 RAG 引擎"""
     return RAGEngine(config)
+
+
+# P4-E.1: RAGEngine 单例(双检锁),供 RAG 订阅者直接调用
+_rag_engine_instance: Optional["RAGEngine"] = None
+_rag_engine_lock = threading.Lock()
+
+
+def get_rag_engine(config: RAGConfig = None) -> RAGEngine:
+    """获取 RAG 引擎单例(P4-E.1)
+
+    首次调用时若传 config,则用该 config;之后忽略。
+    """
+    global _rag_engine_instance
+    if _rag_engine_instance is None:
+        with _rag_engine_lock:
+            if _rag_engine_instance is None:
+                _rag_engine_instance = RAGEngine(config or RAGConfig())
+    return _rag_engine_instance
+
+
+def reset_rag_engine() -> None:
+    """重置单例(测试用)"""
+    global _rag_engine_instance
+    with _rag_engine_lock:
+        _rag_engine_instance = None

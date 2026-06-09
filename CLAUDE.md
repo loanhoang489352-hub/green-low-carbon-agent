@@ -94,15 +94,22 @@ src/
 - 核心编排器,延迟加载各模块
 - 提供 `chat()` 和 `chat_enhanced()` 两个接口
 - 当 `USE_LANGGRAPH=true` 时委托给 LangGraph 工作流
-- P3-余 后通过 `get_consolidator()` 接入记忆整合(P4-B 完善)
-- `ConversationContext` 取代原 `session_manager.py`,在 P4-B 抽出独立 `ConversationStore`
+- **P4-B**:通过 `get_consolidator()` 接入记忆整合 + `_recall_memories()` 真正语义召回
+- **P4-B.5**:`ConversationContext` 抽出为独立 `src/agent/conversation_store.py` 单例,`active_conversations` / `user_conversations` 改为引用 store 内部 dict
 
 **`src/agent/langgraph_agent.py` - LangGraphAgent**
 - 基于 LangGraph StateGraph 的替代实现
-- 6 节点定义在 `agent/graph/nodes.py`(P4-B 接入短期记忆)
+- 6 节点定义在 `agent/graph/nodes.py`
 - 状态结构定义在 `agent/graph/state.py`
 - 支持 ReAct 模式(含反思节点)
-- P4-A 计划挂 SqliteSaver checkpointer
+- **P4-A**:挂 SqliteSaver checkpointer(`data/langgraph_checkpoints.db`,WAL 模式)
+- **P4-B.5**:与 GreenAgent 共享 `ConversationStore` 单例
+- **P4-B.1/B.2**:`generate_response` 节点末尾触发 consolidator
+
+**`src/agent/conversation_store.py` - 会话存储单例(P4-B.5)**
+- 双检锁单例,跨 GreenAgent / LangGraphAgent 共享
+- 持有 `user_id → conversation_id` 列表与 `conversation_id → ConversationContext` 映射
+- TTL 7 天,可由 scheduler 周期 `cleanup_expired()`
 
 **`src/server/` - HTTP 服务**
 - `app.py` 的 `init_app()` 完成订阅注册、调度器启动、各 router 注册
@@ -129,10 +136,17 @@ src/
 - `TaskDecomposer`:任务分解器,支持简单/复合/复杂三种模式
 - `Planner` / `ReActPlanner`:任务规划器,**失败任务显式记入 `failed_tasks`**(P1-余 修复)
 
-**`src/memory/consolidation.py` - 记忆整合(P4-余 后改为策略模式)**
+**`src/memory/consolidation.py` - 记忆整合(策略模式)**
+- `ConsolidationStrategy` Protocol,`ThresholdStrategy` / `AdaptiveStrategy` 实现
 - 触发条件:对话轮次≥10 / 空闲≥2h / 消息数≥20
 - 重要性阈值:0.6
+- `get_consolidator("adaptive")` 工厂,**P4-B** 接入到 `chat()` / `chat_enhanced()` / LangGraph `generate_response` 节点
 - 整合到 `long_term.user_memories` 表
+
+**`src/memory/long_term.py` - 长期记忆(P4-B.3)**
+- `user_memories` 表的 `last_accessed` / `access_count` 在 `get_recent_memories` / `search_memories` 时自动更新
+- `decay_importance(half_life_days=30)` 按半衰期公式 `rate = 0.5 ** (days / half_life)` 衰减
+- 兼容旧 `decay_importance(decay_rate=0.95)` 调用
 
 **`src/rag/graphrag.py` - GraphRAG 引擎**
 - 基于知识图谱的检索增强,支持多跳推理问答
