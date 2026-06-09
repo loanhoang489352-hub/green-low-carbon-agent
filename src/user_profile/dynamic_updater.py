@@ -84,7 +84,7 @@ class DynamicProfileUpdater:
     # 行动类型
     ACTION_TYPES = {
         "travel_change": {
-            "positive": ["骑行了", "步行了", "坐地铁", "坐公交", "换了电动车", "买了自行车", "少开了车"],
+            "positive": ["骑行了", "骑自行车", "步行了", "走路去", "坐地铁", "坐公交", "换了电动车", "买了自行车", "少开了车"],
             "negative": ["开了车", "打车了", "坐飞机了"]
         },
         "energy_saving": {

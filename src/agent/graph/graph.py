@@ -6,10 +6,10 @@ P4-A:默认挂 SqliteSaver checkpointer,LangGraph 状态跨重启持久化
 """
 import sys
 from pathlib import Path
-from typing import Literal, Optional
+from typing import Literal, Optional, Any, Dict
 
 script_path = Path(__file__).resolve()
-sys.path.insert(0, str(script_path.parent.parent.parent / 'src'))
+sys.path.insert(0, str(script_path.parent.parent.parent.parent / 'src'))
 
 from langgraph.graph import StateGraph, START, END
 from langgraph.checkpoint.memory import MemorySaver
@@ -168,12 +168,18 @@ class ReActAgentGraph:
         """创建 ReAct 循环图"""
         graph = StateGraph(AgentState)
 
+        nodes = get_nodes()
+        graph.add_node("recognize_intent", nodes.recognize_intent, name="意图识别")
+        graph.add_node("get_user_profile", nodes.get_user_profile, name="获取画像")
         graph.add_node("think", self._think_node, name="思考")
         graph.add_node("act", self._act_node, name="行动")
         graph.add_node("observe", self._observe_node, name="观察")
         graph.add_node("generate_final_response", self._final_response_node, name="最终响应")
 
-        graph.add_edge(START, "think")
+        # P4-G:ReAct 也先做意图识别 + 画像,确保 act 节点能拿到 intent_type
+        graph.add_edge(START, "recognize_intent")
+        graph.add_edge("recognize_intent", "get_user_profile")
+        graph.add_edge("get_user_profile", "think")
         graph.add_edge("think", "act")
         graph.add_edge("act", "observe")
 
@@ -240,9 +246,25 @@ class ReActAgentGraph:
         }
 
     def _final_response_node(self, state: AgentState) -> AgentState:
-        """最终响应节点"""
+        """最终响应节点(P4-G:ReAct 模式下也跑 generate_recommendations)"""
         nodes = get_nodes()
-        return nodes.generate_response(state)
+        # 先把推荐补上(ReAct 图没有专门的推荐节点)
+        rec_updates: Dict[str, Any] = {}
+        if not state.get("recommendations"):
+            try:
+                rec_updates = nodes.generate_recommendations(state) or {}
+            except Exception as e:
+                import logging
+                logging.getLogger(__name__).debug(
+                    "[ReAct] 补推荐失败(非致命): %s", e,
+                )
+        # 跑响应生成
+        try:
+            response_updates = nodes.generate_response(state) or {}
+        except Exception as e:
+            response_updates = {"response_message": f"响应生成失败: {e}"}
+        # 合并:LangGraph 把返回的 dict 视作对 state 的更新
+        return {**rec_updates, **response_updates}
 
 
 def _check_continue_react(state: AgentState) -> str:

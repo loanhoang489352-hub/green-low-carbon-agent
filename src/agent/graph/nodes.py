@@ -9,10 +9,27 @@ from typing import Dict, Any, List
 from datetime import datetime
 
 script_path = Path(__file__).resolve()
-project_root = script_path.parent.parent.parent
+project_root = script_path.parent.parent.parent.parent  # src/agent/graph/nodes.py → 项目根
 sys.path.insert(0, str(project_root / 'src'))
 
+try:
+    from paths import KNOWLEDGE_BASE_DIR as _KB_DIR
+except ImportError:
+    _KB_DIR = project_root / "knowledge_base"
+
 from .state import AgentState, IntentType
+
+
+def _rec_to_dict(r):
+    """把 Recommendation 或 dict 序列化为 dict(P4-G)"""
+    if isinstance(r, dict):
+        return r
+    if hasattr(r, "__dataclass_fields__"):
+        from dataclasses import asdict
+        return asdict(r)
+    if hasattr(r, "__dict__"):
+        return dict(r.__dict__)
+    return r
 
 
 class AgentNodes:
@@ -52,7 +69,7 @@ class AgentNodes:
                 persist_directory=str(project_root / "data" / "vector_db")
             )
             self._rag_engine = RAGEngine(rag_config)
-            self._rag_engine.initialize(str(project_root / "knowledge_base"))
+            self._rag_engine.initialize(str(_KB_DIR))
         except Exception as e:
             print(f"RAG 引擎初始化失败: {e}")
             self._rag_engine = None
@@ -291,33 +308,98 @@ class AgentNodes:
         user_id = state["user_id"]
         message = state["message"]
         intent_type = state.get("intent_type", "")
-        profile = state.get("profile", {})
+        profile = state.get("profile", {}) or {}
+        entities = (state.get("metadata") or {}).get("entities", []) or []
 
         try:
+            # analyze_message 签名:user_id, message, intent_type, entities=None
             updates = self._dynamic_updater.analyze_message(
                 user_id=user_id,
                 message=message,
                 intent_type=intent_type,
-                current_profile=profile
+                entities=entities,
             )
+            # 把更新写回 profile
+            if updates and isinstance(updates, dict):
+                self._apply_profile_updates(user_id, profile, updates)
             return {"profile_updates": updates}
         except Exception as e:
             return {"profile_updates": {}, "error": f"画像更新失败: {str(e)}"}
+
+    def _apply_profile_updates(
+        self, user_id: str, profile: Dict[str, Any], updates: Dict[str, Any],
+    ) -> None:
+        """把 analyze_message 的产出写回持久化画像(P4-G)
+
+        analyze_message 返回结构:
+        {
+            "detected_interests": [(interest_id, score), ...],
+            "behavior_indicators": [...],
+            "action_reports": [...],
+            ...
+        }
+        """
+        try:
+            eco = profile.get("eco_profile", {}) or {}
+            # 兴趣更新(从 detected_interests [(id, score), ...] 提 ID)
+            detected = updates.get("detected_interests") or updates.get("new_interests") or []
+            interest_ids: List[str] = []
+            for item in detected:
+                if isinstance(item, (list, tuple)) and item:
+                    interest_ids.append(item[0])
+                elif isinstance(item, str):
+                    interest_ids.append(item)
+            if interest_ids:
+                existing = set(eco.get("primary_interests") or [])
+                for it in interest_ids:
+                    if it and it not in existing:
+                        existing.add(it)
+                eco["primary_interests"] = sorted(existing)
+                profile["eco_profile"] = eco
+            # 行为阶段更新
+            new_stage = updates.get("behavior_stage")
+            if new_stage:
+                eco["behavior_stage"] = new_stage
+                profile["eco_profile"] = eco
+            # 行为报告 → 同步到画像图谱(P4-G)
+            action_reports = updates.get("action_reports") or []
+            action_history: List[Dict[str, Any]] = list(eco.get("action_history") or [])
+            for act in action_reports:
+                if isinstance(act, dict):
+                    action_history.append({
+                        "action": act.get("action", ""),
+                        "carbon_saved": act.get("carbon_saved"),
+                        "context": act.get("context", ""),
+                    })
+                elif isinstance(act, str):
+                    action_history.append({"action": act, "carbon_saved": None})
+            if action_history:
+                eco["action_history"] = action_history
+                profile["eco_profile"] = eco
+
+            if interest_ids or new_stage or action_history:
+                self._profile_manager.update_eco_profile(
+                    user_id, profile.get("eco_profile", {}),
+                )
+        except Exception as e:
+            import logging
+            logging.getLogger(__name__).debug(
+                "[update_profile] 画像回写失败(非致命): %s", e,
+            )
 
     def generate_recommendations(self, state: AgentState) -> AgentState:
         """节点5: 生成个性化推荐(P4-F.3:静态 + RAG 混合)"""
         self.initialize()
 
         user_id = state["user_id"]
-        profile = state.get("profile", {})
+        profile = state.get("profile", {}) or {}
         intent_type = state.get("intent_type", "")
         rag_results = state.get("rag_results", []) or []
 
         try:
             static_recs = self._recommendation_engine.generate_recommendations(
-                user_id=user_id,
                 user_profile=profile,
-                context={"intent_type": intent_type},
+                context={"intent_type": intent_type, "user_id": user_id},
             )
             # P4-F.3: 用 RAG 检索到的本地政策补充推荐
             recommendations = self._recommendation_engine.augment_with_rag(
@@ -326,13 +408,22 @@ class AgentNodes:
                 rag_results=rag_results,
             )
 
-            suggestions = [r.get("action", "") for r in recommendations[:3] if r.get("action")]
+            suggestions = []
+            for r in recommendations[:3]:
+                if hasattr(r, "action"):
+                    suggestions.append(r.action)
+                elif isinstance(r, dict):
+                    suggestions.append(r.get("action", ""))
 
             return {
-                "recommendations": recommendations[:5],
-                "suggestions": suggestions
+                "recommendations": [
+                    _rec_to_dict(r) for r in recommendations[:5]
+                ],
+                "suggestions": [s for s in suggestions if s],
             }
         except Exception as e:
+            import traceback
+            traceback.print_exc()
             return {"recommendations": [], "suggestions": [], "error": f"推荐生成失败: {str(e)}"}
 
     def generate_response(self, state: AgentState) -> AgentState:

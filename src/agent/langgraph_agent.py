@@ -169,7 +169,13 @@ class LangGraphAgent:
         result: AgentState,
         conversation_id: str
     ) -> LangGraphResponse:
-        """构建响应对象"""
+        """构建响应对象(P4-G:把 rag_context 也塞进 metadata)"""
+        # P4-G:把 state.rag_context/rag_results 透出到 metadata, 供 core.py chat_enhanced 读取
+        meta = dict(result.get("metadata", {}) or {})
+        if result.get("rag_context"):
+            meta["rag_context"] = result["rag_context"]
+        if result.get("rag_results"):
+            meta["rag_results"] = result["rag_results"]
         return LangGraphResponse(
             message=result.get("response_message", ""),
             conversation_id=conversation_id,
@@ -181,7 +187,7 @@ class LangGraphAgent:
             timestamp=datetime.now().isoformat(),
             personalization_info=result.get("personalization_info", {}),
             recommendations=result.get("recommendations", []),
-            metadata=result.get("metadata", {})
+            metadata=meta
         )
 
     def _get_or_create_conversation(self, user_id: str) -> str:

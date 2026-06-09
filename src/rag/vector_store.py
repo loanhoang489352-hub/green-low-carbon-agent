@@ -170,12 +170,15 @@ class ChromaStore(VectorStore):
         search_results = []
         if results['documents'] and results['documents'][0]:
             for i, doc_id in enumerate(results['ids'][0]):
+                d = results['distances'][0][i]
+                # ChromaDB 默认是 squared L2, 取倒数归一化到 (0, 1]
+                # 1/(1+d) 始终为正,d=0 时为 1,d→∞ 时为 0
                 search_results.append({
                     'id': doc_id,
                     'content': results['documents'][0][i],
                     'metadata': results['metadatas'][0][i],
-                    'distance': results['distances'][0][i],
-                    'score': 1.0 - results['distances'][0][i]  # 转换为相似度
+                    'distance': d,
+                    'score': float(1.0 / (1.0 + d)),  # 兼容非归一化向量
                 })
 
         return search_results

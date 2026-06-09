@@ -39,7 +39,7 @@ class RAGConfig:
     persist_directory: str = "./data/vector_db"
     collection_name: str = "knowledge_base"
     default_top_k: int = 5
-    min_similarity: float = 0.3
+    min_similarity: float = 0.0  # 句子级 MiniLM 距离大, 0.3 阈值会漏检
     hybrid_search: bool = True  # 是否启用混合搜索
     semantic_weight: float = 0.6  # 语义权重
 
