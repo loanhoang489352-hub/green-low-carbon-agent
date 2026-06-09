@@ -59,22 +59,6 @@ def _get_module(name):
 
 
 @dataclass
-class ConversationContext:
-    """对话上下文"""
-    user_id: str
-    conversation_id: str
-    turn_count: int = 0
-    created_at: str = ""
-    last_updated: str = ""
-
-    def __post_init__(self):
-        if not self.created_at:
-            self.created_at = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        if not self.last_updated:
-            self.last_updated = self.created_at
-
-
-@dataclass
 class AgentResponse:
     """智能体响应"""
     message: str
@@ -139,8 +123,10 @@ class GreenAgent:
             print(f"   - 网络搜索模块加载失败: {e}")
             self.web_searcher = None
 
-        self.active_conversations: Dict[str, ConversationContext] = {}
-        self.user_conversations: Dict[str, List[str]] = {}
+        from agent.conversation_store import get_conversation_store
+        self.conversation_store = get_conversation_store()
+        self.active_conversations = self.conversation_store._conversations  # 兼容旧代码
+        self.user_conversations = self.conversation_store._user_index      # 兼容旧代码
         self.use_vector_db = use_vector_db
 
         # LangGraph 支持
@@ -474,6 +460,18 @@ class GreenAgent:
         self.profile_manager.record_interaction(user_id, self._map_intent_to_interaction(intent_result))
 
         recent_memories = self._get_recent_memories(user_id)
+        # P4-B.4: 真正的语义+时间召回,覆盖默认的"最近 3 条"
+        try:
+            recalled = self._recall_memories(message, user_id, limit=5)
+            if recalled:
+                recent_memories = [
+                    f"[{m.get('type', 'memory')}] {m.get('content', '')[:60]}"
+                    for m in recalled
+                ]
+        except Exception as e:
+            import logging
+            logging.getLogger(__name__).warning("[GreenAgent] 记忆召回失败: %s", e)
+
         conversation_history = self.short_term_memory.get_conversation_history(conversation_id)
 
         personalization_ctx = self.profile_manager.get_personalization_context(user_id)
@@ -518,6 +516,23 @@ class GreenAgent:
 
         self._save_conversation(conversation_id, user_id, message, response_data["message"])
         self.profile_manager.update_conversation_count(user_id)
+
+        # P4-B.1: 接入记忆整合器(短→长)
+        try:
+            from memory.consolidation import get_consolidator
+            consolidator = get_consolidator()
+            consolidator.update_conversation_activity(conversation_id)
+            consolidator.update_message_count(conversation_id, count=2)
+            consolidated = consolidator.consolidate(user_id, conversation_id)
+            if consolidated > 0:
+                import logging
+                logging.getLogger(__name__).info(
+                    "[GreenAgent] 记忆整合: user=%s conv=%s saved=%d",
+                    user_id, conversation_id, consolidated,
+                )
+        except Exception as e:
+            import logging
+            logging.getLogger(__name__).warning("[GreenAgent] 记忆整合失败(非致命): %s", e)
 
         return EnhancedAgentResponse(
             message=response_data["message"],
@@ -741,6 +756,17 @@ class GreenAgent:
         self._update_user_profile(user_id, intent_result, profile_updates)
         self._save_conversation(conversation_id, user_id, message, response_data["message"])
 
+        # P4-B.1: 接入记忆整合器(短→长)
+        try:
+            from memory.consolidation import get_consolidator
+            consolidator = get_consolidator()
+            consolidator.update_conversation_activity(conversation_id)
+            consolidator.update_message_count(conversation_id, count=2)
+            consolidator.consolidate(user_id, conversation_id)
+        except Exception as e:
+            import logging
+            logging.getLogger(__name__).warning("[GreenAgent] 记忆整合失败(非致命): %s", e)
+
         return AgentResponse(
             message=response_data["message"],
             conversation_id=conversation_id,
@@ -755,24 +781,9 @@ class GreenAgent:
     # ========== 辅助方法 ==========
 
     def _manage_conversation(self, user_id: str, conversation_id: str = None) -> str:
-        """管理对话会话"""
-        if conversation_id is None:
-            conversation_id = str(uuid.uuid4())
-            self.active_conversations[conversation_id] = ConversationContext(
-                user_id=user_id,
-                conversation_id=conversation_id
-            )
-            if user_id not in self.user_conversations:
-                self.user_conversations[user_id] = []
-            self.user_conversations[user_id].append(conversation_id)
-
-        elif conversation_id not in self.active_conversations:
-            self.active_conversations[conversation_id] = ConversationContext(
-                user_id=user_id,
-                conversation_id=conversation_id
-            )
-
-        return conversation_id
+        """管理对话会话(委托给 ConversationStore 单例)"""
+        ctx = self.conversation_store.get_or_create(user_id, conversation_id)
+        return ctx.conversation_id
 
     def _retrieve_knowledge(self, query: str, intent_result) -> List[Dict]:
         """检索知识库"""
@@ -780,11 +791,51 @@ class GreenAgent:
         return results
 
     def _get_recent_memories(self, user_id: str) -> List[str]:
-        """获取用户最近的记忆"""
+        """获取用户最近的记忆(限到 50 字符,用于 prompt 注入)"""
         memories = []
         long_term_memories = self.long_term_memory.get_recent_memories(user_id, limit=3)
         memories.extend([m.get("content", "")[:50] for m in long_term_memories])
         return memories
+
+    def _recall_memories(self, query: str, user_id: str, limit: int = 5) -> List[Dict[str, Any]]:
+        """真正的"记忆召回"(P4-B.4)
+
+        策略:
+        1) 语义检索:用 query 调 search_memories(LIKE 关键词匹配)
+        2) 时间回填:不足 limit 时补 get_recent_memories
+        3) 去重(按 memory id),按 importance desc 排序
+
+        Args:
+            query: 当前用户消息
+            user_id: 用户 ID
+            limit: 返回上限
+
+        Returns:
+            记忆 dict 列表(含 id, type, content, importance, tags)
+        """
+        semantic: List[Dict[str, Any]] = []
+        if query and query.strip():
+            try:
+                semantic = self.long_term_memory.search_memories(user_id, query, top_k=limit)
+            except Exception:
+                semantic = []
+        if len(semantic) >= limit:
+            return semantic[:limit]
+
+        # 时间回填
+        try:
+            recent = self.long_term_memory.get_recent_memories(user_id, limit=limit * 2)
+        except Exception:
+            recent = []
+        seen = {m.get("id") for m in semantic if m.get("id") is not None}
+        for m in recent:
+            if m.get("id") in seen:
+                continue
+            semantic.append(m)
+            seen.add(m.get("id"))
+            if len(semantic) >= limit:
+                break
+        return semantic[:limit]
 
     def _update_memories(self, user_id, conversation_id, user_message, intent_result, response_message):
         """更新记忆系统"""
@@ -925,9 +976,8 @@ class GreenAgent:
         return self.rag_engine.get_stats()
 
     def reset_conversation(self, conversation_id: str):
-        """重置对话"""
-        if conversation_id in self.active_conversations:
-            del self.active_conversations[conversation_id]
+        """重置对话(委托给 ConversationStore)"""
+        self.conversation_store.remove(conversation_id)
 
     def export_user_data(self, user_id: str) -> Dict[str, Any]:
         """导出用户数据"""

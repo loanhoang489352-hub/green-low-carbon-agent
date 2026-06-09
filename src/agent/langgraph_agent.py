@@ -20,6 +20,7 @@ from agent.graph import (
     get_agent_graph,
     get_react_graph
 )
+from agent.conversation_store import get_conversation_store, ConversationContext
 from user_profile.user_profile import UserProfileManager
 from user_profile.dynamic_updater import get_profile_updater
 from memory.short_term import ShortTermMemory, get_short_term_memory
@@ -83,11 +84,9 @@ class LangGraphAgent:
         self.long_term_memory = LongTermMemory()
         self.profile_manager = UserProfileManager()
         self.dynamic_updater = get_profile_updater()
+        self.conversation_store = get_conversation_store()
 
         self._init_graph()
-
-        self.active_conversations: Dict[str, Dict] = {}
-        self.user_conversations: Dict[str, List[str]] = {}
 
         print(f"LangGraph 智能体初始化完成")
         print(f"   - 工作流模式: {'ReAct' if use_react else 'StateGraph'}")
@@ -186,37 +185,19 @@ class LangGraphAgent:
         )
 
     def _get_or_create_conversation(self, user_id: str) -> str:
-        """获取或创建对话ID"""
-        if user_id not in self.user_conversations:
-            self.user_conversations[user_id] = []
-
-        conversations = self.user_conversations[user_id]
-        if conversations:
-            conversation_id = conversations[-1]
-            self.active_conversations[conversation_id]["turn_count"] += 1
-            return conversation_id
-
-        conversation_id = str(uuid.uuid4())
-        self.user_conversations[user_id].append(conversation_id)
-        self.active_conversations[conversation_id] = {
-            "user_id": user_id,
-            "turn_count": 0,
-            "created_at": datetime.now().isoformat()
-        }
-        return conversation_id
+        """获取或创建对话ID(委托给 ConversationStore 单例)"""
+        ctx = self.conversation_store.get_or_create(user_id)
+        return ctx.conversation_id
 
     def start_conversation(self, user_id: str) -> str:
-        """开始新对话"""
-        conversation_id = str(uuid.uuid4())
-        if user_id not in self.user_conversations:
-            self.user_conversations[user_id] = []
-        self.user_conversations[user_id].append(conversation_id)
-        self.active_conversations[conversation_id] = {
-            "user_id": user_id,
-            "turn_count": 0,
-            "created_at": datetime.now().isoformat()
-        }
-        return conversation_id
+        """开始新对话
+
+        P4-B.5:显式分配新 conversation_id,与 get_or_create 的"复用最近"
+        行为区分,用于 onboarding 后切分新会话等场景。
+        """
+        conv_id = str(uuid.uuid4())
+        self.conversation_store._new_conversation(user_id)  # type: ignore[attr-defined]
+        return conv_id
 
     def get_conversation_history(
         self,
@@ -230,11 +211,14 @@ class LangGraphAgent:
                 conversation_id, limit
             )
 
-        if user_id in self.user_conversations:
+        contexts = self.conversation_store.list_user_conversations(user_id)
+        if contexts:
             all_history = []
-            for conv_id in self.user_conversations[user_id]:
+            for ctx in contexts:
                 all_history.extend(
-                    self.short_term_memory.get_conversation_history(conv_id, limit)
+                    self.short_term_memory.get_conversation_history(
+                        ctx.conversation_id, limit
+                    )
                 )
             return all_history[-limit:]
         return []
@@ -249,26 +233,25 @@ class LangGraphAgent:
 
     def reset_conversation(self, user_id: str, conversation_id: str = None):
         """重置对话"""
-        if conversation_id and conversation_id in self.active_conversations:
-            del self.active_conversations[conversation_id]
-            if user_id in self.user_conversations:
-                self.user_conversations[user_id].remove(conversation_id)
-        elif user_id in self.user_conversations:
-            for conv_id in self.user_conversations[user_id]:
-                if conv_id in self.active_conversations:
-                    del self.active_conversations[conv_id]
-            self.user_conversations[user_id] = []
+        if conversation_id:
+            self.conversation_store.remove(conversation_id)
+            return
+        for ctx in self.conversation_store.list_user_conversations(user_id):
+            self.conversation_store.remove(ctx.conversation_id)
 
     def get_stats(self, user_id: str) -> Dict[str, Any]:
         """获取统计信息"""
-        conversations = self.user_conversations.get(user_id, [])
+        contexts = self.conversation_store.list_user_conversations(user_id)
         total_messages = 0
-        for conv_id in conversations:
-            history = self.short_term_memory.get_conversation_history(conv_id, 1000)
+        for ctx in contexts:
+            history = self.short_term_memory.get_conversation_history(
+                ctx.conversation_id, 1000
+            )
             total_messages += len(history)
 
+        latest = self.conversation_store.get_latest(user_id)
         return {
-            "total_conversations": len(conversations),
+            "total_conversations": len(contexts),
             "total_messages": total_messages,
-            "active_conversation": conversations[-1] if conversations else None
+            "active_conversation": latest.conversation_id if latest else None
         }

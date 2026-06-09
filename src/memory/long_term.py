@@ -145,18 +145,18 @@ class LongTermMemory:
     ) -> List[Dict]:
         """
         获取最近的记忆
-        
+
         Args:
             user_id: 用户ID
             memory_type: 记忆类型过滤
             limit: 返回数量
-        
+
         Returns:
             记忆列表
         """
         conn = sqlite3.connect(str(self.db_path))
         cursor = conn.cursor()
-        
+
         if memory_type:
             cursor.execute("""
                 SELECT id, memory_type, content, importance, created_at, tags
@@ -173,10 +173,10 @@ class LongTermMemory:
                 ORDER BY created_at DESC
                 LIMIT ?
             """, (user_id, limit))
-        
+
         rows = cursor.fetchall()
         conn.close()
-        
+
         memories = []
         for row in rows:
             memories.append({
@@ -187,9 +187,13 @@ class LongTermMemory:
                 "created_at": row[4],
                 "tags": json.loads(row[5])
             })
-        
+
+        # P4-B.3: 访问热度更新(防止热度永不变,decay 与 search 失真)
+        if memories:
+            self._bump_access([m["id"] for m in memories])
+
         return memories
-    
+
     def search_memories(
         self,
         user_id: str,
@@ -198,24 +202,26 @@ class LongTermMemory:
     ) -> List[Dict]:
         """
         搜索记忆（简化版：基于关键词匹配）
-        
+
         Args:
             user_id: 用户ID
             query: 查询文本
             limit: 返回数量
-        
+
         Returns:
             匹配的记忆列表
         """
         conn = sqlite3.connect(str(self.db_path))
         cursor = conn.cursor()
-        
+
         # 简单关键词搜索
         keywords = query.split()
+        if not keywords:
+            return []
         keyword_conditions = " OR ".join(
             ["content LIKE ?" for _ in keywords]
         )
-        
+
         cursor.execute(f"""
             SELECT id, memory_type, content, importance, created_at, tags
             FROM user_memories
@@ -223,10 +229,10 @@ class LongTermMemory:
             ORDER BY importance DESC, created_at DESC
             LIMIT ?
         """, (user_id, *[f"%{kw}%" for kw in keywords], limit))
-        
+
         rows = cursor.fetchall()
         conn.close()
-        
+
         memories = []
         for row in rows:
             memories.append({
@@ -237,8 +243,38 @@ class LongTermMemory:
                 "created_at": row[4],
                 "tags": json.loads(row[5])
             })
-        
+
+        # P4-B.3: 访问热度更新
+        if memories:
+            self._bump_access([m["id"] for m in memories])
+
         return memories
+
+    def _bump_access(self, memory_ids: List[int]) -> None:
+        """访问热度更新(P4-B.3 接入)
+
+        Args:
+            memory_ids: 被访问到的记忆 ID 列表
+        """
+        if not memory_ids:
+            return
+        conn = sqlite3.connect(str(self.db_path))
+        cursor = conn.cursor()
+        now = datetime.now().isoformat()
+        try:
+            placeholders = ",".join("?" for _ in memory_ids)
+            cursor.execute(
+                f"""
+                UPDATE user_memories
+                SET last_accessed = ?,
+                    access_count = access_count + 1
+                WHERE id IN ({placeholders})
+                """,
+                (now, *memory_ids),
+            )
+            conn.commit()
+        finally:
+            conn.close()
     
     def update_preference(
         self,
@@ -344,24 +380,61 @@ class LongTermMemory:
         
         return deleted
     
-    def decay_importance(self, decay_rate: float = 0.95):
+    def decay_importance(self, decay_rate: float = 0.95, half_life_days: int = None) -> int:
         """
-        降低记忆重要性（记忆遗忘机制）
-        
+        降低记忆重要性(记忆遗忘机制)
+
         Args:
-            decay_rate: 衰减率
+            decay_rate: 直接指定每次衰减乘数(如 0.95)。与 half_life_days 互斥。
+            half_life_days: 半衰期天数,系统根据"距上次访问天数"自动计算衰减率。
+                          调度器默认传 30。半衰期公式:rate = 0.5 ** (days / half_life)
         """
         conn = sqlite3.connect(str(self.db_path))
         cursor = conn.cursor()
-        
+
+        if half_life_days is not None and half_life_days > 0:
+            # 逐条更新:基于"距 last_accessed 的天数"算衰减率
+            now = datetime.now()
+            cursor.execute(
+                """
+                SELECT id, importance, last_accessed
+                FROM user_memories
+                WHERE importance > 0.05
+                """
+            )
+            rows = cursor.fetchall()
+            updated = 0
+            for row in rows:
+                mem_id, importance, last_accessed = row
+                try:
+                    last = datetime.fromisoformat(last_accessed)
+                    days = max((now - last).total_seconds() / 86400, 0)
+                except (ValueError, TypeError):
+                    days = 0
+                rate = 0.5 ** (days / half_life_days)
+                new_imp = importance * rate
+                if new_imp < 0.05:
+                    new_imp = 0.05
+                if abs(new_imp - importance) > 1e-9:
+                    cursor.execute(
+                        "UPDATE user_memories SET importance = ? WHERE id = ?",
+                        (new_imp, mem_id),
+                    )
+                    updated += 1
+            conn.commit()
+            conn.close()
+            return updated
+
+        # 兼容旧调用:整体乘以 decay_rate
         cursor.execute("""
             UPDATE user_memories
             SET importance = importance * ?
             WHERE importance > 0.1
         """, (decay_rate,))
-        
+
         conn.commit()
         conn.close()
+        return cursor.rowcount
     
     def consolidate_short_term(
         self,

@@ -66,6 +66,19 @@ class AgentNodes:
         message = state["message"]
         intent_result = self._intent_recognizer.recognize(message)
 
+        # P4-B.2: 短期记忆写入(用户消息)
+        try:
+            from memory.short_term import get_short_term_memory
+            stm = get_short_term_memory()
+            stm.add_message(
+                conversation_id=state.get("conversation_id", ""),
+                role="user",
+                content=message,
+                metadata={"intent": intent_result.intent.value},
+            )
+        except Exception:
+            pass  # 短期记忆失败不应阻塞主流程
+
         return {
             "intent": intent_result.intent.value,
             "intent_type": intent_result.intent.value,
@@ -219,6 +232,31 @@ class AgentNodes:
             response_text = response.get("message", "")
             if rag_context and intent_type == "knowledge_query":
                 response_text += f"\n\n[KB] 参考资料：\n{rag_context[:300]}..."
+
+            # P4-B.2: 短期记忆写入(助手回复)
+            try:
+                from memory.short_term import get_short_term_memory
+                stm = get_short_term_memory()
+                stm.add_message(
+                    conversation_id=state.get("conversation_id", ""),
+                    role="assistant",
+                    content=response_text,
+                    metadata={"intent": intent_type},
+                )
+            except Exception:
+                pass
+
+            # P4-B.1: 触发短→长整合(节点出口)
+            try:
+                from memory.consolidation import get_consolidator
+                consolidator = get_consolidator()
+                conv_id = state.get("conversation_id", "")
+                user_id = state.get("user_id", "")
+                consolidator.update_conversation_activity(conv_id)
+                consolidator.update_message_count(conv_id, count=2)
+                consolidator.consolidate(user_id, conv_id)
+            except Exception:
+                pass
 
             return {
                 "response_message": response_text,
