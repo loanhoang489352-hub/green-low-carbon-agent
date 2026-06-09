@@ -211,6 +211,11 @@ class UserProfileManager:
         profile["created_at"] = now
         profile["updated_at"] = now
 
+        # P4-C.1: 默认 profile 含空图谱结构(由 get_profile 懒加载完整节点)
+        if "graph" not in profile:
+            from user_profile.profile_graph import UserProfileGraph
+            profile["graph"] = UserProfileGraph(user_id).to_dict()
+
         cursor.execute("""
             INSERT OR REPLACE INTO user_profiles
             (user_id, profile_data, created_at, updated_at)
@@ -240,6 +245,12 @@ class UserProfileManager:
             return self.get_profile(user_id)
 
         profile = json.loads(row[0])
+
+        # P4-C.1: 兜底 — 老数据可能没有 graph 字段
+        if "graph" not in profile or not profile["graph"]:
+            from user_profile.profile_graph import UserProfileGraph
+            profile["graph"] = UserProfileGraph(user_id).to_dict()
+
         self._profile_cache[user_id] = profile
         return profile
 
@@ -334,6 +345,9 @@ class UserProfileManager:
         profile["eco_profile"] = eco_profile
         profile["updated_at"] = datetime.now().isoformat()
 
+        # P4-C.2: 同步到画像图谱
+        profile["graph"] = self._sync_profile_to_graph(profile, eco_updates)
+
         conn = sqlite3.connect(str(self.db_path))
         cursor = conn.cursor()
 
@@ -351,6 +365,47 @@ class UserProfileManager:
             del self._profile_cache[user_id]
 
         return success
+
+    def _sync_profile_to_graph(self, profile: Dict[str, Any], eco_updates: Dict[str, Any]) -> Dict[str, Any]:
+        """同步 profile 字段到 UserProfileGraph(P4-C.2)
+
+        触发场景:
+        - primary_interests 变化 → add_interest
+        - behavior_stage 变化 → set_behavior_stage
+        - action_history 追加 → add_action
+        - completed_actions 追加 → add_action (positive)
+        - rejected_actions 追加 → add_action (negative)
+        """
+        from user_profile.profile_graph import UserProfileGraph
+        graph_data = profile.get("graph", {})
+        if not graph_data:
+            graph = UserProfileGraph(profile["user_id"])
+        else:
+            graph = UserProfileGraph.from_dict(graph_data)
+
+        # interests
+        for interest in eco_updates.get("primary_interests", []) or []:
+            graph.add_interest(interest, confidence=0.7, source="profile_sync")
+
+        # behavior stage
+        new_stage = eco_updates.get("behavior_stage")
+        if new_stage:
+            graph.set_behavior_stage(new_stage)
+
+        # action history(通常是新追加的列表)
+        new_actions = eco_updates.get("action_history", []) or []
+        for act in new_actions:
+            if isinstance(act, dict):
+                graph.add_action(
+                    act.get("action", "未命名行为"),
+                    sentiment=act.get("sentiment", "positive"),
+                    context=act.get("context", ""),
+                    carbon_saved=act.get("carbon_saved"),
+                )
+            elif isinstance(act, str):
+                graph.add_action(act, sentiment="positive")
+
+        return graph.to_dict()
 
     def update_behavior_profile(self, user_id: str, behavior_updates: Dict[str, Any]) -> bool:
         """更新行为画像"""

@@ -166,7 +166,46 @@ SCHEMAS: List[Tuple[str, str, List[Tuple[str, str]]]] = [
                     user_id TEXT NOT NULL,
                     event_type TEXT NOT NULL,
                     event_data TEXT,
+                    intent_type TEXT,
+                    context TEXT,
+                    carbon_impact REAL,
+                    duration_minutes INTEGER,
+                    related_interests TEXT,
                     created_at TEXT NOT NULL
+                )
+            """),
+            ("user_goals", """
+                CREATE TABLE IF NOT EXISTS user_goals (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    user_id TEXT NOT NULL,
+                    goal_type TEXT NOT NULL,
+                    target_value REAL NOT NULL,
+                    current_value REAL DEFAULT 0,
+                    deadline TEXT,
+                    status TEXT DEFAULT 'active',
+                    created_at TEXT NOT NULL,
+                    updated_at TEXT NOT NULL
+                )
+            """),
+            ("user_achievements", """
+                CREATE TABLE IF NOT EXISTS user_achievements (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    user_id TEXT NOT NULL,
+                    achievement_code TEXT NOT NULL,
+                    earned_at TEXT NOT NULL,
+                    metadata TEXT,
+                    UNIQUE(user_id, achievement_code)
+                )
+            """),
+            ("carbon_footprint_log", """
+                CREATE TABLE IF NOT EXISTS carbon_footprint_log (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    user_id TEXT NOT NULL,
+                    category TEXT NOT NULL,
+                    amount_kg_co2e REAL NOT NULL,
+                    recorded_at TEXT NOT NULL,
+                    source TEXT,
+                    metadata TEXT
                 )
             """),
         ],
@@ -185,6 +224,7 @@ def init_all_schemas() -> Dict[str, List[str]]:
     """初始化所有数据库 schema,返回 {db_name: [table_names]}
 
     幂等:已存在的表不会重建
+    P4-C: 对已存在的表,补齐新增列(intent_type / context / carbon_impact 等)
     """
     ensure_data_dirs()
     created: Dict[str, List[str]] = {}
@@ -197,7 +237,39 @@ def init_all_schemas() -> Dict[str, List[str]]:
         conn.commit()
         conn.close()
         logger.info("[Schema] %s: %d tables ready", db_name, len(tables))
+    # P4-C: 补齐新增列(对已存在的表)
+    _migrate_existing_columns()
     return created
+
+
+def _migrate_existing_columns() -> None:
+    """对已存在的表,补齐新增列(P4-C)
+
+    用 PRAGMA table_info 检查列是否存在,缺失则 ALTER TABLE ADD COLUMN。
+    """
+    migrations: List[Tuple[str, str, str, str]] = [
+        # (db_path, table, column, type_with_default)
+        (str(BEHAVIOR_TRACKER_DB), "behavior_events", "intent_type", "TEXT"),
+        (str(BEHAVIOR_TRACKER_DB), "behavior_events", "context", "TEXT"),
+        (str(BEHAVIOR_TRACKER_DB), "behavior_events", "carbon_impact", "REAL"),
+        (str(BEHAVIOR_TRACKER_DB), "behavior_events", "duration_minutes", "INTEGER"),
+        (str(BEHAVIOR_TRACKER_DB), "behavior_events", "related_interests", "TEXT"),
+    ]
+    for db_path, table, column, col_type in migrations:
+        try:
+            conn = sqlite3.connect(db_path)
+            cursor = conn.cursor()
+            cursor.execute(f"PRAGMA table_info({table})")
+            existing = {row[1] for row in cursor.fetchall()}
+            if column not in existing:
+                cursor.execute(f"ALTER TABLE {table} ADD COLUMN {column} {col_type}")
+                conn.commit()
+                logger.info("[Schema-Migration] %s.%s ADD COLUMN %s %s",
+                            db_path, table, column, col_type)
+            conn.close()
+        except Exception as e:
+            logger.warning("[Schema-Migration] %s.%s.%s failed: %s",
+                           db_path, table, column, e)
 
 
 def get_schema_info() -> List[Dict[str, str]]:
