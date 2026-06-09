@@ -148,10 +148,21 @@ class MemoryConsolidator:
         return self.strategy.should_consolidate(state)
 
     def consolidate(self, user_id: str, conversation_id: str) -> int:
+        """P4-H: 三段整合 短→工作→长
+
+        1) 短期→工作:把当前会话的"焦点"写入 working memory(高 importance)
+        2) 短期→长期:经策略筛选的高重要性消息直接晋升长期
+        """
         if not self.should_consolidate(conversation_id):
             return 0
         messages = self.short_term.get_conversation_history(conversation_id, limit=100)
         memories_to_save = self._extract_important_memories(messages)
+        # 1) 短期 → 工作(P4-H: 把当前会话焦点写到 workspace)
+        try:
+            self._promote_to_working(user_id, conversation_id, messages)
+        except Exception:
+            pass
+        # 2) 短期 → 长期(原逻辑)
         if not memories_to_save:
             return 0
         self.long_term.consolidate_short_term(user_id, memories_to_save)
@@ -159,6 +170,44 @@ class MemoryConsolidator:
         metadata["last_consolidated"] = datetime.now().isoformat()
         metadata["consolidated_count"] = metadata.get("consolidated_count", 0) + len(memories_to_save)
         return len(memories_to_save)
+
+    def _promote_to_working(
+        self, user_id: str, conversation_id: str, messages: List[Dict[str, Any]],
+    ) -> int:
+        """P4-H: 把当前会话的"焦点 / 当前任务"提升到工作记忆
+
+        策略:取最近 3 条 assistant 消息,把它们摘要为 current_focus。
+        同时如果之前已有 current_focus,会被同名 key 覆盖(工作记忆本身的设计)。
+        """
+        try:
+            from memory.working import get_working_memory
+            wm = get_working_memory()
+            recent_assistant = [
+                m.get("content", "")[:200]
+                for m in messages
+                if m.get("role") == "assistant" and m.get("content")
+            ][-3:]
+            if not recent_assistant:
+                return 0
+            focus = " | ".join(recent_assistant)
+            wm.set(
+                user_id,
+                key=f"conversation_focus:{conversation_id}",
+                value=focus,
+                agent_name="consolidator",
+                importance=0.6,
+            )
+            # 全局 current_focus(覆盖式写入)
+            wm.set(
+                user_id,
+                key="current_focus",
+                value=focus[:200],
+                agent_name="consolidator",
+                importance=0.7,
+            )
+            return 1
+        except Exception:
+            return 0
 
     def _extract_important_memories(self, messages: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
         important = []

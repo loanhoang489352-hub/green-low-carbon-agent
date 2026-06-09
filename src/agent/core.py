@@ -631,8 +631,16 @@ class GreenAgent:
         llm_response = None
         if self.use_llm and self.response_generator:
             try:
+                # P4-H: 注入工作记忆(per-user 跨 session 的 workspace)
+                working_memory_text = ""
+                try:
+                    from memory.working import get_working_memory
+                    wm = get_working_memory()
+                    working_memory_text = wm.snapshot_for_prompt(user_id)
+                except Exception:
+                    pass
                 llm_response = self.response_generator.generate_with_llm(
-                    message, context, rag_context
+                    message, context, rag_context, working_memory=working_memory_text,
                 )
             except Exception as e:
                 print(f"LLM生成失败，回退到模板: {e}")

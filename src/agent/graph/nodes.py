@@ -427,7 +427,7 @@ class AgentNodes:
             return {"recommendations": [], "suggestions": [], "error": f"推荐生成失败: {str(e)}"}
 
     def generate_response(self, state: AgentState) -> AgentState:
-        """节点6: 响应生成"""
+        """节点6: 响应生成(P4-H: 注入 working memory)"""
         self.initialize()
 
         message = state["message"]
@@ -436,6 +436,7 @@ class AgentNodes:
         profile = state.get("profile", {})
         recommendations = state.get("recommendations", [])
         suggestions = state.get("suggestions", [])
+        user_id = state.get("user_id", "")
 
         try:
             from agent.response import ResponseContext
@@ -447,10 +448,29 @@ class AgentNodes:
                 intent_type=intent_type
             )
 
-            response = self._response_generator.generate_response(
-                user_input=message,
-                context=context
-            )
+            # P4-H: 注入工作记忆到 LLM prompt
+            working_memory_text = ""
+            try:
+                from memory.working import get_working_memory
+                wm = get_working_memory()
+                working_memory_text = wm.snapshot_for_prompt(user_id)
+            except Exception:
+                pass
+
+            if self._response_generator and self._response_generator._use_llm and working_memory_text:
+                # 走 LLM 路径,带 working memory
+                response_text = self._response_generator.generate_with_llm(
+                    user_input=message,
+                    context=context,
+                    rag_context=rag_context,
+                    working_memory=working_memory_text,
+                )
+                response = {"message": response_text, "suggestions": suggestions or []}
+            else:
+                response = self._response_generator.generate_response(
+                    user_input=message,
+                    context=context
+                )
 
             response_text = response.get("message", "")
             if rag_context and intent_type == "knowledge_query":

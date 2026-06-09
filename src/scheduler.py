@@ -52,6 +52,37 @@ def _short_term_cleanup() -> None:
         logger.exception("[Scheduler] 短期记忆清理失败: %s", e)
 
 
+def _working_memory_heartbeat() -> None:
+    """P4-H:每 4 小时:工作记忆 heartbeat(OpenClaw 风格)
+
+    1) 清理过期 key(超过 24h 未访问且 importance < 0.8)
+    2) 把高 importance (≥0.7) 的 key 晋升到长期记忆
+    3) 写盘 JSON 快照
+    """
+    try:
+        from memory.working import get_working_memory, WORKSPACE_TTL_HOURS
+        from memory.memory_agent import promote_working_to_long_term
+        wm = get_working_memory()
+        # 1) 清理过期
+        removed = wm.cleanup_expired(ttl_hours=WORKSPACE_TTL_HOURS)
+        # 2) 晋升:遍历每个用户,挑高 importance 的 key
+        promoted = 0
+        for uid in wm.list_users():
+            for k in wm.keys(uid):
+                if promote_working_to_long_term(uid, k, importance_threshold=0.7):
+                    promoted += 1
+                    wm.delete(uid, k, agent_name="heartbeat")
+        # 3) 写盘
+        for uid in wm.list_users():
+            wm._save_snapshot(uid)
+        logger.info(
+            "[Scheduler] 工作记忆 heartbeat 完成, 清理 %d 过期, 晋升 %d 长期",
+            removed, promoted,
+        )
+    except Exception as e:
+        logger.exception("[Scheduler] 工作记忆 heartbeat 失败: %s", e)
+
+
 def start_scheduler() -> BackgroundScheduler:
     """启动调度器(单例)"""
     global _scheduler
@@ -88,6 +119,16 @@ def start_scheduler() -> BackgroundScheduler:
             _short_term_cleanup,
             CronTrigger.from_crontab("0 */6 * * *"),
             id="short_term_cleanup",
+            replace_existing=True,
+            max_instances=1,
+            coalesce=True,
+        )
+
+        # P4-H: 每 4 小时 — 工作记忆 heartbeat(OpenClaw 风格:清理过期 + 晋升)
+        sched.add_job(
+            _working_memory_heartbeat,
+            CronTrigger.from_crontab("0 */4 * * *"),
+            id="working_memory_heartbeat",
             replace_existing=True,
             max_instances=1,
             coalesce=True,

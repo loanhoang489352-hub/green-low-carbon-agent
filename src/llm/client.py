@@ -1022,31 +1022,40 @@ def build_chat_prompt(
     user_message: str,
     user_profile: Dict[str, Any] = None,
     rag_context: str = None,
-    conversation_history: List[Dict] = None
+    conversation_history: List[Dict] = None,
+    working_memory: str = None,
 ) -> List[Dict[str, str]]:
     """
     构建聊天Prompt
-    
+
     Args:
         user_message: 用户消息
         user_profile: 用户画像
         rag_context: RAG检索到的上下文
         conversation_history: 对话历史
-    
+        working_memory: P4-H 工作记忆 prompt 片段(由 working.snapshot_for_prompt 生成)
+
     Returns:
         消息列表
     """
     messages = [{"role": "system", "content": SYSTEM_PROMPT}]
-    
+
     # 添加用户画像上下文
     if user_profile:
         profile_context = _build_profile_context(user_profile)
         if profile_context:
             messages.append({
-                "role": "system", 
+                "role": "system",
                 "content": f"[用户画像]\n{profile_context}"
             })
-    
+
+    # P4-H: 添加工作记忆(P4-H:跨会话 workspace, 主动写)
+    if working_memory:
+        messages.append({
+            "role": "system",
+            "content": f"{working_memory}\n\n请结合用户的当前工作记忆上下文(目标/焦点/未完成项)回答。"
+        })
+
     # 添加RAG上下文
     if rag_context:
         messages.append({

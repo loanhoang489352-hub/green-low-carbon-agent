@@ -7,7 +7,7 @@
 这是一个可投入使用的绿色低碳智能体,核心解决"知行鸿沟"(从知道绿色低碳到行动起来)。具备以下核心能力:
 
 - **垂类知识库**: 接入绿色低碳专业知识,支持 RAG 混合检索(语义+BM25)
-- **三层记忆**: 会话/短期/长期,自动整合到长期,支持热度衰减与召回
+- **三层记忆(P4-H)**: 短期(单 session) + 工作(per-user 跨 session, workspace 命名空间) + 长期(永久);级联召回短→工作→长,OpenClaw 风格 heartbeat 审计
 - **用户画像图谱**: 节点+边关系,串起"用户→兴趣→行为→目标→成就→碳足迹"
 - **行为阶段驱动**: 5 阶段(无意向→意向→准备→行动→维持)动态调整 LLM 策略
 - **政策实时同步**: 每日定时爬取 + 事件触发 RAG 重建(2026 计划: P4-E)
@@ -98,7 +98,7 @@ pytest tests/ -v
 │   │   ├── response.py        # 响应生成
 │   │   ├── response_mapper.py # IntentType → response_type
 │   │   ├── intent.py          # 意图识别
-│   │   ├── memory/            # 三层记忆
+│   │   ├── memory/            # 三层记忆(短+工作+长,P4-H)
 │   │   ├── knowledge/         # 知识库
 │   │   ├── rag/               # RAG + GraphRAG
 │   │   ├── user_profile/      # 画像 + 行为追踪 + 推荐
@@ -147,12 +147,21 @@ pytest tests/ -v
 - 增量更新:外部政策源变化时 publish KNOWLEDGE_UPDATED → RAG 重建
 - 元数据过滤:按地区、领域筛选(2026 计划: P4-F)
 
-### 3. 三层记忆(`src/agent/memory/`)
+### 3. 三层记忆(`src/memory/`)— P4-H 工作记忆补齐
 
-- **会话/上下文**(`ConversationContext`):per-user,内存,带 TTL
-- **短期**(`ShortTermMemory`):单例,conversations dict,7 天 TTL,工作记忆最近 5 轮
-- **长期**(`LongTermMemory`):SQLite + WAL,user_memories + user_preferences 两表
+- **短期**(`ShortTermMemory`):单例,conversations dict,7 天 TTL,5 轮滑动窗口 + 旧轮次摘要
+- **工作**(`WorkingMemory`, P4-H):per-user 跨 session workspace 命名空间
+  - 命名空间 set/get/delete,同名 key 覆盖检测(防任务污染)
+  - 容量上限 50 key(LRU 淘汰)+ 24h TTL(过期清理)
+  - JSON 快照持久化(跨重启) + heartbeat 每 4h 审计
+  - OpenClaw 风格:Agent 自由写,heartbeat 整理
+- **长期**(`LongTermMemory`):SQLite + WAL,user_memories + user_preferences 两表,半衰期 30 天衰减
 - **整合**(`MemoryConsolidator`):轮次≥10 / 空闲≥2h / 重要性≥0.6 触发
+  - P4-H 新增 短→工作 晋升(`_promote_to_working`)
+  - P4-H 新增 heartbeat 工作→长 晋升(importance ≥ 0.7)
+- **级联召回**(`memory_agent.py`, P4-H):`cascaded_recall(user_id, query, conv_id)`
+  - should_recall 扫信号词("上次/之前/那个/继续")
+  - 短→工作→长 级联(能用免费的就用免费的,类比缓存→数据库)
 
 ### 4. 用户画像(`src/user_profile/`)
 
@@ -212,11 +221,12 @@ curl -X POST http://localhost:8000/api/knowledge/reload
 
 ### 设计要点
 
-1. **三层记忆**:会话/短期/长期,自动整合 → 积累"知道"
+1. **三层记忆(P4-H)**:短期(对话) + 工作(per-user workspace) + 长期(永久);级联召回短→工作→长,OpenClaw 风格 heartbeat 审计 → 积累"知道"+ "任务状态"
 2. **画像图谱**:节点+边关系,支持图谱推理 → 实现"个性化"
 3. **行为阶段驱动**:5 阶段策略,差异化 LLM 回复 → 推动"行动"
-4. **事件总线**:知识更新/反馈自动回流,降低耦合
-5. **Schema Registry**:6 DB 集中管理,切换 Alembic 成本低
+4. **三层记忆(P4-H)**:工作记忆(per-user workspace)+ 级联召回(短→工作→长)+ heartbeat 审计
+5. **事件总线**:知识更新/反馈自动回流,降低耦合
+6. **Schema Registry**:6 DB 集中管理,切换 Alembic 成本低
 
 ### 已知限制与未来工作
 

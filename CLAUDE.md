@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## 项目概述
 
-绿色低碳智能体是一个基于消费者偏好建模的个性化低碳生活助手,解决"知行鸿沟"(从知道绿色低碳到行动起来),通过**三层记忆 + 用户画像图谱 + 实时知识同步 + 个性化行动推荐**,实现"个性化绿色低碳行为促进"。P0–P4 已完成(共 12 个 commit),端到端可运行。
+绿色低碳智能体是一个基于消费者偏好建模的个性化低碳生活助手,解决"知行鸿沟"(从知道绿色低碳到行动起来),通过**三层记忆(短+工作+长,P4-H)+ 用户画像图谱 + 实时知识同步 + 个性化行动推荐**,实现"个性化绿色低碳行为促进"。P0–P4-G + P4-H 已完成(共 14 个 commit),端到端可运行。
 
 ## 常用命令
 
@@ -57,10 +57,12 @@ src/
 │   ├── response.py            # 响应生成
 │   ├── response_mapper.py     # IntentType → response_type 单一映射源
 │   ├── intent.py              # 意图识别(规则+关键词)
-│   ├── memory/                # 三层记忆
+│   ├── memory/                # 三层记忆(短+工作+长,P4-H)
 │   │   ├── short_term.py      # 短期(单例 + 双检锁,带 TTL 清理)
+│   │   ├── working.py         # 工作记忆(P4-H:per-user workspace + 同名覆盖检测)
+│   │   ├── memory_agent.py    # P4-H:级联召回(短→工作→长,先用免费的)
 │   │   ├── long_term.py       # 长期(SQLite + WAL,带热度/衰减)
-│   │   └── consolidation.py   # 整合机制(策略模式:P4-余 后)
+│   │   └── consolidation.py   # 整合机制(策略模式, P4-H 加入 短→工作 晋升)
 │   ├── knowledge/             # 知识库管理 + 增量更新器
 │   ├── rag/                   # RAG 引擎(混合:语义+BM25)+ GraphRAG
 │   │   ├── rag_engine.py      # RAGEngine(P4-E 加 get_rag_engine 单例)
@@ -214,25 +216,49 @@ src/
 - `_apply_profile_updates` 把 detected_interests + behavior_stage + action_reports 写回画像图谱
 - 修: `_rag_engine.query()` → `retrieve()`; `analyze_message` 签名变化; `generate_recommendations` 关键字参
 
-### 三层记忆 + 画像图谱 数据流(P4-B/C/F/G 完成态)
+### 三层记忆 + 画像图谱 数据流(P4-B/C/F/G + P4-H 完成态)
 
 ```
 用户输入
   ├─→ [会话] ConversationStore(单例,user_id → conversation_id,7 天 TTL)
   ├─→ [短期] ShortTermMemory(单例,conversations dict,7 天 TTL)
   │     └─→ P4-B 后:LangGraph 节点统一调 add_message(recognize_intent / generate_response)
+  ├─→ [工作] WorkingMemory(P4-H:per-user workspace, JSON 快照跨会话)
+  │     ├─→ 命名空间 set/get/delete,同名 key 覆盖检测(防任务污染)
+  │     ├─→ end_task(clear=True) 防污染 / clear=False 跨任务共享
+  │     └─→ snapshot_for_prompt 注入 LLM 系统 prompt
   ├─→ [长期] LongTermMemory(SQLite + WAL)
-  │     ├─→ MemoryConsolidator 触发后写入(短→长)
+  │     ├─→ P4-H:MemoryConsolidator 短→工作→长 三段晋升
   │     ├─→ search_memories(query) 召回相关,带热度更新(P4-B.3)
-  │     └─→ decay_importance 半衰期 30 天(P4-A 调度)
+  │     ├─→ decay_importance 半衰期 30 天(P4-A 调度)
+  │     └─→ P4-H:working_memory_heartbeat 每 4h 清理过期+晋升高 importance
+  ├─→ [级联召回] cascaded_recall(P4-H)
+  │     ├─→ should_recall 扫信号词("上次/之前/那个")
+  │     └─→ 短→工作→长 级联,能用免费的就用免费的
   ├─→ [画像] UserProfileManager.get_profile(user_id)
   │     └─→ UserProfileGraph(P4-C):节点/边 JSON 化,加去重
   │     └─→ update_profile 节点回写 detected_interests/stage/actions → 图谱
   ├─→ [RAG] RAGEngine.retrieve(query, top_k=8) + 软重排
   │     └─→ retrieve_knowledge 节点用 region/interests 加权
   │     └─→ augment_with_rag 把 RAG 结果插入推荐头部
-  └─→ LLM 调用(prompt 注入:画像/记忆/RAG/阶段策略)
+  └─→ LLM 调用(prompt 注入:画像/工作记忆/长期记忆/RAG/阶段策略)
 ```
+
+### 三层记忆对照表(P4-H)
+
+| 维度 | 短期 | 工作(P4-H 新增) | 长期 |
+|---|---|---|---|
+| 文件 | `short_term.py` | `working.py` | `long_term.py` |
+| 粒度 | 对话消息 | 命名空间 key-value | 永久事实/偏好 |
+| 范围 | 单 session | per-user 跨 session | 全局 |
+| 容量 | 5 轮 + 摘要 | 上限 50 key,LRU 淘汰 | 索引 < 40 行 |
+| 淘汰 | 旧轮次→摘要 | end_task 清空 / 24h TTL / 50-key LRU | 半衰期 30 天衰减 |
+| 持久化 | 内存(`conversations` dict) | 内存 + JSON 快照 | SQLite + WAL |
+| 召回 | `get_conversation_history` | `cascaded_recall(working=...)` | `search_memories` |
+| 注入 prompt | `conversation_history` 字段 | `working_memory` system msg | `recent_memories` / 长召回 |
+| 写入 | 节点出口 add_message | 自由 set / heartbeat 审计 | 整合后 consolidate |
+| 风格 | — | OpenClaw(自由+定期审计) | — |
+| 测试 | `test_p4b_memory.py` | `test_p4h_working_memory.py`(15 个) | `test_p4b_memory.py` |
 
 ### 用户引导流程(Onboarding)
 
@@ -308,12 +334,15 @@ src/
 | `dcc16ee` | P4-E | 实时知识/政策同步 + RAG 自动重载(httpx+bs4) |
 | `b128d00` | P4-F | 知识库个性化(画像驱动 RAG 检索 + 静态推荐混合) |
 | `dd7bdb5` | P4-G | 端到端修复 - agent 可正常运行,RAG 真正可用 |
+| `P4-H` | P4-H | **三层记忆补齐** — 工作记忆(`working.py`)+ 级联召回(`memory_agent.py`)+ 短→工作→长 整合 + LLM prompt 注入 |
 
 **P4 阶段成果**:
-- 50 个 P4 单元/E2E 测试全过(`pytest tests/test_p4*.py -v`)
+- 65 个 P4 单元/E2E 测试全过(`pytest tests/test_p4*.py -v`)
+  - P4-A~G 共 50 + P4-H 新增 15(working memory 单例/覆盖检测/cross-session/级联召回/晋升 LTM/heartbeat)
 - agent 端到端可运行:`chat_enhanced` 知识查询返回 4 个推荐(1 RAG + 3 静态)+ 3 个 knowledge_refs + 685 chars RAG context
 - 多轮对话画像图谱正确更新(兴趣+行为,边/节点去重)
 - 知识库按地区软过滤(北京用户→北京政策加分)
 - 政策实爬 + RAG 订阅者自动重建索引
+- **P4-H** 三层记忆(短+工作+长)真正打通:workspace 命名空间 + 同名 key 覆盖检测 + OpenClaw 风格 heartbeat(每 4h 清理过期 + 晋升高 importance)
 
-**当前计划(2026-06)**: 详见 `~/.claude/plans/bug-agent-groovy-flute.md`(P0–P4 全部完成)。
+**当前计划(2026-06)**: 详见 `~/.claude/plans/bug-agent-groovy-flute.md`(P0–P4-G 完成,P4-H 落地)。

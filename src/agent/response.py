@@ -165,21 +165,26 @@ class ResponseGenerator:
         self,
         user_input: str,
         context: 'ResponseContext',
-        rag_context: str = ""
+        rag_context: str = "",
+        working_memory: str = "",
     ) -> str:
-        """使用LLM生成响应（增强版）"""
+        """使用LLM生成响应（增强版,P4-H: 支持 working_memory 注入）"""
         llm = self._get_llm_client()
 
         if not llm:
             return self.generate_response(user_input, context)["message"]
 
         try:
-            messages = self._build_prompt(
-                user_message=user_input,
-                user_profile=context.user_profile,
-                rag_context=rag_context,
-                conversation_history=context.conversation_history
-            )
+            # P4-H: working_memory 注入
+            kwargs = {
+                "user_message": user_input,
+                "user_profile": context.user_profile,
+                "rag_context": rag_context,
+                "conversation_history": context.conversation_history,
+            }
+            if working_memory:
+                kwargs["working_memory"] = working_memory
+            messages = self._build_prompt(**kwargs)
             response = llm.chat(messages)
             return response.content if hasattr(response, 'content') else str(response)
         except Exception as e:
