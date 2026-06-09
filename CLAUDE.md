@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## 项目概述
 
-绿色低碳智能体是一个基于消费者偏好建模的个性化低碳生活助手,解决"知行鸿沟"(从知道绿色低碳到行动起来),通过三层记忆 + 用户画像图谱 + 个性化行动推荐,实现"个性化绿色低碳行为促进"。
+绿色低碳智能体是一个基于消费者偏好建模的个性化低碳生活助手,解决"知行鸿沟"(从知道绿色低碳到行动起来),通过**三层记忆 + 用户画像图谱 + 实时知识同步 + 个性化行动推荐**,实现"个性化绿色低碳行为促进"。P0–P4 已完成(共 12 个 commit),端到端可运行。
 
 ## 常用命令
 
@@ -18,14 +18,14 @@ cd src && python main.py
 # 命令行模式
 cd src && python main.py --cli
 
-# 使用 LangGraph 工作流(实验性)
+# 使用 LangGraph 工作流(实验性,ReAct 模式)
 cd src && python main.py --use-langgraph --use-react
 
 # 运行测试
 pytest tests/ -v
 
 # 单个测试
-pytest tests/test_p3_integration.py::test_event_bus_basic -v
+pytest tests/test_p4g_e2e.py::test_chat_enhanced_knowledge_query -v
 ```
 
 ## 架构概览
@@ -63,24 +63,29 @@ src/
 │   │   └── consolidation.py   # 整合机制(策略模式:P4-余 后)
 │   ├── knowledge/             # 知识库管理 + 增量更新器
 │   ├── rag/                   # RAG 引擎(混合:语义+BM25)+ GraphRAG
-│   │   ├── rag_engine.py      # RAGEngine(singleton 计划 P4-E)
+│   │   ├── rag_engine.py      # RAGEngine(P4-E 加 get_rag_engine 单例)
+│   │   ├── vector_store.py    # ChromaDB/FAISS/内存,P4-G 修正 score 公式
 │   │   ├── graphrag.py        # GraphRAG 引擎(实体/关系提取 + 多跳推理)
 │   │   └── rag_subscriber.py  # 订阅 KNOWLEDGE_UPDATED 重建索引
 │   ├── user_profile/          # 画像 + 行为追踪 + 推荐
 │   │   ├── user_profile.py    # UserProfileManager
-│   │   ├── profile_graph.py   # UserProfileGraph(P4-C 接入)
+│   │   ├── profile_graph.py   # UserProfileGraph(P4-C 接入,P4-G 加去重)
+│   │   ├── persistence.py     # 行为事件/目标/成就/碳足迹持久化层(P4-C)
 │   │   ├── behavior_tracker.py
 │   │   ├── goal_tracker.py
 │   │   ├── achievement_system.py
 │   │   ├── carbon_footprint.py
-│   │   └── personalized_recommender.py
+│   │   ├── dynamic_updater.py # analyze_message → detected_interests/action_reports
+│   │   └── personalized_recommender.py  # 含 augment_with_rag(P4-F.3)
 │   ├── policy/                # 政策更新(P4-E 实爬 httpx+BS4)
 │   ├── tools/                 # 工具抽象(BaseTool, ToolRegistry, ToolExecutor)
 │   ├── planner/               # 任务规划(TaskDecomposer, Planner/ReActPlanner)
+│   ├── scheduler.py           # APScheduler 后台调度(P4-A:每日 kb 更新/记忆衰减)
+│   ├── conversation_store.py  # 会话单例(P4-B.5)
 │   └── graph/                 # LangGraph 工作流
 │       ├── state.py           # AgentState 状态定义
-│       ├── nodes.py           # 6 节点(intent/retrieve/recommend/llm/format/reflection)
-│       └── graph.py           # 工作流图(P4-A 计划挂 SqliteSaver checkpointer)
+│       ├── nodes.py           # 6 节点 + 软过滤 + 画像回写(P4-F/P4-G)
+│       └── graph.py           # 工作流图(P4-A 挂 SqliteSaver + P4-G 补 ReAct 前置节点)
 ├── feedback/                  # 反馈管理
 │   ├── feedback_manager.py    # FeedbackManager(publish FEEDBACK_RECEIVED)
 │   └── profile_subscriber.py # 订阅反馈事件回流画像
@@ -161,27 +166,71 @@ src/
 - 增量更新,**完成后 publish `KNOWLEDGE_UPDATED`**(P3 已加)
 - P4-E 计划:加 `content_hash` 去重 + 版本管理
 
-**`src/user_profile/profile_graph.py` - 用户画像图谱(P4-C 接入)**
+**`src/user_profile/profile_graph.py` - 用户画像图谱(P4-C 接入,P4-G 加去重)**
 - 节点类型:User, Interest, Action, Goal, Achievement, CarbonFootprint
 - 边关系:has_interest, performs_action, has_goal, earned_achievement, reduces_carbon
 - 序列化为 `profile_data["graph"]` JSON 子字段(零新依赖)
-- 当前**尚未接入 UserProfileManager**(P4-C 计划完成)
+- **P4-C.2**:UserProfileManager `update_eco_profile` 同步到图谱(interest / stage / action_history)
+- **P4-G**:`add_interest` / `add_action` 边/节点去重(同 user-兴趣对只保留一条,取最高置信度)
+- 反序列化 `from_dict(data)`,零状态丢失
 
-### 三层记忆 + 画像图谱 数据流(目标态,P4-B/C 完成后)
+**`src/user_profile/persistence.py` - 行为/目标/成就/碳足迹持久化层(P4-C)**
+- 4 张表(behavior_events / user_goals / user_achievements / carbon_footprint_log)落在 `behavior_tracker.db`
+- `BehaviorPersistence.record_event` / `create_goal`(自动完成)/ `grant_achievement`(UNIQUE 去重)/ `record_carbon` / `calculate_weekly_total`
+- 单例 `_persistence`,模块级 get_behavior_persistence() 工厂
+
+**`src/agent/conversation_store.py` - 会话存储单例(P4-B.5)**
+- 双检锁单例,跨 GreenAgent / LangGraphAgent 共享
+- 持有 `user_id → conversation_id` 列表与 `conversation_id → ConversationContext` 映射
+- TTL 7 天,可由 scheduler 周期 `cleanup_expired()`
+
+**`src/scheduler.py` - APScheduler 后台调度(P4-A)**
+- `start_scheduler()` 启动 BackgroundScheduler(daemon=True)
+- 每日 02:00 全量增量知识/政策更新(daily_kb)
+- 每日 03:00 长期记忆半衰期衰减(memory_decay,半衰期 30 天)
+- 启动时 `init_app()` 调用,关闭时 `sched.shutdown(wait=False)`
+
+**`src/policy/updater.py` - 政策实爬(P4-E)**
+- `PolicyUpdater._fetch_url` 用 httpx(30s timeout, 自定义 User-Agent)
+- `_extract_content` 优先 BS4 CSS 选择器,退化到 trafilatura 通用提取
+- `_fetch_and_ingest` 抓取→提取→`add_policy`→发布 `KNOWLEDGE_UPDATED` 事件
+- `add_policy` UPSERT 去重(source_url + content_hash 唯一)
+
+**`src/rag/rag_engine.py` - RAG 引擎 + 单例(P4-E)**
+- `get_rag_engine(config=None)` 双检锁单例(供 RAG 订阅者直接调 rebuild_index)
+- `reset_rag_engine()` 测试用
+- `RAGConfig.min_similarity=0.0`(P4-G:MiniLM 距离大,0.3 会漏检)
+
+**`src/rag/vector_store.py` - 向量存储(P4-G 修复)**
+- ChromaDB 路径:`score = 1.0/(1.0+distance)`(兼容非归一化向量)
+- FAISS 路径:同样的倒数归一化
+- Inmemory 路径:余弦相似度(已正确)
+
+**`src/agent/graph/nodes.py` - LangGraph 节点 + 软过滤 + 画像回写(P4-F/P4-G)**
+- `_build_personalization_hints` 从画像提 region + interests
+- `_rerank_by_personalization` 软重排(region *1.3 / interest *1.15)
+- `_region_aliases` 北京→beijing 等中英文互转
+- `_interest_keywords` low_carbon_travel→travel/出行 等关键词映射
+- `_apply_profile_updates` 把 detected_interests + behavior_stage + action_reports 写回画像图谱
+- 修: `_rag_engine.query()` → `retrieve()`; `analyze_message` 签名变化; `generate_recommendations` 关键字参
+
+### 三层记忆 + 画像图谱 数据流(P4-B/C/F/G 完成态)
 
 ```
 用户输入
-  ├─→ [会话] ConversationContext(per-user,内存,带 TTL)
+  ├─→ [会话] ConversationStore(单例,user_id → conversation_id,7 天 TTL)
   ├─→ [短期] ShortTermMemory(单例,conversations dict,7 天 TTL)
-  │     └─→ P4-B 后:LangGraph 6 节点统一调 add_message
+  │     └─→ P4-B 后:LangGraph 节点统一调 add_message(recognize_intent / generate_response)
   ├─→ [长期] LongTermMemory(SQLite + WAL)
-  │     ├─→ MemoryConsolidator 触发后写入
-  │     ├─→ search_memories(query) 召回相关(P4-B 改造)
+  │     ├─→ MemoryConsolidator 触发后写入(短→长)
+  │     ├─→ search_memories(query) 召回相关,带热度更新(P4-B.3)
   │     └─→ decay_importance 半衰期 30 天(P4-A 调度)
   ├─→ [画像] UserProfileManager.get_profile(user_id)
-  │     └─→ UserProfileGraph(P4-C):节点/边 JSON 化
-  ├─→ [RAG] RAGEngine.query(query, filter_metadata=用户地区/兴趣)
-  │     └─→ KNOWLEDGE_UPDATED 事件触发 rebuild_index(P4-E)
+  │     └─→ UserProfileGraph(P4-C):节点/边 JSON 化,加去重
+  │     └─→ update_profile 节点回写 detected_interests/stage/actions → 图谱
+  ├─→ [RAG] RAGEngine.retrieve(query, top_k=8) + 软重排
+  │     └─→ retrieve_knowledge 节点用 region/interests 加权
+  │     └─→ augment_with_rag 把 RAG 结果插入推荐头部
   └─→ LLM 调用(prompt 注入:画像/记忆/RAG/阶段策略)
 ```
 
@@ -205,15 +254,16 @@ src/
 ## 数据目录
 
 - `knowledge_base/`: Markdown 格式知识文档(basic/policy/guide 三类)
-  - `policy/national/`, `policy/{region}/` (P4-F 计划按地区切分)
+  - `policy/national_policy.md` 全国级
+  - `policy/beijing_low_carbon.md` 等(P4-F 加的地区级)
 - `data/vector_db/`: ChromaDB 向量数据库
 - `data/accounts.db`: 账号与会话
-- `data/user_profiles.db`: 画像(JSON)+ goals + achievements + carbon_footprint(P4-C)
+- `data/user_profiles.db`: 画像(JSON + graph 子字段,P4-C)
 - `data/feedback.db`: 消息反馈
 - `data/policy_updates.db`: 政策库 + update_logs
 - `data/long_term_memory.db`: 长期记忆 + user_preferences
-- `data/behavior_tracker.db`: 行为事件
-- `data/langgraph_checkpoints.db`: LangGraph 状态快照(P4-A 计划)
+- `data/behavior_tracker.db`: 行为事件 + goals + achievements + carbon(P4-C)
+- `data/langgraph_checkpoints.db`: LangGraph 状态快照(P4-A)
 
 ## API 端点(13 路由)
 
@@ -239,7 +289,7 @@ src/
 | `/api/memory/long` | GET | 长期记忆 |
 | `/` | GET | Web 界面 |
 
-## 重构进度(P0–P3 7 个 commit)
+## 重构进度(P0–P4 共 13 个 commit,所有 P4 已完成)
 
 | Commit | 阶段 | 摘要 |
 |---|---|---|
@@ -250,5 +300,20 @@ src/
 | `2d38ad0` | P2-余 | main.py 拆为 `src/server/{routers,app}.py` 13 路由 |
 | `a668c28` | P1-余 | planner 失败任务显式化 + GraphRAG O(N²)→O(N) |
 | `37966cc` | P3 | 事件总线 + 知识库更新事件 + 反馈→画像回流 + Schema Registry |
+| `fcfd6a1` | P3-余 | 文档同步 + 依赖瘦身 + Consolidation 策略模式 |
+| `bba7c75` | P4-A | 启动时事件订阅 + APScheduler + LangGraph SqliteSaver checkpointer |
+| `a110b9d` | P4-B | 三层记忆真正打通(短→长 consolidation、热度、衰减、召回、会话单例) |
+| `46f6db9` | P4-C | 用户画像图谱化 + 行为/目标/成就/碳足迹持久化 |
+| `47479dc` | P4-D | 行为阶段真正驱动 LLM(5 阶段 prompt 差异化) |
+| `dcc16ee` | P4-E | 实时知识/政策同步 + RAG 自动重载(httpx+bs4) |
+| `b128d00` | P4-F | 知识库个性化(画像驱动 RAG 检索 + 静态推荐混合) |
+| `dd7bdb5` | P4-G | 端到端修复 - agent 可正常运行,RAG 真正可用 |
 
-**当前计划(2026-06)**: P3-余(文档/依赖/抽象)+ P4-A~G(核心愿景实现),详见 `docs/refactor-plan-v2.md` 与 `~/.claude/plans/bug-agent-groovy-flute.md`。
+**P4 阶段成果**:
+- 50 个 P4 单元/E2E 测试全过(`pytest tests/test_p4*.py -v`)
+- agent 端到端可运行:`chat_enhanced` 知识查询返回 4 个推荐(1 RAG + 3 静态)+ 3 个 knowledge_refs + 685 chars RAG context
+- 多轮对话画像图谱正确更新(兴趣+行为,边/节点去重)
+- 知识库按地区软过滤(北京用户→北京政策加分)
+- 政策实爬 + RAG 订阅者自动重建索引
+
+**当前计划(2026-06)**: 详见 `~/.claude/plans/bug-agent-groovy-flute.md`(P0–P4 全部完成)。
