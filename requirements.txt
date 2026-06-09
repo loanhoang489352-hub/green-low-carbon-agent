@@ -27,3 +27,10 @@ pyyaml>=6.0.0
 
 # 调度(P4-A 引入)
 APScheduler>=3.10.0,<4.0
+
+# 异步 HTTP(P4-E 政策爬取用 httpx,requests 之外)
+httpx>=0.27.0
+
+# 测试
+pytest>=8.0.0
+pytest-asyncio>=0.23.0
