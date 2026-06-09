@@ -202,7 +202,7 @@ def build_review_index(raw_dir: Path) -> Path:
 def main() -> int:
     parser = argparse.ArgumentParser(description="知识库刷新 — 拉源到 data/raw/")
     parser.add_argument("--list", action="store_true", help="列出所有源(连通性测试)")
-    parser.add_argument("--source", type=str, help="只拉取指定 name 的源")
+    parser.add_argument("--source", type=str, action="append", help="只拉取指定 name 的源(可重复)")
     parser.add_argument("--index", action="store_true", help="只生成 review 索引")
     parser.add_argument("--sleep", type=float, default=DEFAULT_SLEEP, help=f"源间限速(秒,默认 {DEFAULT_SLEEP})")
     args = parser.parse_args()
@@ -220,7 +220,8 @@ def main() -> int:
 
     sources = get_policy_sources()
     if args.source:
-        sources = [s for s in sources if s["name"] == args.source]
+        wanted = set(args.source)
+        sources = [s for s in sources if s["name"] in wanted]
         if not sources:
             print(f"[ERROR] 未找到源: {args.source}")
             print("可用源:")

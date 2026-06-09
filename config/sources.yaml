@@ -9,7 +9,73 @@
 #   api       - JSON API
 #   standard  - 学术/标准机构首页
 policy_sources:
-  # ====== 国内商业媒体(转载政府文件,香港 IP 可达) ======
+  # ====== 政府权威源(KB-v4 增补,大陆 IP 实测可通) ======
+  - name: "生态环境部-双碳专题"
+    url: "https://www.mee.gov.cn/ywgz/ydqhbh/"
+    type: "html"
+    region: "national"
+    category: "政府-双碳"
+    enabled: true
+    check_interval_hours: 24
+    note: "生态环境部双碳专题,最权威的官方源,含低碳关键词"
+  - name: "生态环境部-新闻发布"
+    url: "https://www.mee.gov.cn/ywdt/xwfb/"
+    type: "html"
+    region: "national"
+    category: "政府-气候"
+    enabled: true
+    check_interval_hours: 24
+    note: "生态环境部新闻发布,政策动态"
+  - name: "国务院-最新政策"
+    url: "https://www.gov.cn/zhengce/zuixin/"
+    type: "html"
+    region: "national"
+    category: "政府-国务院"
+    enabled: true
+    check_interval_hours: 12
+    note: "国务院政策原文,最高权威"
+  - name: "国标检索-碳足迹"
+    url: "https://openstd.samr.gov.cn/bzgk/std"
+    type: "html"
+    region: "national"
+    category: "标准-碳足迹"
+    enabled: true
+    check_interval_hours: 168
+    note: "国家标准化管理委员会,GB/T 24067 等"
+  - name: "国家统计局-数据"
+    url: "https://www.stats.gov.cn/sj/ndsj/"
+    type: "html"
+    region: "national"
+    category: "数据-统计"
+    enabled: true
+    check_interval_hours: 168
+    note: "能源/环境统计年鉴"
+  - name: "北京生态环境局-新闻"
+    url: "https://sthjj.beijing.gov.cn/bjhrb/index/index.html"
+    type: "html"
+    region: "beijing"
+    category: "政府-地方"
+    enabled: true
+    check_interval_hours: 24
+    note: "北京地方政策"
+  - name: "广州生态环境局"
+    url: "https://sthjj.gz.gov.cn/"
+    type: "html"
+    region: "guangdong"
+    category: "政府-地方"
+    enabled: true
+    check_interval_hours: 24
+    note: "广州地方政策"
+  - name: "共产党员网-政策"
+    url: "https://www.12371.cn/"
+    type: "html"
+    region: "national"
+    category: "党媒-政策"
+    enabled: true
+    check_interval_hours: 24
+    note: "党媒政策解读,学习强国入口"
+
+  # ====== 国内商业媒体(转载政府文件) ======
   - name: "新浪财经 ESG"
     url: "https://finance.sina.com.cn/esg/"
     type: "html"
@@ -46,6 +112,42 @@ policy_sources:
     check_interval_hours: 24
     note: "人民网官方,转载政府文件权威"
 
+  - name: "界面新闻"
+    url: "https://www.jiemian.com/"
+    type: "html"
+    region: "national"
+    category: "财经-综合"
+    enabled: true
+    check_interval_hours: 24
+    note: "界面 ESG/双碳专题"
+
+  - name: "中新网-财经"
+    url: "https://www.chinanews.com/finance/"
+    type: "html"
+    region: "national"
+    category: "媒体-财经"
+    enabled: true
+    check_interval_hours: 24
+    note: "中新社财经频道,含低碳"
+
+  - name: "央广网-财经"
+    url: "https://www.cnr.cn/jingji/"
+    type: "html"
+    region: "national"
+    category: "媒体-财经"
+    enabled: true
+    check_interval_hours: 24
+    note: "央广财经"
+
+  - name: "央视网-财经"
+    url: "https://jingji.cctv.com/"
+    type: "html"
+    region: "national"
+    category: "媒体-财经"
+    enabled: true
+    check_interval_hours: 24
+    note: "央视财经"
+
   # ====== 行业协会/研究机构 ======
   - name: "中国循环经济协会"
     url: "https://www.chinacace.org/"
@@ -56,6 +158,15 @@ policy_sources:
     check_interval_hours: 24
     note: "协会首页,行业政策/标准多"
 
+  - name: "能源基金会"
+    url: "https://www.efchina.org/"
+    type: "html"
+    region: "international"
+    category: "研究-能源"
+    enabled: true
+    check_interval_hours: 168
+    note: "能源基金会中国,高质量研究"
+
   # ====== 国际研究机构(英文,可作国际视角补充) ======
   - name: "IPCC 报告"
     url: "https://www.ipcc.ch/reports/"
@@ -63,7 +174,7 @@ policy_sources:
     region: "international"
     category: "国际-气候科学"
     enabled: true
-    check_interval_hours: 168  # 每周 1 次,内容稳定
+    check_interval_hours: 168
     note: "政府间气候变化专门委员会,权威"
 
   - name: "IEA 中国能源报告"
@@ -76,36 +187,17 @@ policy_sources:
     note: "国际能源署,China 系列报告"
 
 # 已知不可用源(2026-06 实测,留作历史记录,避免重试浪费)
+# 注:2026-06-10 升级到大陆 IP 后,以上政府站全部恢复可用
 disabled_sources:
-  - name: "中国政府网"
-    url: "https://www.gov.cn/"
-    reason: "SSL 失败,政府站拒非大陆 IP"
-    tested_date: "2026-06-09"
-  - name: "国家发改委"
-    url: "https://www.ndrc.gov.cn/"
-    reason: "SSL 失败"
-    tested_date: "2026-06-09"
-  - name: "生态环境部"
-    url: "https://www.mee.gov.cn/"
-    reason: "SSL 失败"
-    tested_date: "2026-06-09"
-  - name: "国标公开系统"
-    url: "https://openstd.samr.gov.cn/"
-    reason: "SSL 失败"
-    tested_date: "2026-06-09"
-  - name: "学习强国"
-    url: "https://www.12371.cn/"
-    reason: "SSL 不稳定(偶发 EOF)"
-    tested_date: "2026-06-09"
-  - name: "界面新闻"
-    url: "https://www.jiemian.com/"
-    reason: "SSL 失败(疑似 CDN 反爬)"
-    tested_date: "2026-06-09"
+  - name: "上海生态环境局"
+    url: "https://sthjj.sh.gov.cn/"
+    reason: "DNS 解析失败(域名可能退役)"
+    tested_date: "2026-06-10"
+  - name: "深圳生态环境局"
+    url: "https://meeb.sz.gov.cn/"
+    reason: "SSL 错误(BAD_ECPOINT,服务器证书问题)"
+    tested_date: "2026-06-10"
   - name: "36 氪"
     url: "https://36kr.com/"
-    reason: "SSL 失败"
-    tested_date: "2026-06-09"
-  - name: "能源基金会"
-    url: "https://www.efchina.org/"
-    reason: "SSL 失败"
-    tested_date: "2026-06-09"
+    reason: "首页可通但页面太小(14K),内容稀少"
+    tested_date: "2026-06-10"
