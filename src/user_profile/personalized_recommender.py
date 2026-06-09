@@ -818,6 +818,70 @@ class PersonalizedRecommendationEngine:
 
         return filtered
 
+    def augment_with_rag(
+        self,
+        static_recommendations: List[Recommendation],
+        user_profile: Dict[str, Any],
+        rag_results: List[Dict[str, Any]] = None,
+        max_rag_suggestions: int = 1,
+    ) -> List[Recommendation]:
+        """P4-F.3: 用 RAG 检索结果补充推荐
+
+        当 rag_results 非空时,挑出与用户兴趣最相关的 1-2 条,
+        转换为 Recommendation(source='rag'),附加到列表头部。
+
+        兜底:rag_results 为空或异常时,直接返回 static 列表。
+        """
+        if not rag_results:
+            return static_recommendations
+
+        try:
+            eco = user_profile.get("eco_profile", {}) or {}
+            interests = list(eco.get("primary_interests") or [])
+            basic = user_profile.get("basic_info", {}) or {}
+            region = basic.get("region") or "全国"
+
+            # 简单相关度:包含兴趣或地区关键词的优先
+            def _relevance(item: Dict[str, Any]) -> int:
+                text = (item.get("content", "") or "").lower()
+                score = 0
+                for it in interests:
+                    if it and it.lower() in text:
+                        score += 2
+                if region and region != "全国" and region.lower() in text:
+                    score += 1
+                return score
+
+            ranked = sorted(rag_results, key=_relevance, reverse=True)
+            added = 0
+            rag_recs: List[Recommendation] = []
+            for item in ranked[:max_rag_suggestions]:
+                content = (item.get("content") or "").strip()
+                if not content:
+                    continue
+                source = item.get("source") or "知识库"
+                # 用内容前 60 字做 action 文本,后跟参考来源
+                snippet = content[:60].replace("\n", " ").strip()
+                rec = Recommendation(
+                    action=f"参考{region}本地政策:{snippet}…",
+                    category="policy",
+                    reason=f"基于知识库{source}的本地化建议",
+                    personalization_context={"source": "rag", "doc_source": source},
+                    difficulty="easy",
+                    impact="medium",
+                    estimated_carbon_saving="",
+                    examples=[],
+                    rejected_reasons=[],
+                )
+                rag_recs.append(rec)
+                added += 1
+
+            if rag_recs:
+                return rag_recs + list(static_recommendations)
+        except Exception:
+            pass
+        return list(static_recommendations)
+
     def calculate_carbon_impact(self, recommendations: List[Recommendation]) -> Dict[str, Any]:
         """计算建议的碳排放影响"""
         total_impact = 0

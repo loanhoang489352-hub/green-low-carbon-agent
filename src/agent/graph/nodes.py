@@ -91,7 +91,7 @@ class AgentNodes:
         }
 
     def retrieve_knowledge(self, state: AgentState) -> AgentState:
-        """节点2: RAG 知识检索"""
+        """节点2: RAG 知识检索(P4-F.1:基于用户画像软过滤)"""
         self.initialize()
 
         if not self._rag_engine or not self._rag_engine.is_enabled:
@@ -104,13 +104,35 @@ class AgentNodes:
         message = state["message"]
         intent_type = state.get("intent_type", "")
 
-        try:
-            rag_result = self._rag_engine.query(message, top_k=3)
+        # P4-F.1: 基于用户画像构造软过滤信号(region + interests)
+        personalization = self._build_personalization_hints(state)
 
-            if rag_result and rag_result.get("results"):
+        try:
+            raw_results = self._rag_engine.retrieve(
+                message, top_k=max(8, 3 * 2),  # 多取一些用于软过滤
+            )
+
+            # 软重排:region/interests 命中的文档分数加成
+            ranked = self._rerank_by_personalization(
+                raw_results, personalization,
+            )
+
+            # 标准化成 dict 格式,方便后续处理
+            rag_items = [
+                {
+                    "id": r.id,
+                    "content": r.content,
+                    "source": (r.metadata or {}).get("source", "未知来源"),
+                    "metadata": r.metadata,
+                    "score": r.score,
+                }
+                for r in ranked[:3]
+            ]
+
+            if rag_items:
                 context_parts = []
                 refs = []
-                for item in rag_result["results"][:3]:
+                for item in rag_items:
                     content = item.get("content", "")[:200]
                     source = item.get("source", "未知来源")
                     context_parts.append(f"[{source}]\n{content}")
@@ -123,7 +145,7 @@ class AgentNodes:
 
             return {
                 "rag_context": rag_context,
-                "rag_results": rag_result.get("results", []) if rag_result else [],
+                "rag_results": rag_items,
                 "knowledge_refs": refs
             }
         except Exception as e:
@@ -133,6 +155,109 @@ class AgentNodes:
                 "knowledge_refs": [],
                 "error": f"知识检索失败: {str(e)}"
             }
+
+    def _build_personalization_hints(self, state: AgentState) -> Dict[str, Any]:
+        """根据用户画像构造个性化信号(P4-F.1)
+
+        返回:
+        - region: 用户地区
+        - interests: 用户兴趣列表
+        - 其它可用于软过滤的信号
+        """
+        try:
+            user_id = state.get("user_id", "")
+            if not user_id or not self._profile_manager:
+                return {}
+            profile = self._profile_manager.get_profile(user_id)
+            if not profile:
+                return {}
+
+            basic = profile.get("basic_info", {}) or {}
+            eco = profile.get("eco_profile", {}) or {}
+            return {
+                "region": basic.get("region") or "全国",
+                "interests": list(eco.get("primary_interests") or []),
+            }
+        except Exception:
+            return {}
+
+    def _rerank_by_personalization(
+        self,
+        results: List[Any],
+        hints: Dict[str, Any],
+    ) -> List[Any]:
+        """基于个性化信号对检索结果软重排(P4-F.1)
+
+        策略:
+        - 文档的 category 或 source 路径包含 region → 分数 * 1.3
+        - 文档的 category 或 source 包含任一 interest → 分数 * 1.15
+        - 累乘后排序,取 top_k
+        """
+        if not results or not hints:
+            return results
+
+        region = (hints.get("region") or "").strip()
+        interests = hints.get("interests") or []
+
+        # 地区关键词映射(中→英/拼音),用于软匹配
+        region_aliases = self._region_aliases(region)
+        # 兴趣关键词映射(代码 ID → 文件名常用关键词)
+        interest_keywords: List[str] = []
+        for interest in interests:
+            interest_keywords.extend(self._interest_keywords(interest))
+
+        def boost(result) -> float:
+            meta = getattr(result, "metadata", None) or {}
+            category = str(meta.get("category", ""))
+            source = str(meta.get("source", ""))
+            haystack = f"{category} {source}".lower()
+            score = result.score
+            if region and region != "全国":
+                # 命中任一别名
+                if any(alias.lower() in haystack for alias in region_aliases):
+                    score *= 1.3
+            if interest_keywords:
+                if any(kw.lower() in haystack for kw in interest_keywords):
+                    score *= 1.15
+            return score
+
+        # 直接修改 score 字段,避免新建对象
+        for r in results:
+            r.score = boost(r)
+        return sorted(results, key=lambda r: r.score, reverse=True)
+
+    @staticmethod
+    def _region_aliases(region: str) -> List[str]:
+        """地区名 → 关键词列表(P4-F.1:软匹配中文/英文文件名)"""
+        aliases = [region] if region else []
+        mapping = {
+            "北京": ["北京", "beijing"],
+            "上海": ["上海", "shanghai"],
+            "广州": ["广州", "guangzhou"],
+            "深圳": ["深圳", "shenzhen"],
+            "杭州": ["杭州", "hangzhou"],
+            "成都": ["成都", "chengdu"],
+            "全国": ["全国", "national", "china"],
+        }
+        if region in mapping:
+            aliases.extend(mapping[region])
+        return list({a for a in aliases if a})
+
+    @staticmethod
+    def _interest_keywords(interest: str) -> List[str]:
+        """兴趣 ID → 关键词列表(用于匹配文档 source/category)"""
+        if not interest:
+            return []
+        mapping = {
+            "low_carbon_travel": ["low_carbon_travel", "travel", "出行", "交通", "green_travel"],
+            "energy_saving": ["energy_saving", "energy", "用电", "节能", "home_energy"],
+            "green_consumption": ["green_consumption", "consumption", "消费"],
+            "diet_eco": ["diet_eco", "diet", "饮食", "food"],
+            "waste_classification": ["waste_classification", "waste", "垃圾", "分类"],
+        }
+        if interest in mapping:
+            return mapping[interest]
+        return [interest]
 
     def get_user_profile(self, state: AgentState) -> AgentState:
         """节点3: 获取用户画像"""
@@ -180,18 +305,25 @@ class AgentNodes:
             return {"profile_updates": {}, "error": f"画像更新失败: {str(e)}"}
 
     def generate_recommendations(self, state: AgentState) -> AgentState:
-        """节点5: 生成个性化推荐"""
+        """节点5: 生成个性化推荐(P4-F.3:静态 + RAG 混合)"""
         self.initialize()
 
         user_id = state["user_id"]
         profile = state.get("profile", {})
         intent_type = state.get("intent_type", "")
+        rag_results = state.get("rag_results", []) or []
 
         try:
-            recommendations = self._recommendation_engine.generate_recommendations(
+            static_recs = self._recommendation_engine.generate_recommendations(
                 user_id=user_id,
                 user_profile=profile,
-                context={"intent_type": intent_type}
+                context={"intent_type": intent_type},
+            )
+            # P4-F.3: 用 RAG 检索到的本地政策补充推荐
+            recommendations = self._recommendation_engine.augment_with_rag(
+                static_recommendations=static_recs,
+                user_profile=profile,
+                rag_results=rag_results,
             )
 
             suggestions = [r.get("action", "") for r in recommendations[:3] if r.get("action")]
