@@ -1,11 +1,12 @@
 """
 LangGraph 工作流定义
 构建智能体状态图
-"""
 
+P4-A:默认挂 SqliteSaver checkpointer,LangGraph 状态跨重启持久化
+"""
 import sys
 from pathlib import Path
-from typing import Literal
+from typing import Literal, Optional
 
 script_path = Path(__file__).resolve()
 sys.path.insert(0, str(script_path.parent.parent.parent / 'src'))
@@ -25,12 +26,43 @@ from .nodes import (
 )
 
 
+_CHECKPOINTER = None
+_CHECKPOINTER_CONN = None  # 必须保持长连接,SqliteSaver 依赖 conn
+
+
+def _get_default_checkpointer():
+    """默认 SqliteSaver(P4-A 引入),失败回退 MemorySaver
+
+    注:SqliteSaver 接受一个 sqlite3.Connection 实例,需要在模块级保持引用
+    """
+    global _CHECKPOINTER, _CHECKPOINTER_CONN
+    if _CHECKPOINTER is not None:
+        return _CHECKPOINTER
+    try:
+        import sqlite3
+        from langgraph.checkpoint.sqlite import SqliteSaver
+        from paths import DATA_DIR
+        ckpt_path = str(DATA_DIR / "langgraph_checkpoints.db")
+        _CHECKPOINTER_CONN = sqlite3.connect(ckpt_path, check_same_thread=False)
+        _CHECKPOINTER_CONN.execute("PRAGMA journal_mode=WAL")
+        _CHECKPOINTER_CONN.execute("PRAGMA busy_timeout=5000")
+        _CHECKPOINTER = SqliteSaver(_CHECKPOINTER_CONN)
+        return _CHECKPOINTER
+    except Exception as e:
+        import logging
+        logging.getLogger(__name__).warning(
+            "[Graph] SqliteSaver 不可用,回退 MemorySaver: %s", e,
+        )
+        _CHECKPOINTER = MemorySaver()
+        return _CHECKPOINTER
+
+
 def create_agent_graph(checkpointer=None) -> StateGraph:
     """
     创建智能体工作流图
 
     Args:
-        checkpointer: 检查点保存器，用于状态持久化（可选）
+        checkpointer: 检查点保存器(默认 SqliteSaver → MemorySaver)
 
     Returns:
         编译后的状态图
@@ -81,12 +113,8 @@ def create_agent_graph(checkpointer=None) -> StateGraph:
 
     graph.add_edge("generate_response", END)
 
-    compiled = graph.compile()
-
-    if checkpointer is not None:
-        return compiled.with_checkpointer(checkpointer)
-
-    return compiled
+    cp = checkpointer if checkpointer is not None else _get_default_checkpointer()
+    return graph.compile(checkpointer=cp)
 
 
 def _route_after_profile(state: AgentState) -> str:

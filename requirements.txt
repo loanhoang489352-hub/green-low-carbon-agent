@@ -5,6 +5,7 @@
 langgraph>=0.2.0
 langchain-core>=0.3.0
 typing-extensions>=4.12.0
+langgraph-checkpoint-sqlite>=3.0.0
 
 # RAG 与嵌入
 chromadb>=1.5.0
@@ -23,3 +24,6 @@ urllib3>=2.0.0
 
 # 配置
 pyyaml>=6.0.0
+
+# 调度(P4-A 引入)
+APScheduler>=3.10.0,<4.0

@@ -129,7 +129,58 @@ def create_handler():
 
 
 def init_app():
-    """初始化应用:注册所有路由"""
+    """初始化应用:注册所有路由 + 启动订阅 + 启动调度器
+
+    启动骨架(P4-A):
+    1. 注册反馈事件订阅(feedback → 画像回流)
+    2. 注册 RAG 知识更新订阅(KNOWLEDGE_UPDATED → RAG 重建)
+    3. 启动 APScheduler 后台调度
+    4. 初始化所有 SQLite Schema(幂等)
+    """
+    from paths import ensure_data_dirs
+    from db_schema import init_all_schemas
+    ensure_data_dirs()
+    init_all_schemas()
+
     registry = get_registry()
     register_all_routes(registry)
+
+    _register_event_subscribers()
+    _start_scheduler_safe()
+
     return create_handler()
+
+
+def _register_event_subscribers() -> None:
+    """注册事件订阅者(失败不应阻塞启动)"""
+    try:
+        from feedback.profile_subscriber import register_feedback_subscribers
+        register_feedback_subscribers()
+    except Exception as e:
+        import logging
+        logging.getLogger(__name__).warning("[App] 反馈订阅注册失败: %s", e)
+    try:
+        from rag.rag_subscriber import register_rag_subscribers
+        register_rag_subscribers()
+    except Exception as e:
+        import logging
+        logging.getLogger(__name__).warning("[App] RAG 订阅注册失败: %s", e)
+
+
+def _start_scheduler_safe() -> None:
+    """启动调度器(失败不应阻塞启动)"""
+    try:
+        from scheduler import start_scheduler
+        start_scheduler()
+    except Exception as e:
+        import logging
+        logging.getLogger(__name__).warning("[App] 调度器启动失败: %s", e)
+
+
+def shutdown_app() -> None:
+    """关闭应用:停止调度器"""
+    try:
+        from scheduler import stop_scheduler
+        stop_scheduler(wait=False)
+    except Exception:
+        pass
