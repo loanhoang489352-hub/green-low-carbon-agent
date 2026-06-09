@@ -477,6 +477,16 @@ class GreenAgent:
         personalization_ctx = self.profile_manager.get_personalization_context(user_id)
         strategy = self.profile_manager.get_suggestion_strategy(user_id)
 
+        # P4-D: 合并 strategy 字段到 personalization_ctx,供 LLM prompt 注入
+        personalization_ctx = {
+            **personalization_ctx,
+            "focus": strategy.get("focus"),
+            "suggestion_intensity": strategy.get("suggestion_intensity"),
+            "action_complexity": strategy.get("action_complexity"),
+            "tone": strategy.get("tone"),
+            "example_focus": strategy.get("example_focus"),
+        }
+
         recommendations = []
         if intent_result.intent in [IntentType.ADVICE_REQUEST, IntentType.GREETING]:
             recs = self.recommendation_engine.generate_recommendations(user_profile, count=2)

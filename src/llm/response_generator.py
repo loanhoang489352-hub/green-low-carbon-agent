@@ -210,22 +210,56 @@ class HybridResponseGenerator:
             }
     
     def _get_suggestions(self, personalization_ctx: Dict[str, Any] = None) -> List[str]:
-        """获取建议"""
+        """获取建议(P4-D:基于 stage strategy 推荐下一步)"""
         suggestions = [
             "给我更多低碳生活建议",
             "推荐一些环保行动",
-            "有什么节能产品推荐？"
+            "有什么节能产品推荐？",
         ]
-        
+
         if personalization_ctx:
             behavior_stage = personalization_ctx.get("behavior_stage", "意向")
-            if behavior_stage == "行动":
-                suggestions.append("分享你的减碳成果")
-                suggestions.append("帮助朋友开始低碳生活")
-            elif behavior_stage == "准备":
-                suggestions.append("我准备好了，开始行动")
-        
-        return suggestions[:3]
+            intensity = personalization_ctx.get("suggestion_intensity", "low")
+            focus = personalization_ctx.get("focus", "意识唤醒")
+
+            # 5 阶段差异化建议(P4-D)
+            stage_specific = {
+                "无意向": [
+                    "低碳生活真的有用吗?",
+                    "先了解下环保的真正意义",
+                ],
+                "意向": [
+                    "推荐一些简单的起步行动",
+                    "看看和我类似的人是怎么开始的",
+                ],
+                "准备": [
+                    "我准备好了,告诉我具体怎么做",
+                    "给我一个一周行动计划",
+                ],
+                "行动": [
+                    "分享你的减碳成果",
+                    "帮我看看现在做的怎么样",
+                ],
+                "维持": [
+                    "还有什么进阶的低碳玩法?",
+                    "如何影响身边更多人加入",
+                ],
+            }
+            stage_picks = stage_specific.get(behavior_stage, [])
+            suggestions.extend(stage_picks)
+
+            # intensity 决定返回数量(very_low=3, low=3, medium=4, high=5)
+            n = {
+                "very_low": 3,
+                "low": 3,
+                "medium": 4,
+                "high": 5,
+            }.get(intensity, 3)
+            suggestions = suggestions[:n]
+        else:
+            suggestions = suggestions[:3]
+
+        return suggestions
     
     def _merge_responses(self, rule_response: str, llm_response: str) -> str:
         """合并规则响应和 LLM 响应"""

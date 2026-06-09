@@ -247,29 +247,51 @@ SYSTEM_PROMPT_TEMPLATE = """你是一个专业的绿色低碳智能助手，名�
 - 关注领域：{interests}
 - 沟通风格：{communication_style}
 
+本轮建议策略（P4-D 行为阶段驱动）：
+- 焦点：{focus}
+- 建议强度：{suggestion_intensity}
+- 行动复杂度：{action_complexity}
+- 语气：{tone}
+- 示例侧重：{example_focus}
+
 回复要求：
 1. 使用友好、鼓励的语气
 2. 根据用户认知水平调整解释深度
 3. 每条建议尽量具体可执行
 4. 可以适当引用数据和事实
 5. 回答控制在200-300字左右
+6. 严格遵循"行为阶段策略":在"无意向"阶段避免激进建议
+   在"准备/行动"阶段提供可执行步骤
+7. 示例选择需符合"示例侧重"({example_focus})
 """
 
 
 def build_system_prompt(personalization_ctx: Dict[str, Any]) -> str:
-    """构建系统提示词"""
+    """构建系统提示词(P4-D 扩展:把行为阶段策略注入 prompt)"""
     knowledge_level = personalization_ctx.get("knowledge_level_chinese", "了解")
     behavior_stage = personalization_ctx.get("behavior_stage", "意向")
     interests = personalization_ctx.get("confirmed_interests", personalization_ctx.get("primary_interests", []))
     if isinstance(interests, list):
         interests = "、".join(interests[:3]) if interests else "绿色生活"
     communication_style = personalization_ctx.get("communication_style", "平衡")
-    
+
+    # P4-D: 行为阶段驱动的策略变量
+    focus = personalization_ctx.get("focus", "意识唤醒")
+    suggestion_intensity = personalization_ctx.get("suggestion_intensity", "low")
+    action_complexity = personalization_ctx.get("action_complexity", "simple")
+    tone = personalization_ctx.get("tone", "positive")
+    example_focus = personalization_ctx.get("example_focus", "similar_people")
+
     return SYSTEM_PROMPT_TEMPLATE.format(
         knowledge_level=knowledge_level,
         behavior_stage=behavior_stage,
         interests=interests,
-        communication_style=communication_style
+        communication_style=communication_style,
+        focus=focus,
+        suggestion_intensity=suggestion_intensity,
+        action_complexity=action_complexity,
+        tone=tone,
+        example_focus=example_focus,
     )
 
 
