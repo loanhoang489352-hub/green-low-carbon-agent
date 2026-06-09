@@ -345,4 +345,12 @@ src/
 - 政策实爬 + RAG 订阅者自动重建索引
 - **P4-H** 三层记忆(短+工作+长)真正打通:workspace 命名空间 + 同名 key 覆盖检测 + OpenClaw 风格 heartbeat(每 4h 清理过期 + 晋升高 importance)
 
-**当前计划(2026-06)**: 详见 `~/.claude/plans/bug-agent-groovy-flute.md`(P0–P4-G 完成,P4-H 落地)。
+**KB-v2 阶段成果(2026-06)**:
+- `config/sources.yaml` 7 个实测可通源:新浪 ESG / 中国能源报 / 财新 / 人民网 / 中国循环经济协会 / IPCC / IEA
+- 政府站(.gov.cn)经实测**全部 SSL 失败**(服务器端拒绝港/海外 IP)→ 8 个不可用源记录在 `disabled_sources` 留档
+- `PolicyUpdater` 错误可见性:抓取失败现在计入 `update_logs.error` 状态,`check_updates()` 报告 `errors[]` 字段不再"假成功"
+- 知识库从 7 个 markdown → **13 个**(新增 6 个高优先级):`policy/2024_carbon_market_regulation.md` / `2024_trade_in_action.md` / `regional/shanghai_low_carbon.md` / `regional/shenzhen_low_carbon.md` / `basic/carbon_footprint_standard.md` / `guide/2024_2025_subsidies.md`
+- RAG 文档块 32 → **67**(翻 2 倍),6/6 端到端检索 top3 命中(5/6 top1 命中)
+- `tests/test_p4e_rag_kb.py` 5 个测试全过(修复 `_fetch_and_ingest` 返回值变更后的断言)
+
+**当前计划(2026-06)**: 详见 `~/.claude/plans/bug-agent-groovy-flute.md`(P0–P4-G 完成,P4-H 落地,KB-v2 知识库+数据源重构完成)。

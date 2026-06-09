@@ -1,12 +1,111 @@
-# 政策数据源
-# 供 policy/updater.py 加载,避免 URL 硬编码
+# 政策与知识数据源(P4-E 重写,2026-06)
+# 选取原则:实测可通(精细 headers + 直连,2026-06 香港 IP 测试)
+#   - .gov.cn 系列全部 SSL 失败(政府站服务器端拒绝非大陆 IP)
+#   - 改用商业媒体转载 + 行业协会 + 国际研究机构
+
+# type 字段含义(PolicyUpdater 据此走不同抓取策略)
+#   rss       - 公开 RSS/Atom feed,标准化 XML
+#   html      - 静态 HTML 列表页(需 BS4 解析)
+#   api       - JSON API
+#   standard  - 学术/标准机构首页
 policy_sources:
-  - name: "国家发改委"
-    url: "https://www.ndrc.gov.cn/"
+  # ====== 国内商业媒体(转载政府文件,香港 IP 可达) ======
+  - name: "新浪财经 ESG"
+    url: "https://finance.sina.com.cn/esg/"
+    type: "html"
+    region: "national"
+    category: "财经-双碳"
     enabled: true
-  - name: "生态环境部"
-    url: "https://www.mee.gov.cn/"
+    check_interval_hours: 24
+    note: "新浪 ESG/双碳频道,商业转载,直连 OK"
+
+  - name: "中国能源报"
+    url: "https://www.cnenergynews.cn/"
+    type: "html"
+    region: "national"
+    category: "能源"
     enabled: true
+    check_interval_hours: 24
+    note: "能源行业,政府能源政策转载多"
+
+  - name: "财新 ESG/双碳"
+    url: "https://www.caixin.com/"
+    type: "html"
+    region: "national"
+    category: "财经-双碳"
+    enabled: true
+    check_interval_hours: 24
+    note: "财新深度报道,ESG/双碳栏目"
+
+  - name: "人民网财经"
+    url: "http://finance.people.com.cn/"
+    type: "html"
+    region: "national"
+    category: "财经-政策"
+    enabled: true
+    check_interval_hours: 24
+    note: "人民网官方,转载政府文件权威"
+
+  # ====== 行业协会/研究机构 ======
+  - name: "中国循环经济协会"
+    url: "https://www.chinacace.org/"
+    type: "html"
+    region: "national"
+    category: "行业-循环经济"
+    enabled: true
+    check_interval_hours: 24
+    note: "协会首页,行业政策/标准多"
+
+  # ====== 国际研究机构(英文,可作国际视角补充) ======
+  - name: "IPCC 报告"
+    url: "https://www.ipcc.ch/reports/"
+    type: "html"
+    region: "international"
+    category: "国际-气候科学"
+    enabled: true
+    check_interval_hours: 168  # 每周 1 次,内容稳定
+    note: "政府间气候变化专门委员会,权威"
+
+  - name: "IEA 中国能源报告"
+    url: "https://www.iea.org/reports/china-power-system-transformation"
+    type: "html"
+    region: "international"
+    category: "国际-能源"
+    enabled: true
+    check_interval_hours: 168
+    note: "国际能源署,China 系列报告"
+
+# 已知不可用源(2026-06 实测,留作历史记录,避免重试浪费)
+disabled_sources:
   - name: "中国政府网"
     url: "https://www.gov.cn/"
-    enabled: true
+    reason: "SSL 失败,政府站拒非大陆 IP"
+    tested_date: "2026-06-09"
+  - name: "国家发改委"
+    url: "https://www.ndrc.gov.cn/"
+    reason: "SSL 失败"
+    tested_date: "2026-06-09"
+  - name: "生态环境部"
+    url: "https://www.mee.gov.cn/"
+    reason: "SSL 失败"
+    tested_date: "2026-06-09"
+  - name: "国标公开系统"
+    url: "https://openstd.samr.gov.cn/"
+    reason: "SSL 失败"
+    tested_date: "2026-06-09"
+  - name: "学习强国"
+    url: "https://www.12371.cn/"
+    reason: "SSL 不稳定(偶发 EOF)"
+    tested_date: "2026-06-09"
+  - name: "界面新闻"
+    url: "https://www.jiemian.com/"
+    reason: "SSL 失败(疑似 CDN 反爬)"
+    tested_date: "2026-06-09"
+  - name: "36 氪"
+    url: "https://36kr.com/"
+    reason: "SSL 失败"
+    tested_date: "2026-06-09"
+  - name: "能源基金会"
+    url: "https://www.efchina.org/"
+    reason: "SSL 失败"
+    tested_date: "2026-06-09"

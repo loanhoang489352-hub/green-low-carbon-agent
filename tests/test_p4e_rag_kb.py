@@ -39,11 +39,12 @@ def test_policy_fetch_and_extract():
         db = Path(tmp) / "pol.db"
         pu = PolicyUpdater(db_path=str(db), knowledge_base_path=str(Path(tmp) / "kb"))
 
-        # 1) 抓取 URL 不可达 → 不抛异常
+        # 1) 抓取 URL 不可达 → 不抛异常,返回 (0, error_msg)
         source = {"name": "test_invalid", "url": "http://this-domain-does-not-exist-12345.invalid/", "type": "测试"}
-        added = pu._fetch_and_ingest(source)
+        added, err = pu._fetch_and_ingest(source)
         assert added == 0  # 失败不写入
-        print(f"   invalid url returned {added} policies (expected 0)")
+        assert err is not None  # 错误消息应非空(让失败可追溯)
+        print(f"   invalid url returned {added} policies, err={err[:60] if err else None}")
 
         # 2) 静态 HTML 模拟(不走网络)
         # 直接测试 _extract_content

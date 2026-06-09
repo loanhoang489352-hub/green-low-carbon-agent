@@ -19,11 +19,10 @@ if str(project_root / 'src') not in sys.path:
 try:
     from config_loader import get_policy_sources
     _POLICY_SOURCES = get_policy_sources()
-except Exception:
-    _POLICY_SOURCES = [
-        {"name": "国家发改委", "url": "https://www.ndrc.gov.cn/", "enabled": True},
-        {"name": "生态环境部", "url": "https://www.mee.gov.cn/", "enabled": True},
-    ]
+except Exception as e:
+    import logging
+    logging.getLogger(__name__).warning("[PolicyUpdater] 配置加载失败,使用空列表: %s", e)
+    _POLICY_SOURCES = []
 if str(project_root) not in sys.path:
     sys.path.insert(0, str(project_root))
 
@@ -387,8 +386,8 @@ class PolicyUpdater:
     
     def check_updates(self) -> Dict[str, Any]:
         """
-        检查政策更新
-        
+        检查政策更新(P4-E.3 增强:失败计入日志)
+
         Returns:
             更新报告
         """
@@ -397,29 +396,53 @@ class PolicyUpdater:
             "sources_checked": [],
             "new_policies": 0,
             "updated_policies": 0,
-            "errors": []
+            "errors": [],
         }
-        
-        # 实际爬取(P4-E.3):用 httpx + bs4 拿网页,失败回退通用提取
+
         for source in self.POLICY_SOURCES:
+            source_name = source.get("name", "unknown")
             try:
-                last_check = self._get_last_check_time(source["name"])
+                last_check = self._get_last_check_time(source_name)
                 should_check = self._should_check_source(source, last_check)
 
                 if should_check:
-                    added = self._fetch_and_ingest(source)
-                    self._record_check(source["name"], added, "checked")
-                    report["new_policies"] += added
-                    report["sources_checked"].append(
-                        f"{source['name']} (新增 {added} 条)"
-                    )
+                    added, err = self._fetch_and_ingest(source)
+                    self._record_check(source_name, added, "checked" if not err else "error")
+                    if err:
+                        report["errors"].append(f"{source_name}: {err}")
+                        report["sources_checked"].append(f"{source_name} (失败: {err[:60]})")
+                        # 写 error 日志,让失败可追溯
+                        self._log_update(source_name, status="error", error=err)
+                    else:
+                        report["new_policies"] += added
+                        report["sources_checked"].append(f"{source_name} (新增 {added} 条)")
                 else:
-                    report["sources_checked"].append(f"{source['name']} (跳过: 未到更新时间)")
+                    report["sources_checked"].append(f"{source_name} (跳过: 未到更新时间)")
 
             except Exception as e:
-                report["errors"].append(f"{source['name']}: {str(e)}")
+                err_msg = f"{source_name}: {type(e).__name__}: {str(e)[:120]}"
+                report["errors"].append(err_msg)
+                self._log_update(source_name, status="error", error=err_msg)
 
         return report
+
+    def _log_update(self, source: str, status: str = "success",
+                    added: int = 0, error: str = None) -> None:
+        """写 update_logs(让失败可追溯)"""
+        try:
+            conn = sqlite3.connect(str(self.db_path))
+            cursor = conn.cursor()
+            cursor.execute("""
+                INSERT INTO update_logs (update_type, source, items_added, status, error_message, created_at)
+                VALUES (?, ?, ?, ?, ?, ?)
+            """, (
+                "policy_fetch", source, added, status, error,
+                datetime.now().isoformat(),
+            ))
+            conn.commit()
+            conn.close()
+        except Exception:
+            pass
     
     def _get_last_check_time(self, source_name: str) -> Optional[str]:
         """获取最后检查时间"""
@@ -464,26 +487,24 @@ class PolicyUpdater:
     # ============== P4-E.3: 实际抓取 ==============
 
     def _fetch_url(self, url: str, timeout: int = 30) -> Optional[str]:
-        """P4-E.3: 抓取 URL HTML(httpx,失败返回 None)"""
-        try:
-            import httpx
-            r = httpx.get(
-                url,
-                timeout=timeout,
-                follow_redirects=True,
-                headers={"User-Agent": "GreenAgent/1.0 (+https://example.com/bot)"},
-            )
-            r.raise_for_status()
-            # 检测编码
-            if r.encoding and r.encoding.lower() not in ("utf-8", "utf8"):
-                r.encoding = r.encoding or "utf-8"
-            return r.text
-        except Exception as e:
-            import logging
-            logging.getLogger(__name__).warning(
-                "[PolicyUpdater] 抓取失败: url=%s err=%s", url, e,
-            )
-            return None
+        """P4-E.3 增强:抓取 URL HTML,失败抛出明确错误(给调用方记录)"""
+        import httpx
+        # 精细 headers 提升 SSL/反爬兼容性
+        headers = {
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+                          "(KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+            "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+            "Accept-Language": "zh-CN,zh;q=0.9,en;q=0.8",
+        }
+        r = httpx.get(url, timeout=timeout, follow_redirects=True, headers=headers)
+        r.raise_for_status()
+        # 强制 UTF-8(政府站常用 GBK,这里不能自动嗅探,依赖外层编码处理)
+        if r.encoding and r.encoding.lower() not in ("utf-8", "utf8"):
+            try:
+                r.encoding = "utf-8"
+            except Exception:
+                pass
+        return r.text
 
     def _extract_content(self, html: str, source_url: str = "") -> str:
         """P4-E.3: 从 HTML 提取正文
@@ -532,26 +553,33 @@ class PolicyUpdater:
 
         return text
 
-    def _fetch_and_ingest(self, source: Dict) -> int:
-        """P4-E.3: 抓取源 → 提取 → 入库 → 发 KNOWLEDGE_UPDATED 事件
+    def _fetch_and_ingest(self, source: Dict) -> tuple[int, Optional[str]]:
+        """P4-E.3 增强:抓取源 → 提取 → 入库 → 发 KNOWLEDGE_UPDATED 事件
 
         Args:
             source: {name, url, type?, check_interval_hours?}
 
         Returns:
-            新增政策数量
+            (新增政策数量, 错误消息) — 错误消息 None 表示成功
         """
         url = source.get("url", "")
         if not url:
-            return 0
-        html = self._fetch_url(url)
+            return 0, "url 为空"
+        try:
+            html = self._fetch_url(url)
+        except Exception as e:
+            return 0, f"抓取失败: {type(e).__name__}: {str(e)[:100]}"
         if not html:
-            return 0
-        content = self._extract_content(html, url)
-        if not content or len(content) < 100:
-            return 0
+            return 0, "抓取返回空"
 
-        # 提取标题(简单从 <title> 取)
+        try:
+            content = self._extract_content(html, url)
+        except Exception as e:
+            return 0, f"提取失败: {type(e).__name__}: {str(e)[:100]}"
+        if not content or len(content) < 100:
+            return 0, f"提取内容过短 ({len(content) if content else 0} chars)"
+
+        # 提取标题
         title = source.get("name", "未命名政策")
         try:
             from bs4 import BeautifulSoup
@@ -567,8 +595,8 @@ class PolicyUpdater:
         try:
             self.add_policy(
                 title=title,
-                content=content[:10000],  # 防过大
-                category=source.get("type", "其他"),
+                content=content[:10000],
+                category=source.get("category", "其他"),
                 source=source.get("name", "unknown"),
                 source_url=url,
                 publish_date=datetime.now().strftime("%Y-%m-%d"),
@@ -577,11 +605,7 @@ class PolicyUpdater:
                 impact_level="medium",
             )
         except Exception as e:
-            import logging
-            logging.getLogger(__name__).warning(
-                "[PolicyUpdater] 入库失败: %s", e,
-            )
-            return 0
+            return 0, f"入库失败: {type(e).__name__}: {str(e)[:100]}"
 
         # 发事件 → RAG 重建
         try:
@@ -598,7 +622,7 @@ class PolicyUpdater:
                 "[PolicyUpdater] 发事件失败: %s", e,
             )
 
-        return 1
+        return 1, None
 
     def generate_policy_summary(self, days: int = 7) -> str:
         """
