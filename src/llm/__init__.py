@@ -28,11 +28,22 @@ if str(project_root) not in sys.path:
 
 @dataclass
 class LLMResponse:
-    """LLM响应"""
+    """LLM响应 (P5-A 统一契约)
+    - content: 文本内容
+    - model: 实际使用的模型
+    - usage: token 用量 {prompt_tokens, completion_tokens, total_tokens}
+    - finish_reason: 完成原因 (stop/length/error)
+    - latency_ms: 调用耗时(P5-A 新增,P5-B trace_id 联动)
+    - request_id: 链路追踪 ID(P5-A 新增,P5-B 自动注入)
+    - error: 错误信息(成功时为空,P5-C 错误处理使用)
+    """
     content: str
     model: str
     usage: Dict[str, int]
     finish_reason: str
+    latency_ms: Optional[float] = None
+    request_id: Optional[str] = None
+    error: Optional[str] = None
 
 
 class LLMClient:
