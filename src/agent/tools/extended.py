@@ -360,6 +360,15 @@ class TravelPlanningTool(BaseTool):
                 execution_time=time.time() - start
             )
 
+        # 获取出发地天气(影响骑行/步行评分)
+        weather_info = self._fetch_weather(_DEFAULT_CITY)
+        result["weather"] = weather_info
+
+        # 多因素评分: 碳排 + 费用 + 时长 + 天气
+        weights = kwargs.get("weights") or {"carbon": 0.4, "cost": 0.2, "duration": 0.2, "weather": 0.2}
+        result["recommended"] = self._recommend_route(result["routes"], weather_info, weights)
+        result["weights"] = weights
+
         result["source"] = "高德地图API"
         return ToolResult(success=True, data=result, execution_time=time.time() - start)
 
@@ -472,8 +481,7 @@ class TravelPlanningTool(BaseTool):
             return {
                 "origin": origin,
                 "destination": destination,
-                "routes": all_routes,
-                "recommended": self._recommend_route(all_routes)
+                "routes": all_routes
             }
 
         except Exception as e:
@@ -556,19 +564,129 @@ class TravelPlanningTool(BaseTool):
             "recommended": routes[2]  # 推荐骑行+地铁
         }
 
-    def _recommend_route(self, routes: List[Dict]) -> Dict:
-        """推荐最优低碳路线"""
+    def _fetch_weather(self, city: str) -> Optional[Dict]:
+        """获取天气(失败返回 None,不阻塞推荐)"""
+        try:
+            from utils.web_search import WebSearcher
+            ws = WebSearcher()
+            # 直接拿原始字段而非格式化字符串(用 Open-Meteo 的两步调用)
+            import urllib.request, urllib.parse, json as _json
+            geo_url = f"https://geocoding-api.open-meteo.com/v1/search?name={urllib.parse.quote(city)}&count=1&language=zh"
+            req = urllib.request.Request(geo_url, headers=ws.session_headers)
+            with urllib.request.urlopen(req, timeout=5) as resp:
+                geo = _json.loads(resp.read().decode("utf-8"))
+            results = geo.get("results") or []
+            if not results:
+                return None
+            lat, lon = results[0]["latitude"], results[0]["longitude"]
+            w_url = f"https://api.open-meteo.com/v1/forecast?latitude={lat}&longitude={lon}&current_weather=true"
+            req2 = urllib.request.Request(w_url, headers=ws.session_headers)
+            with urllib.request.urlopen(req2, timeout=5) as resp2:
+                data = _json.loads(resp2.read().decode("utf-8"))
+            cw = data.get("current_weather") or {}
+            code = cw.get("weathercode", 0)
+            return {
+                "city": city,
+                "temp_c": cw.get("temperature"),
+                "wind_kmh": cw.get("windspeed"),
+                "weathercode": code,
+                "description": ws._WEATHER_CODE_CN.get(code, f"代码{code}"),
+            }
+        except Exception:
+            return None
+
+    def _weather_penalty(self, route_type: str, weather: Optional[Dict]) -> tuple:
+        """计算天气对路线的不适程度 (penalty 0-1, reason 字符串).
+        仅对露天模式(骑行/步行)生效;公交/自驾/地铁不受天气影响."""
+        if not weather or route_type not in ("骑行", "步行"):
+            return 0.0, ""
+
+        reasons = []
+        penalty = 0.0
+
+        code = weather.get("weathercode", 0)
+        desc = weather.get("description", "")
+        # WMO 降水细分: 轻降水可骑(提示),中重度过滤
+        if code in (51, 53, 56):  # 毛毛雨/轻冻雨
+            penalty += 0.35
+            reasons.append(f"轻度降水({desc})")
+        elif code in (55, 61, 80):  # 浓密毛毛雨/小雨/小阵雨
+            penalty += 0.5
+            reasons.append(desc)
+        elif code in (57, 63, 65, 66, 67, 81, 82):  # 中重度雨/冻雨/阵雨
+            penalty += 0.7
+            reasons.append(desc)
+        elif 71 <= code <= 77 or 85 <= code <= 86:  # 降雪
+            penalty += 0.7
+            reasons.append(desc)
+        elif 95 <= code <= 99:  # 雷暴
+            penalty += 0.9
+            reasons.append(desc)
+        elif code in (45, 48):  # 雾
+            penalty += 0.3
+            reasons.append("雾天能见度低")
+
+        wind = weather.get("wind_kmh") or 0
+        if wind >= 40:
+            penalty += 0.3
+            reasons.append(f"大风{wind}km/h")
+        elif wind >= 25:
+            penalty += 0.15
+            reasons.append(f"风力较大{wind}km/h")
+
+        temp = weather.get("temp_c")
+        if temp is not None:
+            if temp >= 35:
+                penalty += 0.25
+                reasons.append(f"高温{temp}°C")
+            elif temp <= 0:
+                penalty += 0.2
+                reasons.append(f"低温{temp}°C")
+
+        return min(penalty, 1.0), "、".join(reasons)
+
+    def _recommend_route(self, routes: List[Dict], weather: Optional[Dict] = None,
+                          weights: Optional[Dict] = None) -> Dict:
+        """多因素评分: 碳排 + 费用 + 时长 + 天气适宜度.
+        每个因素归一化到 [0,1](越大越好),加权求和;
+        天气扣分仅对骑行/步行生效."""
         if not routes:
             return {}
+        weights = weights or {"carbon": 0.4, "cost": 0.2, "duration": 0.2, "weather": 0.2}
 
-        # 优先骑行，其次公交，最后自驾
+        max_carbon = max((r.get("carbon_kg") or 0) for r in routes) or 1.0
+        max_cost = max((r.get("cost_yuan") or 0) for r in routes) or 1.0
+        max_dur = max((r.get("duration_min") or 0) for r in routes) or 1.0
+
         for r in routes:
-            if r["type"] == "骑行":
-                return r
+            carbon_score = 1.0 - (r.get("carbon_kg") or 0) / max_carbon
+            cost_score = 1.0 - (r.get("cost_yuan") or 0) / max_cost
+            dur_score = 1.0 - (r.get("duration_min") or 0) / max_dur
+            penalty, reason = self._weather_penalty(r.get("type", ""), weather)
+            weather_score = 1.0 - penalty
+
+            total = (carbon_score * weights["carbon"]
+                     + cost_score * weights["cost"]
+                     + dur_score * weights["duration"]
+                     + weather_score * weights["weather"])
+            r["score"] = round(total, 3)
+            r["score_breakdown"] = {
+                "carbon": round(carbon_score, 2),
+                "cost": round(cost_score, 2),
+                "duration": round(dur_score, 2),
+                "weather": round(weather_score, 2),
+            }
+            if reason:
+                r["weather_note"] = reason
+            # 严重不良天气(penalty>0.5)硬过滤露天模式,避免推荐危险出行
+            r["_disqualified"] = penalty > 0.5
+
+        candidates = [r for r in routes if not r.get("_disqualified")] or routes
+        best = max(candidates, key=lambda x: x.get("score", 0))
+        # 清理临时标记
         for r in routes:
-            if r["type"] in ["公交", "地铁", "骑行+地铁"]:
-                return r
-        return routes[0]
+            r.pop("_disqualified", None)
+        return best
 
 
 # ============ D. 报告导出工具 ============
