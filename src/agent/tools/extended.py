@@ -369,9 +369,13 @@ class TravelPlanningTool(BaseTool):
             import urllib.request
             import urllib.parse
 
-            # 地址 → 坐标(origin 用默认 city,destination 不传 city 让高德自动判断跨城)
-            origin_coord = self._gaode_geocode(origin, api_key, city=_DEFAULT_CITY)
-            dest_coord = self._gaode_geocode(destination, api_key, city=None)
+            # 地址 → 坐标
+            # 先用默认 city 查(避免 "国贸" 这种通用名被解析到外地),
+            # 没结果再放开 city 让高德全国搜(跨城查询)
+            origin_coord = self._gaode_geocode(origin, api_key, city=_DEFAULT_CITY) \
+                           or self._gaode_geocode(origin, api_key, city=None)
+            dest_coord = self._gaode_geocode(destination, api_key, city=_DEFAULT_CITY) \
+                          or self._gaode_geocode(destination, api_key, city=None)
             if not origin_coord or not dest_coord:
                 return None
 
