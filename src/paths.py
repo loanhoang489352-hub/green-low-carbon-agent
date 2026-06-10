@@ -20,6 +20,7 @@ ACCOUNTS_DB: Path = DATA_DIR / "accounts.db"
 USER_PROFILES_DB: Path = DATA_DIR / "user_profiles.db"
 FEEDBACK_DB: Path = DATA_DIR / "feedback.db"
 POLICY_UPDATES_DB: Path = DATA_DIR / "policy_updates.db"
+SHORT_TERM_DB: Path = DATA_DIR / "short_term.db"  # P5-G: STM 持久化
 LONG_TERM_MEMORY_DB: Path = DATA_DIR / "long_term_memory.db"
 BEHAVIOR_TRACKER_DB: Path = DATA_DIR / "behavior_tracker.db"
 

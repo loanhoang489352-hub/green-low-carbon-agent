@@ -16,6 +16,7 @@ from paths import (
     FEEDBACK_DB,
     LONG_TERM_MEMORY_DB,
     POLICY_UPDATES_DB,
+    SHORT_TERM_DB,
     USER_PROFILES_DB,
     ensure_data_dirs,
 )
@@ -139,7 +140,8 @@ SCHEMAS: List[Tuple[str, str, List[Tuple[str, str]]]] = [
                     created_at TEXT NOT NULL,
                     last_accessed TEXT NOT NULL,
                     access_count INTEGER DEFAULT 0,
-                    tags TEXT
+                    tags TEXT,
+                    embedding BLOB
                 )
             """),
             ("user_preferences", """
@@ -151,6 +153,29 @@ SCHEMAS: List[Tuple[str, str, List[Tuple[str, str]]]] = [
                     confidence REAL DEFAULT 0.5,
                     updated_at TEXT NOT NULL,
                     UNIQUE(user_id, preference_type)
+                )
+            """),
+        ],
+    ),
+    # short_term.db (P5-G: STM 持久化)
+    (
+        str(SHORT_TERM_DB),
+        "short_term",
+        [
+            ("conversations", """
+                CREATE TABLE IF NOT EXISTS conversations (
+                    conversation_id TEXT PRIMARY KEY,
+                    payload TEXT NOT NULL,
+                    updated_at TEXT NOT NULL
+                )
+            """),
+            ("conversation_meta", """
+                CREATE TABLE IF NOT EXISTS conversation_meta (
+                    conversation_id TEXT PRIMARY KEY,
+                    user_id TEXT,
+                    message_count INTEGER DEFAULT 0,
+                    last_activity TEXT,
+                    created_at TEXT
                 )
             """),
         ],
@@ -255,6 +280,8 @@ def _migrate_existing_columns() -> None:
         (str(BEHAVIOR_TRACKER_DB), "behavior_events", "carbon_impact", "REAL"),
         (str(BEHAVIOR_TRACKER_DB), "behavior_events", "duration_minutes", "INTEGER"),
         (str(BEHAVIOR_TRACKER_DB), "behavior_events", "related_interests", "TEXT"),
+        # P5-G: LTM 向量检索 — embedding 列(384-dim float32 → 1536 bytes BLOB)
+        (str(LONG_TERM_MEMORY_DB), "user_memories", "embedding", "BLOB"),
     ]
     for db_path, table, column, col_type in migrations:
         try:

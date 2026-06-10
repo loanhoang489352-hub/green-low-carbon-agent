@@ -1,0 +1,51 @@
+{"query": "全国碳排放权交易市场最新管理通知", "expected_source_slug": "2026_national_carbon_market_notice", "subset": "curated", "category": "碳交易"}
+{"query": "碳市场新增哪些行业纳入交易", "expected_source_slug": "2026_national_carbon_market_notice", "subset": "curated", "category": "碳交易"}
+{"query": "2024 年碳排放权交易管理暂行条例修订", "expected_source_slug": "2024_carbon_market_regulation", "subset": "curated", "category": "碳交易"}
+{"query": "碳配额分配与履约监管", "expected_source_slug": "2024_carbon_market_regulation", "subset": "full", "category": "碳交易"}
+{"query": "重点排放单位的配额清缴义务", "expected_source_slug": "2024_carbon_market_regulation", "subset": "full", "category": "碳交易"}
+{"query": "CCER 方法学扩展涉及哪些项目类型", "expected_source_slug": "2025_ccer_methodology_expansion", "subset": "curated", "category": "CCER"}
+{"query": "国家核证自愿减排量新方法学", "expected_source_slug": "2025_ccer_methodology_expansion", "subset": "curated", "category": "CCER"}
+{"query": "CCER 项目开发流程", "expected_source_slug": "2025_ccer_methodology_expansion", "subset": "curated", "category": "CCER"}
+{"query": "自愿减排市场重启进展", "expected_source_slug": "2025_ccer_methodology_expansion", "subset": "full", "category": "CCER"}
+{"query": "减排量签发与交易规则", "expected_source_slug": "2025_ccer_methodology_expansion", "subset": "full", "category": "CCER"}
+{"query": "电力行业碳排放核算指南更新", "expected_source_slug": "2026_power_sector_carbon_guide_update", "subset": "curated", "category": "政策"}
+{"query": "发电行业核查工作要求", "expected_source_slug": "2026_power_sector_carbon_guide_update", "subset": "curated", "category": "政策"}
+{"query": "国家双碳战略主要方向", "expected_source_slug": "national_policy", "subset": "curated", "category": "政策"}
+{"query": "碳达峰碳中和实施路径", "expected_source_slug": "national_policy", "subset": "full", "category": "政策"}
+{"query": "国家应对气候变化政策框架", "expected_source_slug": "national_policy", "subset": "full", "category": "政策"}
+{"query": "绿色出行有哪些方式", "expected_source_slug": "green_travel_guide", "subset": "curated", "category": "出行"}
+{"query": "公共交通和自行车减碳", "expected_source_slug": "green_travel_guide", "subset": "curated", "category": "出行"}
+{"query": "新能源汽车低碳出行建议", "expected_source_slug": "green_travel_guide", "subset": "curated", "category": "出行"}
+{"query": "拼车和共享出行的碳收益", "expected_source_slug": "green_travel_guide", "subset": "full", "category": "出行"}
+{"query": "短途出行选择步行还是地铁", "expected_source_slug": "green_travel_guide", "subset": "full", "category": "出行"}
+{"query": "生活垃圾如何分类", "expected_source_slug": "daily_living", "subset": "curated", "category": "垃圾分类"}
+{"query": "厨余垃圾处理方法", "expected_source_slug": "daily_living", "subset": "curated", "category": "垃圾分类"}
+{"query": "家庭日常低碳生活习惯", "expected_source_slug": "daily_living", "subset": "curated", "category": "垃圾分类"}
+{"query": "可回收物分类指引", "expected_source_slug": "daily_living", "subset": "full", "category": "垃圾分类"}
+{"query": "有害垃圾投放注意事项", "expected_source_slug": "daily_living", "subset": "full", "category": "垃圾分类"}
+{"query": "产品碳足迹核算标准", "expected_source_slug": "carbon_footprint_standard", "subset": "curated", "category": "碳足迹"}
+{"query": "碳足迹数据库管理指引", "expected_source_slug": "2025_carbon_footprint_db_guideline", "subset": "curated", "category": "碳足迹"}
+{"query": "温室气体排放因子数据库 v2", "expected_source_slug": "2026_ghg_emission_factor_db_v2", "subset": "curated", "category": "碳足迹"}
+{"query": "产品全生命周期碳排放评估方法", "expected_source_slug": "carbon_footprint_standard", "subset": "full", "category": "碳足迹"}
+{"query": "排放因子的应用场景", "expected_source_slug": "2026_ghg_emission_factor_db_v2", "subset": "full", "category": "碳足迹"}
+{"query": "绿色产品认证制度", "expected_source_slug": "green_certification", "subset": "curated", "category": "认证"}
+{"query": "中国环境标志认证范围", "expected_source_slug": "green_certification", "subset": "curated", "category": "认证"}
+{"query": "节能产品认证申请流程", "expected_source_slug": "green_certification", "subset": "curated", "category": "认证"}
+{"query": "低碳产品认证的好处", "expected_source_slug": "green_certification", "subset": "full", "category": "认证"}
+{"query": "如何识别真正的绿色认证", "expected_source_slug": "green_certification", "subset": "full", "category": "认证"}
+{"query": "北京市低碳行动方案", "expected_source_slug": "beijing_low_carbon", "subset": "curated", "category": "省级低碳"}
+{"query": "上海低碳城市建设进展", "expected_source_slug": "shanghai_low_carbon", "subset": "curated", "category": "省级低碳"}
+{"query": "深圳低碳试点示范工作", "expected_source_slug": "shenzhen_low_carbon", "subset": "curated", "category": "省级低碳"}
+{"query": "广东省低碳发展规划", "expected_source_slug": "guangdong_low_carbon", "subset": "curated", "category": "省级低碳"}
+{"query": "省级温室气体清单编制指南", "expected_source_slug": "2025_provincial_ghg_inventory_guide", "subset": "curated", "category": "省级低碳"}
+{"query": "中国气候变化适应进展", "expected_source_slug": "2023_china_climate_adaptation_progress", "subset": "curated", "category": "适应气候变化"}
+{"query": "气候适应型城市建设", "expected_source_slug": "2023_china_climate_adaptation_progress", "subset": "curated", "category": "适应气候变化"}
+{"query": "极端天气应对策略", "expected_source_slug": "2023_china_climate_adaptation_progress", "subset": "curated", "category": "适应气候变化"}
+{"query": "气候风险评估方法", "expected_source_slug": "2023_china_climate_adaptation_progress", "subset": "full", "category": "适应气候变化"}
+{"query": "国家适应气候变化战略", "expected_source_slug": "2023_china_climate_adaptation_progress", "subset": "full", "category": "适应气候变化"}
+{"query": "以旧换新政策细则", "expected_source_slug": "2024_trade_in_action", "subset": "curated", "category": "补贴"}
+{"query": "新能源汽车以旧换新补贴", "expected_source_slug": "2024_trade_in_action", "subset": "curated", "category": "补贴"}
+{"query": "家电换新补贴申领流程", "expected_source_slug": "2024_2025_subsidies", "subset": "curated", "category": "补贴"}
+{"query": "节能补贴申请条件", "expected_source_slug": "2024_2025_subsidies", "subset": "curated", "category": "补贴"}
+{"query": "绿色家电购置补贴覆盖范围", "expected_source_slug": "2024_2025_subsidies", "subset": "full", "category": "补贴"}
+{"query": "欧盟碳边境调节机制对出口影响", "expected_source_slug": "cbam_export_impact", "subset": "full", "category": "补贴"}

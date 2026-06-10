@@ -256,6 +256,15 @@ class MemoryConsolidator:
         md = self._get_or_create_metadata(conversation_id)
         md["message_count"] = md.get("message_count", 0) + count
 
+    def set_message_count(self, conversation_id: str, count: int) -> None:
+        """P5-G: 覆盖式设置 message_count(用于 scheduler 同步持久 STM 的当前值)。
+
+        与 update_message_count(累加)不同,本方法直接覆盖,避免 STM 持久化后
+        scheduler 每次都把累计的 message_count 重复相加导致漂移。
+        """
+        md = self._get_or_create_metadata(conversation_id)
+        md["message_count"] = max(0, int(count))
+
     def get_consolidation_stats(self, conversation_id: str) -> Dict[str, Any]:
         md = self._get_or_create_metadata(conversation_id)
         return {

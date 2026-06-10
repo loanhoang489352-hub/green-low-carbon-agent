@@ -1,11 +1,13 @@
 """
 长期记忆模块
-基于向量数据库的思想，管理用户长期记忆和偏好
+基于向量数据库的思想,管理用户长期记忆和偏好
+
+P5-G: 加 embedding BLOB 列,search_memories 走向量 + LIKE 兜底
 """
 
 import json
 import sqlite3
-from typing import List, Dict, Any, Optional
+from typing import List, Dict, Any, Optional, Tuple
 from pathlib import Path
 from datetime import datetime, timedelta
 import hashlib
@@ -15,6 +17,14 @@ import sys
 project_root = Path(__file__).parent.parent.parent
 if str(project_root) not in sys.path:
     sys.path.insert(0, str(project_root))
+
+# P5-F: 模块级 logger
+try:
+    from observability import get_logger
+    _logger = get_logger("memory.long_term")
+except Exception:
+    import logging
+    _logger = logging.getLogger("memory.long_term")
 
 
 class LongTermMemory:
@@ -55,7 +65,7 @@ class LongTermMemory:
         conn.execute("PRAGMA synchronous=NORMAL")
         cursor = conn.cursor()
         
-        # 用户记忆表
+        # 用户记忆表(P5-G: 加 embedding BLOB 列,默认 NULL)
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS user_memories (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -66,7 +76,8 @@ class LongTermMemory:
                 created_at TEXT NOT NULL,
                 last_accessed TEXT NOT NULL,
                 access_count INTEGER DEFAULT 0,
-                tags TEXT
+                tags TEXT,
+                embedding BLOB
             )
         """)
         
@@ -88,12 +99,22 @@ class LongTermMemory:
             CREATE INDEX IF NOT EXISTS idx_memories_user_id
             ON user_memories(user_id)
         """)
-        
+
         cursor.execute("""
             CREATE INDEX IF NOT EXISTS idx_preferences_user_id
             ON user_preferences(user_id)
         """)
-        
+
+        # P5-G: 旧表(没 embedding 列)自动 ALTER 加上
+        cursor.execute("PRAGMA table_info(user_memories)")
+        existing_cols = {row[1] for row in cursor.fetchall()}
+        if "embedding" not in existing_cols:
+            try:
+                cursor.execute("ALTER TABLE user_memories ADD COLUMN embedding BLOB")
+                _logger.info("[LTM] 旧表 user_memories 加 embedding BLOB 列")
+            except Exception as e:
+                _logger.warning("[LTM] ALTER TABLE embedding 失败: %s", e)
+
         conn.commit()
         conn.close()
     
@@ -107,35 +128,62 @@ class LongTermMemory:
     ) -> int:
         """
         添加记忆
-        
+
         Args:
             user_id: 用户ID
             content: 记忆内容
             memory_type: 记忆类型 (action_report, interest, feedback, general)
             importance: 重要性 (0-1)
             tags: 标签
-        
+
         Returns:
             记忆ID
         """
         conn = sqlite3.connect(str(self.db_path))
         cursor = conn.cursor()
-        
+
         now = datetime.now().isoformat()
         tags_json = json.dumps(tags or [], ensure_ascii=False)
-        
+
+        # P5-G: 计算 embedding(embedder 不可用时存 NULL)
+        embedding_blob = self._compute_embedding_blob(content)
+
         cursor.execute("""
             INSERT INTO user_memories
-            (user_id, memory_type, content, importance, created_at, last_accessed, tags)
-            VALUES (?, ?, ?, ?, ?, ?, ?)
-        """, (user_id, memory_type, content, importance, now, now, tags_json))
-        
+            (user_id, memory_type, content, importance, created_at, last_accessed, tags, embedding)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        """, (user_id, memory_type, content, importance, now, now, tags_json, embedding_blob))
+
         memory_id = cursor.lastrowid
-        
+
         conn.commit()
         conn.close()
-        
+
         return memory_id
+
+    def _compute_embedding_blob(self, content: str) -> Optional[bytes]:
+        """P5-G: 懒加载 embedder 并编码 content → bytes (float32 little-endian)。
+
+        失败 / embedder 不可用时返回 None,该行 embedding 列存 NULL,向量搜索
+        会跳过该行,但 LIKE 搜索仍能找到。
+        """
+        try:
+            from rag.rag_engine import get_rag_engine
+            engine = get_rag_engine()
+            if engine is None or not getattr(engine, "_initialized", False):
+                return None
+            embedder = getattr(engine, "_embedder", None)
+            if embedder is None:
+                return None
+            import numpy as np
+            vec = embedder.encode(content)
+            # encode 可能返 (1, dim) 也可能返 (dim,)
+            if vec.ndim == 2:
+                vec = vec[0]
+            return np.asarray(vec, dtype="float32").tobytes()
+        except Exception as e:
+            _logger.debug("[LTM] _compute_embedding_blob 失败(存 NULL): %s", e)
+            return None
     
     def get_recent_memories(
         self,
@@ -157,9 +205,11 @@ class LongTermMemory:
         conn = sqlite3.connect(str(self.db_path))
         cursor = conn.cursor()
 
+        # P5-G: SELECT 加 embedding 列(返回 dict 不暴露,但要 fetch 让 sqlite
+        # 拿到所有字段,避免长 blob 截断)
         if memory_type:
             cursor.execute("""
-                SELECT id, memory_type, content, importance, created_at, tags
+                SELECT id, memory_type, content, importance, created_at, tags, embedding
                 FROM user_memories
                 WHERE user_id = ? AND memory_type = ?
                 ORDER BY created_at DESC
@@ -167,7 +217,7 @@ class LongTermMemory:
             """, (user_id, memory_type, limit))
         else:
             cursor.execute("""
-                SELECT id, memory_type, content, importance, created_at, tags
+                SELECT id, memory_type, content, importance, created_at, tags, embedding
                 FROM user_memories
                 WHERE user_id = ?
                 ORDER BY created_at DESC
@@ -185,7 +235,8 @@ class LongTermMemory:
                 "content": row[2],
                 "importance": row[3],
                 "created_at": row[4],
-                "tags": json.loads(row[5])
+                "tags": json.loads(row[5]),
+                # 不暴露 embedding 字节(只用于内部)
             })
 
         # P4-B.3: 访问热度更新(防止热度永不变,decay 与 search 失真)
@@ -200,55 +251,125 @@ class LongTermMemory:
         query: str,
         limit: int = 5
     ) -> List[Dict]:
-        """
-        搜索记忆（简化版：基于关键词匹配）
+        """P5-G: 向量检索 + LIKE 兜底
 
-        Args:
-            user_id: 用户ID
-            query: 查询文本
-            limit: 返回数量
+        1) 加载该用户全部 memories(有/无 embedding 都加载)
+        2) 编码 query(embedder 可用时)
+        3) 计算 cosine 相似度 → 取 top-20
+        4) LIKE 过滤 query 关键词(对全部 memories)
+        5) 合并:向量命中(score=similarity) + LIKE 命中(score=importance),去重,按 score 排序
+        6) 拿 top `limit`,调 _bump_access
 
-        Returns:
-            匹配的记忆列表
+        降级行为:
+        - embedder 不可用 → 整个向量步骤跳过,降级为纯 LIKE(原行为)
+        - embedding IS NULL 的行 → 向量步骤跳过,LIKE 仍命中
         """
         conn = sqlite3.connect(str(self.db_path))
         cursor = conn.cursor()
-
-        # 简单关键词搜索
-        keywords = query.split()
-        if not keywords:
-            return []
-        keyword_conditions = " OR ".join(
-            ["content LIKE ?" for _ in keywords]
-        )
-
-        cursor.execute(f"""
-            SELECT id, memory_type, content, importance, created_at, tags
-            FROM user_memories
-            WHERE user_id = ? AND ({keyword_conditions})
-            ORDER BY importance DESC, created_at DESC
-            LIMIT ?
-        """, (user_id, *[f"%{kw}%" for kw in keywords], limit))
-
-        rows = cursor.fetchall()
+        rows = cursor.execute(
+            "SELECT id, memory_type, content, importance, created_at, tags, embedding "
+            "FROM user_memories WHERE user_id = ?",
+            (user_id,),
+        ).fetchall()
         conn.close()
 
-        memories = []
-        for row in rows:
-            memories.append({
-                "id": row[0],
-                "type": row[1],
-                "content": row[2],
-                "importance": row[3],
-                "created_at": row[4],
-                "tags": json.loads(row[5])
+        if not rows:
+            return []
+
+        # 1) 解析(embedding 反序列化为 numpy 数组)
+        parsed = []
+        for r in rows:
+            emb_bytes = r[6]
+            emb = None
+            if emb_bytes:
+                try:
+                    import numpy as np
+                    emb = np.frombuffer(emb_bytes, dtype="float32")
+                    if emb.size == 0:
+                        emb = None
+                except Exception:
+                    emb = None
+            parsed.append({
+                "id": r[0],
+                "type": r[1],
+                "content": r[2],
+                "importance": r[3],
+                "created_at": r[4],
+                "tags": json.loads(r[5]),
+                "_embedding": emb,
             })
 
-        # P4-B.3: 访问热度更新
-        if memories:
-            self._bump_access([m["id"] for m in memories])
+        # 2) 向量召回(embedder 不可用 → try/except 跳过)
+        vector_scored: List[Tuple[float, Dict]] = []
+        try:
+            from rag.rag_engine import get_rag_engine
+            engine = get_rag_engine()
+            if engine is not None and getattr(engine, "_initialized", False):
+                embedder = getattr(engine, "_embedder", None)
+                if embedder is not None:
+                    import numpy as np
+                    q_vec = np.asarray(embedder.encode(query), dtype="float32")
+                    if q_vec.ndim == 2:
+                        q_vec = q_vec[0]
+                    q_norm = float(np.linalg.norm(q_vec))
+                    if q_norm > 0:
+                        scored = []
+                        for it in parsed:
+                            emb = it["_embedding"]
+                            if emb is None or emb.size == 0:
+                                continue
+                            e_norm = float(np.linalg.norm(emb))
+                            if e_norm == 0:
+                                continue
+                            sim = float(np.dot(emb, q_vec) / (e_norm * q_norm))
+                            scored.append((sim, it))
+                        scored.sort(key=lambda x: -x[0])
+                        vector_scored = scored[:20]  # top-20 for LIKE filter
+        except Exception as e:
+            _logger.debug("[LTM] 向量检索失败,降级为 LIKE: %s", e)
 
-        return memories
+        # 3) LIKE 召回(对全部 memories,按 query 关键词子串匹配)
+        keywords = [k for k in query.split() if k]
+        like_hits = []
+        for it in parsed:
+            if keywords:
+                content = it["content"] or ""
+                if not any(k in content for k in keywords):
+                    continue
+            like_hits.append(it)
+
+        # 4) 合并:向量命中(按 similarity) + LIKE 命中(按 importance, created_at)
+        seen_ids = set()
+        merged: List[Dict] = []
+        for sim, it in vector_scored:
+            if it["id"] in seen_ids:
+                continue
+            seen_ids.add(it["id"])
+            merged.append({**it, "_score": sim, "_source": "vector"})
+        for it in like_hits:
+            if it["id"] in seen_ids:
+                continue
+            seen_ids.add(it["id"])
+            merged.append({**it, "_score": it["importance"], "_source": "like"})
+
+        # 5) 排序(向量命中的 similarity 优先,like 的用 importance 兜底)
+        merged.sort(key=lambda m: -m["_score"])
+
+        # 6) 返回 top `limit`(不暴露内部 _embedding / _score / _source)
+        result = [{
+            "id": m["id"],
+            "type": m["type"],
+            "content": m["content"],
+            "importance": m["importance"],
+            "created_at": m["created_at"],
+            "tags": m["tags"],
+        } for m in merged[:limit]]
+
+        # P4-B.3: 访问热度更新
+        if result:
+            self._bump_access([r["id"] for r in result])
+
+        return result
 
     def _bump_access(self, memory_ids: List[int]) -> None:
         """访问热度更新(P4-B.3 接入)

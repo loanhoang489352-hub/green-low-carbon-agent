@@ -63,7 +63,8 @@ def _consolidate_short_to_long() -> None:
             if not uid:
                 continue
             consolidator.update_conversation_activity(cid)
-            consolidator.update_message_count(cid, count=meta.get("message_count", 0))
+            # P5-G: 持久 STM 下用 set_message_count(覆盖式),避免累加漂移
+            consolidator.set_message_count(cid, count=meta.get("message_count", 0))
             n = consolidator.consolidate(uid, cid)
             total += n
         logger.info("[Scheduler] 短→长整合完成,共晋升 %d 条", total)
