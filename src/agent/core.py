@@ -166,7 +166,8 @@ class GreenAgent:
                 persist_directory=str(project_root / "data" / "vector_db"),
                 collection_name="green_agent_knowledge",
                 default_top_k=5,
-                min_similarity=0.3,
+                # P4-G: MiniLM 距离归一化后普遍 0.05-0.15,0.3 会漏检全部结果
+                min_similarity=0.0,
                 hybrid_search=True,
                 semantic_weight=0.6
             )

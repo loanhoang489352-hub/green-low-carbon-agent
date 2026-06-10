@@ -20,8 +20,7 @@ except Exception:
     _DEFAULT_CITY = "北京"
 
 from agent.tools.base import BaseTool, ToolResult, ToolMetadata
-from agent.tools.registry import register_tool, get_tool
-from agent.skills.skill import Skill, SkillContext, get_skill_executor
+from agent.skills.skill import Skill, SkillContext
 
 
 # ============ 基础工具实现 ============
@@ -601,58 +600,3 @@ class ProfileUpdateSkill(Skill):
             error=result.error,
             execution_time=time.time() - start
         )
-
-
-# ============ 注册函数 ============
-
-def register_builtin_tools():
-    """注册所有内置工具到全局注册表"""
-    from agent.mcp import get_mcp_server
-
-    mcp_server = get_mcp_server()
-
-    tools = [
-        WeatherTool(),
-        CarbonCalcTool(),
-        PublicTransitTool(),
-        PolicyQueryTool(),
-        ProfileUpdateTool(),
-    ]
-
-    for tool in tools:
-        metadata = ToolMetadata(
-            name=tool.name,
-            description=tool.description,
-            category="builtin"
-        )
-        register_tool(tool, metadata)
-        mcp_server.register_tool(tool, metadata)
-
-    print(f"[Skills] 已注册 {len(tools)} 个内置工具")
-
-
-def register_builtin_skills():
-    """注册所有内置 Skills"""
-    skills = [
-        LowCarbonTravelSkill(),
-        PolicyQuerySkill(),
-        ProfileUpdateSkill(),
-    ]
-
-    executor = get_skill_executor()
-    for skill in skills:
-        executor.register(skill)
-
-    print(f"[Skills] 已注册 {len(skills)} 个内置 Skills")
-
-
-def register_all():
-    """注册所有工具和 Skills"""
-    register_builtin_tools()
-    register_builtin_skills()
-    # 注册扩展工具（A/B/C/D类工具）
-    try:
-        from agent.tools.extended import register_extended_tools
-        register_extended_tools()
-    except Exception as e:
-        print(f"[Skills] 扩展工具注册失败: {e}")

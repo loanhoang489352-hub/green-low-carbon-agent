@@ -916,32 +916,3 @@ class ReportExportTool(BaseTool):
         ])
 
         return "\n".join(lines)
-
-
-# ============ 注册函数 ============
-
-def register_extended_tools():
-    """注册扩展工具到全局注册表"""
-    from agent.mcp import get_mcp_server
-
-    mcp_server = get_mcp_server()
-
-    tools = [
-        KnowledgeRetrievalTool(),
-        CarbonFootprintTool(),
-        TravelPlanningTool(),
-        ReportExportTool(),
-    ]
-
-    for tool in tools:
-        metadata = ToolMetadata(
-            name=tool.name,
-            description=tool.description,
-            category="extended"
-        )
-        from agent.tools.registry import register_tool
-        register_tool(tool, metadata)
-        mcp_server.register_tool(tool, metadata)
-
-    print(f"[ExtendedTools] 已注册 {len(tools)} 个扩展工具")
-    return tools
