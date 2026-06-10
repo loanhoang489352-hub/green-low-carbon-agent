@@ -1,5 +1,5 @@
 """
-系统路由: 健康检查、根路径
+系统路由: 健康检查、根路径、metrics
 """
 import os
 from pathlib import Path
@@ -15,6 +15,26 @@ def register_system_routes(registry) -> None:
             "version": "2.0",
             "langgraph": os.environ.get("USE_LANGGRAPH", "false") == "true",
         })
+
+    def metrics(handler):
+        """
+        GET /api/metrics - LLM 调用指标 (P5-B)
+
+        返回:
+        - 全局聚合:total_calls / error_rate / avg/P50/P95/P99 latency / total_tokens
+        - 按 provider 分组
+        - history_size (历史保留数)
+        """
+        from observability import get_metrics_collector
+        try:
+            summary = get_metrics_collector().summary()
+            handler.send_json({
+                "ok": True,
+                "service": "绿色低碳智能体",
+                "metrics": summary,
+            })
+        except Exception as e:
+            handler.send_json({"ok": False, "error": str(e)}, status=500)
 
     def index(handler):
         html_path = Path(__file__).resolve().parent.parent.parent / "web" / "index.html"
@@ -66,6 +86,7 @@ def register_system_routes(registry) -> None:
     registry.add_route("GET", "/", index, auth_required=False, description="Web 入口")
     registry.add_route("GET", "/index.html", index, auth_required=False, description="Web 入口")
     registry.add_route("GET", "/api/health", health, auth_required=False, description="健康检查")
+    registry.add_route("GET", "/api/metrics", metrics, auth_required=False, description="LLM 调用指标(P5-B)")
     registry.add_route("GET", "/api/knowledge/stats", knowledge_stats, auth_required=False, description="知识库统计")
     registry.add_route("GET", "/api/rag/stats", rag_stats, auth_required=False, description="RAG 状态")
     registry.add_route("GET", "/api/policy/latest", policy_latest, auth_required=False, description="最新政策")

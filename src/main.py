@@ -676,6 +676,23 @@ def run_server(host="0.0.0.0", port=8000):
     print(f"\n[AGENT] 绿色低碳智能体正在启动...", flush=True)
     print(f"[提示] 服务器将立即启动，收到请求时再加载模型", flush=True)
 
+    # P5-B: 启动时初始化结构化日志
+    from observability import setup_logging
+    log_file_path = None
+    try:
+        from paths import DATA_DIR
+        DATA_DIR.mkdir(parents=True, exist_ok=True)
+        log_file_path = str(DATA_DIR / "logs" / "app.log")
+    except Exception:
+        pass
+    setup_logging(
+        level=os.environ.get("LOG_LEVEL", "INFO"),
+        log_file=log_file_path,
+        also_stdout=True,
+    )
+    if log_file_path:
+        print(f"[P5-B] 结构化日志已启用 -> {log_file_path}", flush=True)
+
     # 注意：这里不调用 get_agent()，让服务器立即启动
     # Agent 会在第一次请求时才初始化
 

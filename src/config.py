@@ -58,6 +58,14 @@ class ServerConfig:
 
 
 @dataclass
+class ObservabilityConfig:
+    """P5-B: 可观测性配置"""
+    log_level: str = field(default_factory=lambda: os.environ.get("LOG_LEVEL", "INFO"))
+    log_file: str = field(default_factory=lambda: os.environ.get("LOG_FILE", "data/logs/app.log"))
+    metrics_history_size: int = field(default_factory=lambda: _env_int("METRICS_HISTORY_SIZE", 1000))
+
+
+@dataclass
 class RAGConfig:
     embedding_model: str = field(
         default_factory=lambda: os.environ.get("EMBEDDING_MODEL", "paraphrase-multilingual-MiniLM-L12-v2")
@@ -76,6 +84,7 @@ class Settings:
     execution: ExecutionConfig = field(default_factory=ExecutionConfig)
     server: ServerConfig = field(default_factory=ServerConfig)
     rag: RAGConfig = field(default_factory=RAGConfig)
+    observability: ObservabilityConfig = field(default_factory=ObservabilityConfig)
 
 
 _settings: Optional[Settings] = None

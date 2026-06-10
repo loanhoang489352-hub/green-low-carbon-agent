@@ -9,6 +9,14 @@ import sys
 # P5-A.2: 统一 LLM 契约,client.py 也 import LLMResponse
 from llm import LLMResponse
 
+# P5-B: 可观测性 — trace_id + 结构化日志 + 指标
+from observability import (
+    new_trace_id,
+    get_trace_id,
+    get_logger,
+    get_metrics_collector,
+)
+
 # Windows UTF-8 encoding setup - Only if not already wrapped (avoid duplicate wrapping)
 if sys.platform == 'win32':
     import io
@@ -36,6 +44,15 @@ script_path = Path(__file__).resolve()
 project_root = script_path.parent.parent.parent
 
 
+# P5-B: 模块级 logger (JSON formatter 自动注入 trace_id)
+_logger = get_logger("llm.client")
+
+
+def _provider_name(cls_name: str) -> str:
+    """OpenAIClient -> openai, MockLLMClient -> mock"""
+    return cls_name.replace("Client", "").lower()
+
+
 class LLMClient:
     """LLM客户端基类"""
     
@@ -47,10 +64,84 @@ class LLMClient:
     def chat(self, messages: List[Dict[str, str]], **kwargs) -> str:
         """发送对话请求"""
         raise NotImplementedError
-    
+
     def is_available(self) -> bool:
         """检查是否可用"""
         raise NotImplementedError
+
+    def _call_openai_sdk(
+        self,
+        messages: List[Dict[str, str]],
+        kwargs: Dict[str, Any],
+        error_label: str,
+        trace_id: str,
+    ) -> LLMResponse:
+        """
+        OpenAI-SDK 兼容客户端的通用调用路径 (P5-B)
+
+        适用: OpenAI / Zhipu / Ali / DeepSeek (都用 openai SDK 风格)
+        子类只需:
+        1. 在 chat() 入口生成 trace_id + 检查 self._client
+        2. 调用本方法完成 success/fail 路径
+        """
+        provider = _provider_name(type(self).__name__)
+        start = time.time()
+
+        try:
+            response = self._client.chat.completions.create(
+                model=self.model,
+                messages=messages,
+                temperature=kwargs.get("temperature", self.temperature),
+                max_tokens=kwargs.get("max_tokens", self.max_tokens),
+            )
+            latency_ms = round((time.time() - start) * 1000, 2)
+            usage_dict = {
+                "prompt_tokens": getattr(response.usage, "prompt_tokens", 0) or 0,
+                "completion_tokens": getattr(response.usage, "completion_tokens", 0) or 0,
+                "total_tokens": getattr(response.usage, "total_tokens", 0) or 0,
+            }
+            _logger.info(
+                "llm_call",
+                extra={
+                    "event": "llm_call", "trace_id": trace_id, "provider": provider,
+                    "model": response.model, "latency_ms": latency_ms,
+                    "prompt_tokens": usage_dict["prompt_tokens"],
+                    "completion_tokens": usage_dict["completion_tokens"],
+                    "total_tokens": usage_dict["total_tokens"],
+                    "finish_reason": response.choices[0].finish_reason or "stop",
+                    "success": True,
+                },
+            )
+            get_metrics_collector().record(
+                provider=provider, model=response.model, latency_ms=latency_ms, success=True,
+                prompt_tokens=usage_dict["prompt_tokens"],
+                completion_tokens=usage_dict["completion_tokens"],
+                total_tokens=usage_dict["total_tokens"],
+            )
+            return LLMResponse(
+                content=response.choices[0].message.content,
+                model=response.model,
+                usage=usage_dict,
+                finish_reason=response.choices[0].finish_reason or "stop",
+                latency_ms=latency_ms,
+                request_id=trace_id,
+            )
+        except Exception as e:
+            latency_ms = round((time.time() - start) * 1000, 2)
+            _logger.warning(
+                "llm_call_failed",
+                extra={
+                    "event": "llm_call_failed", "trace_id": trace_id, "provider": provider,
+                    "model": self.model, "latency_ms": latency_ms,
+                    "error": str(e), "success": False,
+                },
+            )
+            get_metrics_collector().record(
+                provider=provider, model=self.model,
+                latency_ms=latency_ms, success=False, error=str(e),
+            )
+            print(f"[WARN]  {error_label} API调用失败: {e}")
+            return self._mock_response(messages, trace_id=trace_id)
 
 
 class OpenAIClient(LLMClient):
@@ -85,37 +176,16 @@ class OpenAIClient(LLMClient):
         return self._client is not None
     
     def chat(self, messages: List[Dict[str, str]], **kwargs) -> LLMResponse:
-        """发送对话请求 (P5-A.2: 返回 LLMResponse)"""
+        """发送对话请求 (P5-A.2: 返回 LLMResponse, P5-B: 注入 trace_id + 记录 metrics)"""
+        trace_id = kwargs.pop("trace_id", None) or new_trace_id()
         if not self._client:
-            return self._mock_response(messages)
+            return self._mock_response(messages, trace_id=trace_id)
+        return self._call_openai_sdk(messages, kwargs, error_label="OpenAI", trace_id=trace_id)
 
-        try:
-            temperature = kwargs.get("temperature", self.temperature)
-            max_tokens = kwargs.get("max_tokens", self.max_tokens)
-
-            response = self._client.chat.completions.create(
-                model=self.model,
-                messages=messages,
-                temperature=temperature,
-                max_tokens=max_tokens
-            )
-
-            return LLMResponse(
-                content=response.choices[0].message.content,
-                model=response.model,
-                usage={
-                    "prompt_tokens": response.usage.prompt_tokens,
-                    "completion_tokens": response.usage.completion_tokens,
-                    "total_tokens": response.usage.total_tokens,
-                } if response.usage else {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0},
-                finish_reason=response.choices[0].finish_reason or "stop",
-            )
-        except Exception as e:
-            print(f"[WARN]  OpenAI API调用失败: {e}")
-            return self._mock_response(messages)
-
-    def _mock_response(self, messages: List[Dict[str, str]]) -> LLMResponse:
-        """Mock响应 (P5-A.2: 返回 LLMResponse)"""
+    def _mock_response(self, messages: List[Dict[str, str]], trace_id: Optional[str] = None) -> LLMResponse:
+        """Mock响应 (P5-A.2: 返回 LLMResponse, P5-B: 携带 trace_id + latency + 记录 metrics)"""
+        start = time.time()
+        provider = _provider_name(type(self).__name__)
         last_message = messages[-1]["content"] if messages else ""
 
         if "碳中和" in last_message:
@@ -127,11 +197,26 @@ class OpenAIClient(LLMClient):
         else:
             content = "作为绿色低碳助手，我很乐意帮助你了解更多环保知识。请问你有什么具体想了解的吗？"
 
+        latency_ms = round((time.time() - start) * 1000, 2)
+        # P5-B: mock fallback 也要记 metrics
+        _logger.info(
+            "llm_call_mock_fallback",
+            extra={
+                "event": "llm_call_mock_fallback", "trace_id": trace_id,
+                "provider": provider, "model": "mock", "latency_ms": latency_ms,
+                "success": True, "reason": "no_api_key_or_unavailable",
+            },
+        )
+        get_metrics_collector().record(
+            provider=provider, model="mock", latency_ms=latency_ms, success=True,
+        )
         return LLMResponse(
             content=content,
             model="mock",
             usage={"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0},
             finish_reason="stop",
+            request_id=trace_id,
+            latency_ms=latency_ms,
         )
 
 
@@ -162,33 +247,14 @@ class ZhipuClient(LLMClient):
         return self._client is not None
 
     def chat(self, messages: List[Dict[str, str]], **kwargs) -> LLMResponse:
-        """发送对话请求 (P5-A.2: 返回 LLMResponse)"""
+        """发送对话请求 (P5-A.2: 返回 LLMResponse, P5-B: 注入 trace_id + 记录 metrics)"""
+        trace_id = kwargs.pop("trace_id", None) or new_trace_id()
         if not self._client:
-            return self._mock_response(messages)
+            return self._mock_response(messages, trace_id=trace_id)
+        return self._call_openai_sdk(messages, kwargs, error_label="智谱AI", trace_id=trace_id)
 
-        try:
-            response = self._client.chat.completions.create(
-                model=self.model,
-                messages=messages,
-                temperature=kwargs.get("temperature", self.temperature),
-                max_tokens=kwargs.get("max_tokens", self.max_tokens)
-            )
-            return LLMResponse(
-                content=response.choices[0].message.content,
-                model=response.model,
-                usage={
-                    "prompt_tokens": getattr(response.usage, "prompt_tokens", 0) or 0,
-                    "completion_tokens": getattr(response.usage, "completion_tokens", 0) or 0,
-                    "total_tokens": getattr(response.usage, "total_tokens", 0) or 0,
-                } if response.usage else {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0},
-                finish_reason=(response.choices[0].finish_reason or "stop"),
-            )
-        except Exception as e:
-            print(f"[WARN]  智谱AI API调用失败: {e}")
-            return self._mock_response(messages)
-
-    def _mock_response(self, messages) -> LLMResponse:
-        return MockLLMClient().chat(messages)
+    def _mock_response(self, messages, trace_id: Optional[str] = None) -> LLMResponse:
+        return MockLLMClient().chat(messages, trace_id=trace_id)
 
 
 class BaiduClient(LLMClient):
@@ -222,9 +288,13 @@ class BaiduClient(LLMClient):
         return self._access_token is not None
 
     def chat(self, messages: List[Dict[str, str]], **kwargs) -> LLMResponse:
-        """发送对话请求 (P5-A.2: 返回 LLMResponse)"""
+        """发送对话请求 (P5-A.2: 返回 LLMResponse, P5-B: 注入 trace_id + 记录 metrics)"""
+        trace_id = kwargs.pop("trace_id", None) or new_trace_id()
+        provider = _provider_name(type(self).__name__)
+        start = time.time()
+
         if not self._access_token:
-            return self._mock_response(messages)
+            return self._mock_response(messages, trace_id=trace_id)
 
         try:
             import requests
@@ -236,27 +306,75 @@ class BaiduClient(LLMClient):
                 "max_tokens": kwargs.get("max_tokens", self.max_tokens)
             }
             response = requests.post(url, json=payload)
+            latency_ms = round((time.time() - start) * 1000, 2)
             if response.ok:
                 result = response.json()
                 content = result.get("result", "")
                 usage = result.get("usage", {}) or {}
+                usage_dict = {
+                    "prompt_tokens": usage.get("prompt_tokens", 0) or 0,
+                    "completion_tokens": usage.get("completion_tokens", 0) or 0,
+                    "total_tokens": usage.get("total_tokens", 0) or 0,
+                }
+                finish_reason = result.get("finish_reason", "stop") or "stop"
+                _logger.info(
+                    "llm_call",
+                    extra={
+                        "event": "llm_call", "trace_id": trace_id, "provider": provider,
+                        "model": self.model, "latency_ms": latency_ms,
+                        "prompt_tokens": usage_dict["prompt_tokens"],
+                        "completion_tokens": usage_dict["completion_tokens"],
+                        "total_tokens": usage_dict["total_tokens"],
+                        "finish_reason": finish_reason, "success": True,
+                    },
+                )
+                get_metrics_collector().record(
+                    provider=provider, model=self.model, latency_ms=latency_ms, success=True,
+                    prompt_tokens=usage_dict["prompt_tokens"],
+                    completion_tokens=usage_dict["completion_tokens"],
+                    total_tokens=usage_dict["total_tokens"],
+                )
                 return LLMResponse(
                     content=content,
                     model=self.model,
-                    usage={
-                        "prompt_tokens": usage.get("prompt_tokens", 0) or 0,
-                        "completion_tokens": usage.get("completion_tokens", 0) or 0,
-                        "total_tokens": usage.get("total_tokens", 0) or 0,
-                    },
-                    finish_reason=result.get("finish_reason", "stop") or "stop",
+                    usage=usage_dict,
+                    finish_reason=finish_reason,
+                    latency_ms=latency_ms,
+                    request_id=trace_id,
                 )
-            return self._mock_response(messages)
+            # 4xx/5xx
+            _logger.warning(
+                "llm_call_failed",
+                extra={
+                    "event": "llm_call_failed", "trace_id": trace_id, "provider": provider,
+                    "model": self.model, "latency_ms": latency_ms,
+                    "error": f"http {response.status_code}", "success": False,
+                },
+            )
+            get_metrics_collector().record(
+                provider=provider, model=self.model, latency_ms=latency_ms,
+                success=False, error=f"http {response.status_code}",
+            )
+            return self._mock_response(messages, trace_id=trace_id)
         except Exception as e:
+            latency_ms = round((time.time() - start) * 1000, 2)
+            _logger.warning(
+                "llm_call_failed",
+                extra={
+                    "event": "llm_call_failed", "trace_id": trace_id, "provider": provider,
+                    "model": self.model, "latency_ms": latency_ms,
+                    "error": str(e), "success": False,
+                },
+            )
+            get_metrics_collector().record(
+                provider=provider, model=self.model, latency_ms=latency_ms,
+                success=False, error=str(e),
+            )
             print(f"[WARN]  百度文心一言 API调用失败: {e}")
-            return self._mock_response(messages)
+            return self._mock_response(messages, trace_id=trace_id)
 
-    def _mock_response(self, messages) -> LLMResponse:
-        return MockLLMClient().chat(messages)
+    def _mock_response(self, messages, trace_id: Optional[str] = None) -> LLMResponse:
+        return MockLLMClient().chat(messages, trace_id=trace_id)
 
 
 class AliClient(LLMClient):
@@ -289,33 +407,14 @@ class AliClient(LLMClient):
         return self._client is not None
 
     def chat(self, messages: List[Dict[str, str]], **kwargs) -> LLMResponse:
-        """发送对话请求 (P5-A.2: 返回 LLMResponse)"""
+        """发送对话请求 (P5-A.2: 返回 LLMResponse, P5-B: 注入 trace_id + 记录 metrics)"""
+        trace_id = kwargs.pop("trace_id", None) or new_trace_id()
         if not self._client:
-            return self._mock_response(messages)
+            return self._mock_response(messages, trace_id=trace_id)
+        return self._call_openai_sdk(messages, kwargs, error_label="阿里通义千问", trace_id=trace_id)
 
-        try:
-            response = self._client.chat.completions.create(
-                model=self.model,
-                messages=messages,
-                temperature=kwargs.get("temperature", self.temperature),
-                max_tokens=kwargs.get("max_tokens", self.max_tokens)
-            )
-            return LLMResponse(
-                content=response.choices[0].message.content,
-                model=response.model,
-                usage={
-                    "prompt_tokens": getattr(response.usage, "prompt_tokens", 0) or 0,
-                    "completion_tokens": getattr(response.usage, "completion_tokens", 0) or 0,
-                    "total_tokens": getattr(response.usage, "total_tokens", 0) or 0,
-                } if response.usage else {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0},
-                finish_reason=(response.choices[0].finish_reason or "stop"),
-            )
-        except Exception as e:
-            print(f"[WARN]  阿里通义千问 API调用失败: {e}")
-            return self._mock_response(messages)
-
-    def _mock_response(self, messages) -> LLMResponse:
-        return MockLLMClient().chat(messages)
+    def _mock_response(self, messages, trace_id: Optional[str] = None) -> LLMResponse:
+        return MockLLMClient().chat(messages, trace_id=trace_id)
 
 
 class MiniMaxClient(LLMClient):
@@ -357,9 +456,13 @@ class MiniMaxClient(LLMClient):
         return self._client is not None
 
     def chat(self, messages: List[Dict[str, str]], **kwargs) -> LLMResponse:
-        """发送对话请求 (P5-A.2: 返回 LLMResponse,带指数退避重试)"""
+        """发送对话请求 (P5-A.2: 返回 LLMResponse,带指数退避重试; P5-B: 注入 trace_id + metrics)"""
+        trace_id = kwargs.pop("trace_id", None) or new_trace_id()
+        provider = _provider_name(type(self).__name__)
+        start = time.time()
+
         if not self._client:
-            return self._mock_response(messages)
+            return self._mock_response(messages, trace_id=trace_id)
 
         last_error = None
 
@@ -371,15 +474,37 @@ class MiniMaxClient(LLMClient):
                     temperature=kwargs.get("temperature", self.temperature),
                     max_tokens=kwargs.get("max_tokens", self.max_tokens)
                 )
+                latency_ms = round((time.time() - start) * 1000, 2)
+                usage_dict = {
+                    "prompt_tokens": getattr(response.usage, "prompt_tokens", 0) or 0,
+                    "completion_tokens": getattr(response.usage, "completion_tokens", 0) or 0,
+                    "total_tokens": getattr(response.usage, "total_tokens", 0) or 0,
+                }
+                _logger.info(
+                    "llm_call",
+                    extra={
+                        "event": "llm_call", "trace_id": trace_id, "provider": provider,
+                        "model": response.model, "latency_ms": latency_ms,
+                        "prompt_tokens": usage_dict["prompt_tokens"],
+                        "completion_tokens": usage_dict["completion_tokens"],
+                        "total_tokens": usage_dict["total_tokens"],
+                        "finish_reason": response.choices[0].finish_reason or "stop",
+                        "success": True, "attempts": attempt + 1,
+                    },
+                )
+                get_metrics_collector().record(
+                    provider=provider, model=response.model, latency_ms=latency_ms, success=True,
+                    prompt_tokens=usage_dict["prompt_tokens"],
+                    completion_tokens=usage_dict["completion_tokens"],
+                    total_tokens=usage_dict["total_tokens"],
+                )
                 return LLMResponse(
                     content=response.choices[0].message.content,
                     model=response.model,
-                    usage={
-                        "prompt_tokens": getattr(response.usage, "prompt_tokens", 0) or 0,
-                        "completion_tokens": getattr(response.usage, "completion_tokens", 0) or 0,
-                        "total_tokens": getattr(response.usage, "total_tokens", 0) or 0,
-                    } if response.usage else {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0},
-                    finish_reason=(response.choices[0].finish_reason or "stop"),
+                    usage=usage_dict,
+                    finish_reason=response.choices[0].finish_reason or "stop",
+                    latency_ms=latency_ms,
+                    request_id=trace_id,
                 )
 
             except Exception as e:
@@ -394,15 +519,42 @@ class MiniMaxClient(LLMClient):
                     continue
                 else:
                     # 其他错误，直接返回 mock
+                    latency_ms = round((time.time() - start) * 1000, 2)
+                    _logger.warning(
+                        "llm_call_failed",
+                        extra={
+                            "event": "llm_call_failed", "trace_id": trace_id, "provider": provider,
+                            "model": self.model, "latency_ms": latency_ms,
+                            "error": str(e), "success": False, "attempts": attempt + 1,
+                        },
+                    )
+                    get_metrics_collector().record(
+                        provider=provider, model=self.model, latency_ms=latency_ms,
+                        success=False, error=str(e),
+                    )
                     print(f"MiniMax API 调用失败: {e}")
-                    return self._mock_response(messages)
+                    return self._mock_response(messages, trace_id=trace_id)
 
         # 所有重试都失败
+        latency_ms = round((time.time() - start) * 1000, 2)
+        _logger.warning(
+            "llm_call_failed",
+            extra={
+                "event": "llm_call_failed", "trace_id": trace_id, "provider": provider,
+                "model": self.model, "latency_ms": latency_ms,
+                "error": f"max retries {self._max_retries} exhausted: {last_error}",
+                "success": False, "attempts": self._max_retries,
+            },
+        )
+        get_metrics_collector().record(
+            provider=provider, model=self.model, latency_ms=latency_ms,
+            success=False, error=f"max retries exhausted: {last_error}",
+        )
         print(f"MiniMax API 重试 {self._max_retries} 次后仍失败: {last_error}")
-        return self._mock_response(messages)
+        return self._mock_response(messages, trace_id=trace_id)
 
-    def _mock_response(self, messages) -> LLMResponse:
-        return MockLLMClient().chat(messages)
+    def _mock_response(self, messages, trace_id: Optional[str] = None) -> LLMResponse:
+        return MockLLMClient().chat(messages, trace_id=trace_id)
 
 
 class DeepSeekClient(LLMClient):
@@ -435,33 +587,14 @@ class DeepSeekClient(LLMClient):
         return self._client is not None
 
     def chat(self, messages: List[Dict[str, str]], **kwargs) -> LLMResponse:
-        """发送对话请求 (P5-A.2: 返回 LLMResponse)"""
+        """发送对话请求 (P5-A.2: 返回 LLMResponse, P5-B: 注入 trace_id + 记录 metrics)"""
+        trace_id = kwargs.pop("trace_id", None) or new_trace_id()
         if not self._client:
-            return self._mock_response(messages)
+            return self._mock_response(messages, trace_id=trace_id)
+        return self._call_openai_sdk(messages, kwargs, error_label="DeepSeek", trace_id=trace_id)
 
-        try:
-            response = self._client.chat.completions.create(
-                model=self.model,
-                messages=messages,
-                temperature=kwargs.get("temperature", self.temperature),
-                max_tokens=kwargs.get("max_tokens", self.max_tokens)
-            )
-            return LLMResponse(
-                content=response.choices[0].message.content,
-                model=response.model,
-                usage={
-                    "prompt_tokens": getattr(response.usage, "prompt_tokens", 0) or 0,
-                    "completion_tokens": getattr(response.usage, "completion_tokens", 0) or 0,
-                    "total_tokens": getattr(response.usage, "total_tokens", 0) or 0,
-                } if response.usage else {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0},
-                finish_reason=(response.choices[0].finish_reason or "stop"),
-            )
-        except Exception as e:
-            print(f"[WARN]  DeepSeek API调用失败: {e}")
-            return self._mock_response(messages)
-
-    def _mock_response(self, messages) -> LLMResponse:
-        return MockLLMClient().chat(messages)
+    def _mock_response(self, messages, trace_id: Optional[str] = None) -> LLMResponse:
+        return MockLLMClient().chat(messages, trace_id=trace_id)
 
 
 class MockLLMClient(LLMClient):
@@ -471,7 +604,10 @@ class MockLLMClient(LLMClient):
         return True
 
     def chat(self, messages: List[Dict[str, str]], **kwargs) -> LLMResponse:
-        """返回Mock响应 (P5-A.2: 统一返回 LLMResponse)"""
+        """返回Mock响应 (P5-A.2: 统一返回 LLMResponse, P5-B: 注入 trace_id + 记录 metrics)"""
+        trace_id = kwargs.get("trace_id") or new_trace_id()
+        provider = _provider_name(type(self).__name__)
+        start = time.time()
         last_message = messages[-1]["content"] if messages else ""
 
         if "碳" in last_message:
@@ -481,11 +617,26 @@ class MockLLMClient(LLMClient):
         else:
             content = "好的，让我来回答你的问题..."
 
+        latency_ms = round((time.time() - start) * 1000, 2)
+        _logger.info(
+            "llm_call",
+            extra={
+                "event": "llm_call", "trace_id": trace_id, "provider": provider,
+                "model": "mock", "latency_ms": latency_ms,
+                "prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0,
+                "finish_reason": "stop", "success": True,
+            },
+        )
+        get_metrics_collector().record(
+            provider=provider, model="mock", latency_ms=latency_ms, success=True,
+        )
         return LLMResponse(
             content=content,
             model="mock",
             usage={"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0},
             finish_reason="stop",
+            latency_ms=latency_ms,
+            request_id=trace_id,
         )
 
 
@@ -837,32 +988,64 @@ class BayesianModelRouter:
             # fallback
             available_clients = list(self._clients.keys())
             if not available_clients:
+                # P5-B: 记录到 metrics
+                get_metrics_collector().record(
+                    provider="bayesian", model="router",
+                    latency_ms=0.0, success=False, error="no_available_clients",
+                )
                 return LLMResponse(
                     content="[BayesianRouter] 没有任何可用的LLM客户端",
                     model="bayesian-router",
                     usage={"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0},
                     finish_reason="error",
                     error="no_available_clients",
+                    request_id=new_trace_id(),
                 )
             target = random.choice(available_clients)
 
         client = self._clients[target]
+        trace_id = new_trace_id()
         start = time.time()
 
         try:
-            response = client.chat(messages, **kwargs)
-            latency_ms = (time.time() - start) * 1000
+            # 透传 trace_id 到子 client(若有)
+            kwargs_with_tid = {**kwargs, "trace_id": trace_id}
+            response = client.chat(messages, **kwargs_with_tid)
+            latency_ms = round((time.time() - start) * 1000, 2)
             success = self._is_valid_response(response)
             self.record_result(target, success, latency_ms, response.content if hasattr(response, "content") else str(response))
             # 若子 client 已经填了 latency,router 的测量值覆盖(更准,含路由开销)
             try:
                 response.latency_ms = latency_ms
+                # 保留 router 生成的 trace_id(若子 client 没用就用 router 的)
+                if not response.request_id:
+                    response.request_id = trace_id
             except Exception:
                 pass
+            _logger.info(
+                "bayesian_route",
+                extra={
+                    "event": "bayesian_route", "trace_id": trace_id,
+                    "provider": "bayesian", "model": target,
+                    "latency_ms": latency_ms, "success": success,
+                },
+            )
             return response
         except Exception as e:
-            latency_ms = (time.time() - start) * 1000
+            latency_ms = round((time.time() - start) * 1000, 2)
             self.record_result(target, False, latency_ms, "")
+            get_metrics_collector().record(
+                provider="bayesian", model=target, latency_ms=latency_ms,
+                success=False, error=str(e),
+            )
+            _logger.warning(
+                "bayesian_route_failed",
+                extra={
+                    "event": "bayesian_route_failed", "trace_id": trace_id,
+                    "provider": "bayesian", "model": target,
+                    "latency_ms": latency_ms, "error": str(e), "success": False,
+                },
+            )
             print(f"[BayesianRouter] 模型 {target} 调用异常: {e}")
             return LLMResponse(
                 content=f"[错误] 调用失败: {e}",
@@ -871,6 +1054,7 @@ class BayesianModelRouter:
                 finish_reason="error",
                 error=str(e),
                 latency_ms=latency_ms,
+                request_id=trace_id,
             )
 
     def _is_valid_response(self, response) -> bool:
