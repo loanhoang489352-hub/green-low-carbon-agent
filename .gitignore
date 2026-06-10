@@ -1,0 +1,73 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# Virtual Environment
+venv/
+ENV/
+env/
+.venv/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Testing
+.pytest_cache/
+.coverage
+htmlcov/
+.tox/
+
+# Environment
+.env
+.env.local
+*.log
+
+# Database
+*.db
+*.sqlite
+*.sqlite3
+
+# Data
+data/
+!data/.gitkeep
+vector_db/
+chroma.sqlite3
+
+# Node (for frontend)
+node_modules/
+
+# Build artifacts / temporary outputs (never commit)
+*_result.txt
+*_output.txt
+**/~$*               # Word/Excel 临时锁文件
+data/raw/            # 政策爬取原文(中间产物,正式数据是 knowledge_base/*.md)
+data/test_*.db       # 测试漏 cleanup 的 sqlite
+data/memory_snapshots/
+data/logs/
+**/.DS_Store
+
+# Worktrees (Claude Code)
+.claude/worktrees/
