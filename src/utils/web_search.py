@@ -82,6 +82,42 @@ class WebSearcher:
         """搜索天气信息"""
         return self._get_simulated_weather()
 
+    # 主要城市 code 映射(和风天气 LocationID)
+    _CITY_CODES = {
+        "北京": "101010100", "上海": "101020100", "广州": "101280101",
+        "深圳": "101280601", "杭州": "101210101", "南京": "101190101",
+        "武汉": "101200101", "成都": "101270101", "西安": "101110101",
+        "天津": "101030100", "重庆": "101040100", "苏州": "101190401",
+    }
+
+    def fetch_weather_from_api(self, city: str = "北京") -> str:
+        """调用和风天气 API 获取实时天气(配置 HEFENG_WEATHER_API_KEY 时走真实 API)"""
+        import os
+        api_key = os.environ.get("HEFENG_WEATHER_API_KEY", "")
+        if not api_key or api_key == "__SET_ME__":
+            return self._get_simulated_weather()
+        city_id = self._CITY_CODES.get(city, city)
+        url = f"https://devapi.qweather.com/v7/weather/now?location={city_id}&key={api_key}"
+        try:
+            req = Request(url, headers=self.session_headers)
+            with urlopen(req, timeout=10) as resp:
+                data = json.loads(resp.read().decode("utf-8"))
+            if data.get("code") != "200":
+                return f"获取天气信息失败: 和风 API code={data.get('code')}"
+            now = data.get("now", {})
+            return (
+                f"**{city}实时天气**({now.get('obsTime', '')})\n\n"
+                f"- 天气:{now.get('text', '?')}\n"
+                f"- 气温:{now.get('temp', '?')}°C\n"
+                f"- 体感:{now.get('feelsLike', '?')}°C\n"
+                f"- 湿度:{now.get('humidity', '?')}%\n"
+                f"- 风向:{now.get('windDir', '?')}\n"
+                f"- 风力:{now.get('windScale', '?')} 级\n"
+                f"- 能见度:{now.get('vis', '?')} km"
+            )
+        except (URLError, HTTPError, TimeoutError) as e:
+            return f"获取天气信息失败: {type(e).__name__}: {e}"
+
     def _get_simulated_weather(self) -> str:
         """返回模拟天气数据"""
         return f"""**今日天气预报**（北京，2026年4月11日，周六）：

@@ -614,7 +614,7 @@ class BayesianModelRouter:
             "openai": ("gpt-4o-mini", OpenAIClient),
             "deepseek": ("deepseek-chat", DeepSeekClient),
             "zhipu": ("glm-4-flash", ZhipuClient),
-            "minimax": ("abab6.5s", MiniMaxClient),
+            "minimax": ("MiniMax-Text-01", MiniMaxClient),
             "ali": ("qwen-plus", AliClient),
         }
 

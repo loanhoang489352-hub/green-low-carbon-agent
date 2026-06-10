@@ -369,9 +369,9 @@ class TravelPlanningTool(BaseTool):
             import urllib.request
             import urllib.parse
 
-            # 地址 → 坐标
-            origin_coord = self._gaode_geocode(origin, api_key)
-            dest_coord = self._gaode_geocode(destination, api_key)
+            # 地址 → 坐标(origin 用默认 city,destination 不传 city 让高德自动判断跨城)
+            origin_coord = self._gaode_geocode(origin, api_key, city=_DEFAULT_CITY)
+            dest_coord = self._gaode_geocode(destination, api_key, city=None)
             if not origin_coord or not dest_coord:
                 return None
 
@@ -400,15 +400,16 @@ class TravelPlanningTool(BaseTool):
             for t in transits[:3]:
                 line_info = []
                 for seg in t.get("segments", []):
-                    if seg.get("bus"):
+                    if seg.get("bus") and seg["bus"].get("buslines"):
                         line_info.append(f"公交{seg['bus']['buslines'][0]['name']}")
                     elif seg.get("metro"):
                         line_info.append(f"地铁{seg['metro']['name']}")
-                    elif seg.get("walking"):
+                    elif seg.get("walking") and seg["walking"].get("steps"):
                         line_info.append(f"步行{seg['walking']['steps'][0]['distance']}米")
 
-                duration = int(t.get("duration", 0)) // 60
-                distance = int(t.get("distance", 0)) // 1000
+                # 高德返回的 duration/distance/cost 都是字符串(可能带小数)
+                duration = int(float(t.get("duration", 0))) // 60
+                distance = int(float(t.get("distance", 0))) // 1000
                 carbon = distance * 0.08  # 公交人均碳排放
 
                 formatted_routes.append({
@@ -417,7 +418,7 @@ class TravelPlanningTool(BaseTool):
                     "duration_min": duration,
                     "distance_km": distance,
                     "carbon_kg": round(carbon, 3),
-                    "cost_yuan": int(t.get("cost", 0))
+                    "cost_yuan": int(float(t.get("cost", 0)))
                 })
 
             # 骑行路线
@@ -435,17 +436,18 @@ class TravelPlanningTool(BaseTool):
                 with urllib.request.urlopen(req2, timeout=5) as resp2:
                     cycling_data = json.loads(resp2.read().decode("utf-8"))
                 if cycling_data.get("status") == "1" and cycling_data.get("route"):
-                    paths = cycling_data["route"]["paths"]
+                    paths = cycling_data["route"].get("paths", [])
                     if paths:
                         p = paths[0]
                         cycling_result = {
                             "type": "骑行",
-                            "distance_km": int(p["distance"]) // 1000,
-                            "duration_min": int(p["duration"]) // 60,
+                            "distance_km": int(float(p.get("distance", 0))) // 1000,
+                            "duration_min": int(float(p.get("duration", 0))) // 60,
                             "carbon_kg": 0,
                             "cost_yuan": 0
                         }
-            except Exception:
+            except Exception as ce:
+                # 跨城骑行(>50km)通常没有数据,不报错
                 pass
 
             all_routes = formatted_routes
@@ -474,14 +476,16 @@ class TravelPlanningTool(BaseTool):
             print(f"[TravelPlanning] 高德API调用失败: {e}")
             return None
 
-    def _gaode_geocode(self, address: str, api_key: str) -> Optional[str]:
-        """地址转坐标"""
+    def _gaode_geocode(self, address: str, api_key: str, city: Optional[str] = None) -> Optional[str]:
+        """地址转坐标(city=None 时让高德自动判断,适用于跨城查询)"""
         try:
             import urllib.request
             import urllib.parse
 
             url = "https://restapi.amap.com/v3/geocode/geo"
-            params = {"key": api_key, "address": address, "city": _DEFAULT_CITY}
+            params = {"key": api_key, "address": address}
+            if city:
+                params["city"] = city
             url += "?" + urllib.parse.urlencode(params)
 
             req = urllib.request.Request(url)
