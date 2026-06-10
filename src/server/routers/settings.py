@@ -9,14 +9,15 @@ from pathlib import Path
 def register_settings_routes(registry) -> None:
     """注册设置相关路由"""
 
+    from server.errors import APIError
+
     def save_api_key(handler, data):
         api_key = data.get("api_key")
         provider = data.get("provider", "openai")
         model = data.get("model")
 
         if not api_key:
-            handler.send_json({"error": "api_key required"}, status=400)
-            return
+            raise APIError("BAD_REQUEST", "api_key required")
 
         os.environ["API_PROVIDER"] = provider
         provider_key_map = {

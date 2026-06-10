@@ -1,6 +1,5 @@
 """
-引导路由: start / answer / status / questions
-P5-D 迁移
+引导路由: start / answer / status / questions (P5-E: APIError 化)
 """
 import uuid
 
@@ -8,26 +7,23 @@ import uuid
 def register_onboarding_routes(registry) -> None:
     """注册引导相关路由"""
 
+    from server.errors import APIError
+
     def onboarding_questions(handler):
-        try:
-            questions = handler.agent.profile_manager.get_onboarding_questions()
-            handler.send_json({"questions": questions})
-        except Exception as e:
-            handler.send_json({"error": str(e)}, status=500)
+        questions = handler.agent.profile_manager.get_onboarding_questions()
+        handler.send_json({"questions": questions})
 
     def onboarding_status(handler, data):
         user_id = data.get("user_id")
         if not user_id:
-            handler.send_json({"error": "user_id required"}, status=400)
-            return
+            raise APIError("BAD_REQUEST", "user_id required")
         status = handler.agent.get_onboarding_status(user_id)
         handler.send_json(status)
 
     def onboarding_start(handler, data):
         user_id = data.get("user_id")
         if not user_id:
-            handler.send_json({"error": "user_id required"}, status=400)
-            return
+            raise APIError("BAD_REQUEST", "user_id required")
         result = handler.agent.start_onboarding(user_id)
         handler.send_json(result)
 
@@ -40,26 +36,21 @@ def register_onboarding_routes(registry) -> None:
             user_id = str(uuid.uuid4())[:12]
 
         if step is None:
-            handler.send_json({"error": "step required"}, status=400)
-            return
+            raise APIError("BAD_REQUEST", "step required")
 
         result = handler.agent.process_onboarding_answer(user_id, step, answer)
         handler.send_json({"user_id": user_id, **result})
 
     def user_register(handler, data):
         user_info = data.get("user_info", {})
-        try:
-            user_id = handler.agent.register_user(user_info)
-            handler.send_json({"user_id": user_id, "status": "registered"})
-        except Exception as e:
-            handler.send_json({"error": f"注册失败: {str(e)}"}, status=500)
+        user_id = handler.agent.register_user(user_info)
+        handler.send_json({"user_id": user_id, "status": "registered"})
 
     def user_update(handler, data):
         user_id = data.get("user_id")
         profile_data = data.get("profile", {})
         if not user_id:
-            handler.send_json({"error": "user_id required"}, status=400)
-            return
+            raise APIError("BAD_REQUEST", "user_id required")
         handler.agent.profile_manager.update_profile(user_id, profile_data)
         handler.send_json({"status": "updated"})
 

@@ -1,11 +1,12 @@
 """
-用户画像 / 个性化 / 统计 / 会话 路由
-P5-D 迁移
+用户画像 / 个性化 / 统计 / 会话 路由 (P5-E: APIError 化)
 """
 
 
 def register_profile_routes(registry) -> None:
     """注册画像相关路由"""
+
+    from server.errors import APIError
 
     def profile_get(handler):
         # /api/profile/{user_id}
@@ -19,8 +20,7 @@ def register_profile_routes(registry) -> None:
         parts = handler.path.strip("/").split("/")
         user_id = parts[-1] if len(parts) >= 3 else None
         if not user_id:
-            handler.send_json({"error": "user_id required"}, status=400)
-            return
+            raise APIError("BAD_REQUEST", "user_id required")
         ctx = handler.agent.get_personalization_context(user_id)
         handler.send_json({"user_id": user_id, "context": ctx})
 
@@ -28,8 +28,7 @@ def register_profile_routes(registry) -> None:
         # /api/personalization/context  (POST)
         user_id = data.get("user_id")
         if not user_id:
-            handler.send_json({"error": "user_id required"}, status=400)
-            return
+            raise APIError("BAD_REQUEST", "user_id required")
         ctx = handler.agent.get_personalization_context(user_id)
         handler.send_json({"context": ctx})
 
@@ -45,8 +44,7 @@ def register_profile_routes(registry) -> None:
         parts = handler.path.strip("/").split("/")
         conv_id = parts[-1] if len(parts) >= 3 else None
         if not conv_id:
-            handler.send_json({"error": "conversation_id required"}, status=400)
-            return
+            raise APIError("BAD_REQUEST", "conversation_id required")
         history = handler.agent.get_conversation_history(conv_id)
         handler.send_json({"history": history})
 

@@ -1,19 +1,18 @@
 """
-认证路由: 注册 / 登录 / 登出 / 会话验证
-P5-D 迁移 (从 main.py 拆分)
+认证路由: 注册 / 登录 / 登出 / 会话验证 (P5-D + P5-E: APIError 化)
 """
-import uuid
 
 
 def register_auth_routes(registry) -> None:
     """注册认证相关路由"""
 
+    from server.errors import APIError
+
     def auth_register(handler, data):
         username = data.get("username")
         password = data.get("password")
         if not username or not password:
-            handler.send_json({"error": "用户名和密码必填"}, status=400)
-            return
+            raise APIError("BAD_REQUEST", "用户名和密码必填")
         result = handler.account_manager.register(username, password)
         if result.get("success"):
             handler.send_json({
@@ -22,14 +21,13 @@ def register_auth_routes(registry) -> None:
                 "username": result.get("username"),
             })
         else:
-            handler.send_json({"error": result.get("error", "注册失败")}, status=400)
+            raise APIError("BAD_REQUEST", result.get("error", "注册失败"))
 
     def auth_login(handler, data):
         username = data.get("username")
         password = data.get("password")
         if not username or not password:
-            handler.send_json({"error": "用户名和密码必填"}, status=400)
-            return
+            raise APIError("BAD_REQUEST", "用户名和密码必填")
         result = handler.account_manager.login(username, password)
         if result.get("success"):
             account_id = result.get("account_id")
@@ -46,7 +44,7 @@ def register_auth_routes(registry) -> None:
                 "expires_at": result.get("expires_at"),
             })
         else:
-            handler.send_json({"error": result.get("error", "登录失败")}, status=401)
+            raise APIError("UNAUTHORIZED", result.get("error", "登录失败"))
 
     def auth_logout(handler, data):
         session_id = data.get("session_id")
@@ -74,8 +72,7 @@ def register_auth_routes(registry) -> None:
     def auth_session(handler, data):
         session_id = data.get("session_id")
         if not session_id:
-            handler.send_json({"error": "session_id required"}, status=400)
-            return
+            raise APIError("BAD_REQUEST", "session_id required")
         session_info = handler.account_manager.get_session_info(session_id)
         handler.send_json({"status": "success", "session": session_info})
 

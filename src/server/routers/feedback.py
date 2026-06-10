@@ -1,6 +1,5 @@
 """
-反馈路由: 点赞/点踩/评论 + 统计/历史
-P5-D 迁移
+反馈路由: 点赞/点踩/评论 + 统计/历史 (P5-D + P5-E: APIError 化)
 """
 from urllib.parse import urlparse, parse_qs
 
@@ -8,12 +7,13 @@ from urllib.parse import urlparse, parse_qs
 def register_feedback_routes(registry) -> None:
     """注册反馈相关路由"""
 
+    from server.errors import APIError
+
     def feedback_submit(handler, data):
         message_id = data.get("message_id")
         feedback_type = data.get("type")
         if not message_id or not feedback_type:
-            handler.send_json({"error": "message_id and type are required"}, status=400)
-            return
+            raise APIError("BAD_REQUEST", "message_id and type are required")
         from main import get_feedback_manager
         fm = get_feedback_manager()
         result = fm.add_feedback(
@@ -27,13 +27,12 @@ def register_feedback_routes(registry) -> None:
         if result.get("success"):
             handler.send_json({"status": "success", "action": result.get("action")})
         else:
-            handler.send_json({"error": result.get("error", "Feedback failed")}, status=400)
+            raise APIError("BAD_REQUEST", result.get("error", "Feedback failed"))
 
     def feedback_message(handler, data):
         message_id = data.get("message_id")
         if not message_id:
-            handler.send_json({"error": "message_id is required"}, status=400)
-            return
+            raise APIError("BAD_REQUEST", "message_id is required")
         from main import get_feedback_manager
         fm = get_feedback_manager()
         stats = fm.get_message_feedback(message_id)

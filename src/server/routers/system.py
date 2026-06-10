@@ -1,5 +1,6 @@
 """
 系统路由: 健康检查、根路径、metrics
+P5-E: /api/health 真探活,新增 /api/ready
 """
 import os
 from pathlib import Path
@@ -8,13 +9,36 @@ from pathlib import Path
 def register_system_routes(registry) -> None:
     """注册系统相关路由"""
 
+    from server.errors import APIError, HealthStatus
+
     def health(handler):
+        """
+        GET /api/health - 真探活(P5-E)
+
+        查 accounts.db / user_profiles.db / vector store / scheduler / metrics / 磁盘
+        整体 status: ok / degraded / down
+        HTTP 状态: 200(ok/degraded) 或 503(down)
+        """
+        from server.health import health_probe
+        payload = health_probe()
+        http_status = 200 if payload["status"] != HealthStatus.DOWN else 503
         handler.send_json({
-            "status": "ok",
+            "ok": payload["status"] != HealthStatus.DOWN,
             "service": "绿色低碳智能体",
             "version": "2.0",
             "langgraph": os.environ.get("USE_LANGGRAPH", "false") == "true",
-        })
+            "health": payload,
+        }, status=http_status)
+
+    def ready(handler):
+        """
+        GET /api/ready - K8s readiness probe(P5-E)
+
+        只查 accounts.db,确认服务能接流量
+        """
+        from server.health import readiness_probe
+        payload = readiness_probe()
+        handler.send_json(payload, status=200 if payload["ready"] else 503)
 
     def metrics(handler):
         """
@@ -26,15 +50,12 @@ def register_system_routes(registry) -> None:
         - history_size (历史保留数)
         """
         from observability import get_metrics_collector
-        try:
-            summary = get_metrics_collector().summary()
-            handler.send_json({
-                "ok": True,
-                "service": "绿色低碳智能体",
-                "metrics": summary,
-            })
-        except Exception as e:
-            handler.send_json({"ok": False, "error": str(e)}, status=500)
+        summary = get_metrics_collector().summary()
+        handler.send_json({
+            "ok": True,
+            "service": "绿色低碳智能体",
+            "metrics": summary,
+        })
 
     def index(handler):
         html_path = Path(__file__).resolve().parent.parent.parent / "web" / "index.html"
@@ -47,45 +68,34 @@ def register_system_routes(registry) -> None:
             handler.end_headers()
             handler.wfile.write(content.encode("utf-8"))
         else:
-            handler.send_error(404, "HTML file not found")
+            raise APIError("NOT_FOUND", "HTML file not found")
 
     def knowledge_stats(handler):
-        try:
-            agent = handler.agent
-            stats = agent.get_knowledge_stats()
-            handler.send_json(stats)
-        except Exception as e:
-            handler.send_json({"error": str(e)}, status=500)
+        agent = handler.agent
+        stats = agent.get_knowledge_stats()
+        handler.send_json(stats)
 
     def rag_stats(handler):
-        try:
-            agent = handler.agent
-            handler.send_json({
-                "rag_enabled": getattr(agent, "rag_enabled", False),
-                "engine": "ok" if getattr(agent, "rag_engine", None) else "not_initialized",
-            })
-        except Exception as e:
-            handler.send_json({"error": str(e)}, status=500)
+        agent = handler.agent
+        handler.send_json({
+            "rag_enabled": getattr(agent, "rag_enabled", False),
+            "engine": "ok" if getattr(agent, "rag_engine", None) else "not_initialized",
+        })
 
     def policy_latest(handler):
-        try:
-            updater = handler.policy_updater
-            policies = updater.get_latest_policies(limit=10)
-            handler.send_json({"policies": policies})
-        except Exception as e:
-            handler.send_json({"error": str(e)}, status=500)
+        updater = handler.policy_updater
+        policies = updater.get_latest_policies(limit=10)
+        handler.send_json({"policies": policies})
 
     def policy_summary(handler):
-        try:
-            updater = handler.policy_updater
-            summary = updater.get_summary()
-            handler.send_json({"summary": summary})
-        except Exception as e:
-            handler.send_json({"error": str(e)}, status=500)
+        updater = handler.policy_updater
+        summary = updater.get_summary()
+        handler.send_json({"summary": summary})
 
     registry.add_route("GET", "/", index, auth_required=False, description="Web 入口")
     registry.add_route("GET", "/index.html", index, auth_required=False, description="Web 入口")
-    registry.add_route("GET", "/api/health", health, auth_required=False, description="健康检查")
+    registry.add_route("GET", "/api/health", health, auth_required=False, description="健康检查(P5-E 真探活)")
+    registry.add_route("GET", "/api/ready", ready, auth_required=False, description="K8s readiness probe(P5-E)")
     registry.add_route("GET", "/api/metrics", metrics, auth_required=False, description="LLM 调用指标(P5-B)")
     registry.add_route("GET", "/api/knowledge/stats", knowledge_stats, auth_required=False, description="知识库统计")
     registry.add_route("GET", "/api/rag/stats", rag_stats, auth_required=False, description="RAG 状态")

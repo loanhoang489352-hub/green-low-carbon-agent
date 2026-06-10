@@ -2,8 +2,10 @@
 应用工厂
 将 RequestHandler 改造为通过 RouterRegistry 分发
 P5-D: _dispatch 接入 with_auth 中间件
+P5-E: _dispatch 接入 APIError,异常不再泄栈
 """
 import json
+import logging
 import os
 import sys
 import uuid
@@ -12,8 +14,11 @@ from pathlib import Path
 from typing import Optional
 from urllib.parse import urlparse, parse_qs
 
+from .errors import APIError
 from .router import Route, get_registry, is_auth_enabled
 from .routers import register_all_routes
+
+_log = logging.getLogger("server.app")
 
 # 确保 src 在路径中
 script_path = Path(__file__).resolve()
@@ -58,29 +63,32 @@ class RoutedRequestHandler(BaseHTTPRequestHandler):
     def _read_body(self) -> str:
         content_length = int(self.headers.get("Content-Length", 0))
         if content_length > MAX_BODY_SIZE:
-            self.send_error(413, f"Body too large (max {MAX_BODY_SIZE})")
-            return ""
+            raise APIError("BODY_TOO_LARGE", f"Body too large (max {MAX_BODY_SIZE})")
         if content_length < 0:
-            self.send_error(400, "Invalid Content-Length")
-            return ""
+            raise APIError("BAD_REQUEST", "Invalid Content-Length")
         return self.rfile.read(content_length).decode("utf-8") if content_length else ""
 
     def _dispatch(self, method: str):
         parsed = urlparse(self.path)
         path = parsed.path
-        body = self._read_body() if method == "POST" else ""
-        data = {}
-        if body:
-            try:
-                data = json.loads(body)
-            except Exception as e:
-                self.send_error(400, f"Invalid JSON: {e}")
-                return
+        body = ""
+        data: dict = {}
+        try:
+            body = self._read_body() if method == "POST" else ""
+            if body:
+                try:
+                    data = json.loads(body)
+                except Exception as e:
+                    raise APIError("BAD_REQUEST", f"Invalid JSON: {e}")
+        except APIError as ae:
+            self.send_json(ae.to_dict(), status=ae.status)
+            return
 
         registry = get_registry()
         route = registry.find(method, path)
         if route is None:
-            self.send_error(404, f"Not Found: {method} {path}")
+            ae = APIError("NOT_FOUND", f"Not Found: {method} {path}")
+            self.send_json(ae.to_dict(), status=ae.status)
             return
 
         # P5-D: 鉴权中间件
@@ -94,27 +102,27 @@ class RoutedRequestHandler(BaseHTTPRequestHandler):
             except Exception:
                 identity = None
             if identity is None:
-                self.send_json({
-                    "ok": False,
-                    "error": {
-                        "code": "UNAUTHORIZED",
-                        "message": "Invalid or missing session token",
-                        "status": 401,
-                    },
-                }, status=401)
+                ae = APIError("UNAUTHORIZED", "Invalid or missing session token")
+                self.send_json(ae.to_dict(), status=ae.status)
                 return
-            # 把身份写入 handler
             self.current_user = identity
 
+        # P5-E: 业务异常走 APIError,未知异常兜底 INTERNAL
         try:
             if method == "GET":
                 route.handler(self)
             else:
                 route.handler(self, data)
+        except APIError as ae:
+            self.send_json(ae.to_dict(), status=ae.status)
         except Exception as e:
-            import traceback
-            traceback.print_exc()
-            self.send_error(500, f"Internal error: {e}")
+            _log.exception(
+                "Unhandled exception in handler %s %s",
+                method, path,
+                extra={"path": path, "method": method, "trace_id": getattr(self, "current_user", {}).get("trace_id", "-") if False else "-"},
+            )
+            ae = APIError("INTERNAL", "服务暂时不可用")
+            self.send_json(ae.to_dict(), status=ae.status)
 
     def do_GET(self):
         self._dispatch("GET")
