@@ -132,6 +132,18 @@ class FeedbackManager:
         if feedback_type == 'comment' and not comment:
             return {"success": False, "error": "评论内容不能为空"}
 
+        # P5-I.A: 落库前对 user-supplied 自由文本做 PII 脱敏
+        try:
+            from utils.pii import mask_pii
+            if reason:
+                reason = mask_pii(reason)
+            if comment:
+                comment = mask_pii(comment)
+        except Exception as _pii_err:
+            # 脱敏失败不应阻塞主流程(记录 warning,保留原文)
+            import logging
+            logging.getLogger(__name__).warning("[PII] 反馈字段脱敏失败: %s", _pii_err)
+
         result: Dict[str, Any] = {"success": False, "error": "uninitialized"}
         try:
             conn = _get_connection()

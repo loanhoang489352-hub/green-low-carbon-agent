@@ -235,6 +235,26 @@ SCHEMAS: List[Tuple[str, str, List[Tuple[str, str]]]] = [
             """),
         ],
     ),
+    # P5-I.B: 审计日志(写入 accounts.db,跨模块共享)
+    (
+        str(ACCOUNTS_DB),
+        "audit",
+        [
+            ("audit_log", """
+                CREATE TABLE IF NOT EXISTS audit_log (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    user_id TEXT,
+                    action TEXT NOT NULL,
+                    target TEXT,
+                    ip TEXT,
+                    user_agent TEXT,
+                    status_code INTEGER,
+                    detail TEXT,
+                    created_at TEXT NOT NULL
+                )
+            """),
+        ],
+    ),
 ]
 
 
@@ -282,6 +302,13 @@ def _migrate_existing_columns() -> None:
         (str(BEHAVIOR_TRACKER_DB), "behavior_events", "related_interests", "TEXT"),
         # P5-G: LTM 向量检索 — embedding 列(384-dim float32 → 1536 bytes BLOB)
         (str(LONG_TERM_MEMORY_DB), "user_memories", "embedding", "BLOB"),
+        # P5-I.B: 审计日志列(避免旧表没 detail 等字段)
+        (str(ACCOUNTS_DB), "audit_log", "user_id", "TEXT"),
+        (str(ACCOUNTS_DB), "audit_log", "target", "TEXT"),
+        (str(ACCOUNTS_DB), "audit_log", "ip", "TEXT"),
+        (str(ACCOUNTS_DB), "audit_log", "user_agent", "TEXT"),
+        (str(ACCOUNTS_DB), "audit_log", "status_code", "INTEGER"),
+        (str(ACCOUNTS_DB), "audit_log", "detail", "TEXT"),
     ]
     for db_path, table, column, col_type in migrations:
         try:

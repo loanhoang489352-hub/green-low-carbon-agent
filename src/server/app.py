@@ -32,6 +32,59 @@ MAX_BODY_SIZE = 2_000_000
 DEFAULT_CORS_ORIGINS = "http://localhost:3000,http://127.0.0.1:3000,http://localhost:8000"
 
 
+def _is_rate_limit_enabled() -> bool:
+    """P5-I.B: 限流开关(默认开;RATE_LIMIT_ENABLED=false 关闭)"""
+    return os.environ.get("RATE_LIMIT_ENABLED", "true").lower() in ("1", "true", "yes", "on")
+
+
+def _audit_action_for(path: str) -> str:
+    """路径 → 审计 action 标识"""
+    # /api/auth/login → "auth.login"
+    if path.startswith("/api/auth/login"):
+        return "auth.login"
+    if path.startswith("/api/auth/register"):
+        return "auth.register"
+    if path.startswith("/api/auth/logout"):
+        return "auth.logout"
+    if path.startswith("/api/chat/enhanced"):
+        return "chat.enhanced"
+    if path.startswith("/api/chat"):
+        return "chat.basic"
+    if path.startswith("/api/feedback"):
+        return "feedback.submit"
+    if path.startswith("/api/profile"):
+        return "profile.update"
+    if path.startswith("/api/onboarding"):
+        return "onboarding"
+    if path.startswith("/api/policy/sync"):
+        return "policy.sync"
+    if path.startswith("/api/knowledge/reload"):
+        return "knowledge.reload"
+    if path.startswith("/api/memory"):
+        return "memory.read"
+    return f"endpoint.{path.strip('/').replace('/', '.')}"
+
+
+_AUDITED_PATHS = (
+    "/api/auth/login",
+    "/api/auth/register",
+    "/api/auth/logout",
+    "/api/chat/enhanced",
+    "/api/feedback",
+    "/api/profile",
+    "/api/onboarding",
+    "/api/policy/sync",
+    "/api/knowledge/reload",
+)
+
+
+def _is_audit_endpoint(path: str, method: str) -> bool:
+    """只对敏感端点写审计(避免 audit_log 爆炸)"""
+    if method == "GET":
+        return False
+    return any(path.startswith(p) for p in _AUDITED_PATHS)
+
+
 class RoutedRequestHandler(BaseHTTPRequestHandler):
     """通过 RouterRegistry 分发的请求处理器"""
 
@@ -84,6 +137,31 @@ class RoutedRequestHandler(BaseHTTPRequestHandler):
             self.send_json(ae.to_dict(), status=ae.status)
             return
 
+        # P5-I.B: IP 限流(早于鉴权,防暴力破解)
+        if _is_rate_limit_enabled():
+            from server.middleware.rate_limit import get_rate_limiter
+            allowed, retry_after = get_rate_limiter().check(self)
+            if not allowed:
+                # 限流也写一条审计
+                try:
+                    from server.middleware.audit import record_audit
+                    record_audit(
+                        action="ratelimit.exceeded",
+                        target=f"{method} {path}",
+                        ip=self.client_address[0] if self.client_address else None,
+                        user_agent=self.headers.get("User-Agent") if hasattr(self, "headers") else None,
+                        status_code=429,
+                        detail=f"retry_after={retry_after}",
+                    )
+                except Exception:
+                    pass
+                self.send_json({
+                    "code": "RATE_LIMITED",
+                    "message": "请求过于频繁",
+                    "retry_after": retry_after,
+                }, status=429)
+                return
+
         registry = get_registry()
         route = registry.find(method, path)
         if route is None:
@@ -92,6 +170,8 @@ class RoutedRequestHandler(BaseHTTPRequestHandler):
             return
 
         # P5-D: 鉴权中间件
+        auth_failed = False
+        identity = None
         if route.auth_required and is_auth_enabled():
             try:
                 from auth.account_manager import AccountManager
@@ -102,6 +182,19 @@ class RoutedRequestHandler(BaseHTTPRequestHandler):
             except Exception:
                 identity = None
             if identity is None:
+                auth_failed = True
+                # 鉴权失败也写审计
+                try:
+                    from server.middleware.audit import record_audit
+                    record_audit(
+                        action="auth.unauthorized",
+                        target=f"{method} {path}",
+                        ip=self.client_address[0] if self.client_address else None,
+                        user_agent=self.headers.get("User-Agent") if hasattr(self, "headers") else None,
+                        status_code=401,
+                    )
+                except Exception:
+                    pass
                 ae = APIError("UNAUTHORIZED", "Invalid or missing session token")
                 self.send_json(ae.to_dict(), status=ae.status)
                 return
@@ -113,8 +206,36 @@ class RoutedRequestHandler(BaseHTTPRequestHandler):
                 route.handler(self)
             else:
                 route.handler(self, data)
+            # P5-I.B: 成功后审计(仅敏感端点)
+            if _is_audit_endpoint(path, method):
+                try:
+                    from server.middleware.audit import record_audit
+                    record_audit(
+                        action=_audit_action_for(path),
+                        user_id=(identity or {}).get("user_id"),
+                        target=path,
+                        ip=self.client_address[0] if self.client_address else None,
+                        user_agent=self.headers.get("User-Agent") if hasattr(self, "headers") else None,
+                        status_code=200,
+                    )
+                except Exception:
+                    pass
         except APIError as ae:
             self.send_json(ae.to_dict(), status=ae.status)
+            # 审计
+            try:
+                from server.middleware.audit import record_audit
+                record_audit(
+                    action=_audit_action_for(path),
+                    user_id=(identity or {}).get("user_id"),
+                    target=path,
+                    ip=self.client_address[0] if self.client_address else None,
+                    user_agent=self.headers.get("User-Agent") if hasattr(self, "headers") else None,
+                    status_code=ae.status,
+                    detail=str(ae.message)[:200] if hasattr(ae, "message") else None,
+                )
+            except Exception:
+                pass
         except Exception as e:
             _log.exception(
                 "Unhandled exception in handler %s %s",
@@ -123,6 +244,20 @@ class RoutedRequestHandler(BaseHTTPRequestHandler):
             )
             ae = APIError("INTERNAL", "服务暂时不可用")
             self.send_json(ae.to_dict(), status=ae.status)
+            # 异常审计
+            try:
+                from server.middleware.audit import record_audit
+                record_audit(
+                    action=_audit_action_for(path),
+                    user_id=(identity or {}).get("user_id"),
+                    target=path,
+                    ip=self.client_address[0] if self.client_address else None,
+                    user_agent=self.headers.get("User-Agent") if hasattr(self, "headers") else None,
+                    status_code=500,
+                    detail=f"unhandled: {type(e).__name__}",
+                )
+            except Exception:
+                pass
 
     def do_GET(self):
         self._dispatch("GET")

@@ -1,7 +1,11 @@
 """
 统一环境配置
 集中所有环境变量解析,避免散落在各模块
+
+P5-I.B: 启动时强校验 *_API_KEY 不等于占位符(如 `__SET_ME__`),
+避免"配错环境就跑"的低级错误。
 """
+import logging
 import os
 from dataclasses import dataclass, field
 from typing import List, Optional
@@ -28,6 +32,58 @@ def _env_list(name: str, default: Optional[List[str]] = None) -> List[str]:
     if not raw:
         return list(default or [])
     return [item.strip() for item in raw.split(",") if item.strip()]
+
+
+# P5-I.B: 启动时检测 *_API_KEY 是否还是占位符
+_PLACEHOLDER_PATTERNS = (
+    "__SET_ME__",
+    "your_api_key_here",
+    "your-api-key",
+    "sk-xxx",
+    "sk-XXXX",
+    "changeme",
+    "TODO",
+    "PLACEHOLDER",
+)
+
+
+def _is_placeholder(value: str) -> bool:
+    if not value:
+        return False
+    v = value.strip().lower()
+    for p in _PLACEHOLDER_PATTERNS:
+        if p.lower() in v:
+            return True
+    return False
+
+
+def _check_api_keys() -> None:
+    """扫描环境变量中的 *_API_KEY / API_KEY / *_TOKEN
+
+    命中占位符则 logger.warning(不阻塞启动,但提醒运维)。
+    显式设置 ENV=production 时改 logger.error(更醒目)。
+    """
+    keys_to_check = [
+        "OPENAI_API_KEY", "DEEPSEEK_API_KEY", "ANTHROPIC_API_KEY",
+        "MINIMAX_API_KEY", "QWEN_API_KEY", "GLM_API_KEY",
+        "DOUBAO_API_KEY", "API_KEY", "HUGGINGFACE_TOKEN",
+    ]
+    env = os.environ.get("ENV", "development").lower()
+    flagged = []
+    for k in keys_to_check:
+        v = os.environ.get(k, "")
+        if _is_placeholder(v):
+            flagged.append(k)
+    if flagged:
+        msg = (
+            "检测到以下 API key 仍为占位符(将导致 LLM 调用失败):\n  - "
+            + "\n  - ".join(flagged)
+            + "\n请在 .env 中填入真实 key 后重启"
+        )
+        if env in ("production", "prod"):
+            logging.getLogger("config").error(msg)
+        else:
+            logging.getLogger("config").warning(msg)
 
 
 @dataclass
@@ -91,17 +147,22 @@ class Settings:
 
 
 _settings: Optional[Settings] = None
+_checked: bool = False
 
 
 def get_settings() -> Settings:
-    """获取全局配置单例"""
-    global _settings
+    """获取全局配置单例(P5-I.B: 首次调用时跑占位符校验)"""
+    global _settings, _checked
     if _settings is None:
         _settings = Settings()
+    if not _checked:
+        _check_api_keys()
+        _checked = True
     return _settings
 
 
 def reset_settings() -> None:
     """重置(仅供测试)"""
-    global _settings
+    global _settings, _checked
     _settings = None
+    _checked = False

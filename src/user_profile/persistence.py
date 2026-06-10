@@ -65,6 +65,20 @@ class BehaviorPersistence:
         try:
             cursor = conn.cursor()
             now = datetime.now().isoformat()
+
+            # P5-I.A: 落库前对 user-supplied 自由文本(event_data / context)做 PII 脱敏
+            try:
+                from utils.pii import mask_pii_in_dict, mask_pii
+                masked_event_data = mask_pii_in_dict(event_data) if event_data else {}
+                masked_context = mask_pii(context) if context else None
+            except Exception as _pii_err:
+                import logging
+                logging.getLogger(__name__).warning(
+                    "[PII] behavior_event 字段脱敏失败: %s", _pii_err,
+                )
+                masked_event_data = event_data or {}
+                masked_context = context
+
             cursor.execute(
                 """
                 INSERT INTO behavior_events
@@ -75,9 +89,9 @@ class BehaviorPersistence:
                 (
                     user_id,
                     event_type,
-                    json.dumps(event_data or {}, ensure_ascii=False),
+                    json.dumps(masked_event_data, ensure_ascii=False),
                     intent_type,
-                    context,
+                    masked_context,
                     carbon_impact,
                     duration_minutes,
                     json.dumps(related_interests or [], ensure_ascii=False),
@@ -251,6 +265,16 @@ class BehaviorPersistence:
         try:
             cursor = conn.cursor()
             now = datetime.now().isoformat()
+            # P5-I.A: 落库前脱敏
+            try:
+                from utils.pii import mask_pii_in_dict
+                masked_meta = mask_pii_in_dict(metadata) if metadata else {}
+            except Exception as _pii_err:
+                import logging
+                logging.getLogger(__name__).warning(
+                    "[PII] achievement metadata 脱敏失败: %s", _pii_err,
+                )
+                masked_meta = metadata or {}
             try:
                 cursor.execute(
                     """
@@ -258,7 +282,7 @@ class BehaviorPersistence:
                     (user_id, achievement_code, earned_at, metadata)
                     VALUES (?, ?, ?, ?)
                     """,
-                    (user_id, achievement_code, now, json.dumps(metadata or {}, ensure_ascii=False)),
+                    (user_id, achievement_code, now, json.dumps(masked_meta, ensure_ascii=False)),
                 )
                 conn.commit()
                 return True
@@ -315,6 +339,16 @@ class BehaviorPersistence:
         try:
             cursor = conn.cursor()
             now = datetime.now().isoformat()
+            # P5-I.A: 落库前脱敏
+            try:
+                from utils.pii import mask_pii_in_dict
+                masked_meta = mask_pii_in_dict(metadata) if metadata else {}
+            except Exception as _pii_err:
+                import logging
+                logging.getLogger(__name__).warning(
+                    "[PII] carbon metadata 脱敏失败: %s", _pii_err,
+                )
+                masked_meta = metadata or {}
             cursor.execute(
                 """
                 INSERT INTO carbon_footprint_log
@@ -322,7 +356,7 @@ class BehaviorPersistence:
                 VALUES (?, ?, ?, ?, ?, ?)
                 """,
                 (user_id, category, amount_kg_co2e, now, source,
-                 json.dumps(metadata or {}, ensure_ascii=False)),
+                 json.dumps(masked_meta, ensure_ascii=False)),
             )
             log_id = cursor.lastrowid
             conn.commit()
