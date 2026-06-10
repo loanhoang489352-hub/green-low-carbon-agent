@@ -6,6 +6,9 @@ LLM客户端 - 统一管理大语言模型调用
 import os
 import sys
 
+# P5-A.2: 统一 LLM 契约,client.py 也 import LLMResponse
+from llm import LLMResponse
+
 # Windows UTF-8 encoding setup - Only if not already wrapped (avoid duplicate wrapping)
 if sys.platform == 'win32':
     import io
@@ -81,40 +84,55 @@ class OpenAIClient(LLMClient):
         """检查API是否可用"""
         return self._client is not None
     
-    def chat(self, messages: List[Dict[str, str]], **kwargs) -> str:
-        """发送对话请求"""
+    def chat(self, messages: List[Dict[str, str]], **kwargs) -> LLMResponse:
+        """发送对话请求 (P5-A.2: 返回 LLMResponse)"""
         if not self._client:
             return self._mock_response(messages)
-        
+
         try:
             temperature = kwargs.get("temperature", self.temperature)
             max_tokens = kwargs.get("max_tokens", self.max_tokens)
-            
+
             response = self._client.chat.completions.create(
                 model=self.model,
                 messages=messages,
                 temperature=temperature,
                 max_tokens=max_tokens
             )
-            
-            return response.choices[0].message.content
+
+            return LLMResponse(
+                content=response.choices[0].message.content,
+                model=response.model,
+                usage={
+                    "prompt_tokens": response.usage.prompt_tokens,
+                    "completion_tokens": response.usage.completion_tokens,
+                    "total_tokens": response.usage.total_tokens,
+                } if response.usage else {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0},
+                finish_reason=response.choices[0].finish_reason or "stop",
+            )
         except Exception as e:
             print(f"[WARN]  OpenAI API调用失败: {e}")
             return self._mock_response(messages)
-    
-    def _mock_response(self, messages: List[Dict[str, str]]) -> str:
-        """Mock响应（当API不可用时）"""
+
+    def _mock_response(self, messages: List[Dict[str, str]]) -> LLMResponse:
+        """Mock响应 (P5-A.2: 返回 LLMResponse)"""
         last_message = messages[-1]["content"] if messages else ""
-        
-        # 简单的关键词回复
+
         if "碳中和" in last_message:
-            return "碳中和是指通过节能减排、植树造林等方式，抵消自身产生的二氧化碳排放量，实现二氧化碳净零排放。中国承诺在2030年前碳达峰，2060年前实现碳中和。"
+            content = "碳中和是指通过节能减排、植树造林等方式，抵消自身产生的二氧化碳排放量，实现二氧化碳净零排放。中国承诺在2030年前碳达峰，2060年前实现碳中和。"
         elif "低碳" in last_message or "减排" in last_message:
-            return "低碳生活可以从身边小事做起：1) 尽量步行或骑行出行；2) 选择公共交通；3) 减少一次性用品使用；4) 节约用电用水。"
+            content = "低碳生活可以从身边小事做起：1) 尽量步行或骑行出行；2) 选择公共交通；3) 减少一次性用品使用；4) 节约用电用水。"
         elif "建议" in last_message or "推荐" in last_message:
-            return "我建议你从减少一次性塑料使用开始，比如自带购物袋和水杯。这不仅环保还能省钱！"
+            content = "我建议你从减少一次性塑料使用开始，比如自带购物袋和水杯。这不仅环保还能省钱！"
         else:
-            return "作为绿色低碳助手，我很乐意帮助你了解更多环保知识。请问你有什么具体想了解的吗？"
+            content = "作为绿色低碳助手，我很乐意帮助你了解更多环保知识。请问你有什么具体想了解的吗？"
+
+        return LLMResponse(
+            content=content,
+            model="mock",
+            usage={"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0},
+            finish_reason="stop",
+        )
 
 
 class ZhipuClient(LLMClient):
@@ -143,7 +161,8 @@ class ZhipuClient(LLMClient):
     def is_available(self) -> bool:
         return self._client is not None
 
-    def chat(self, messages: List[Dict[str, str]], **kwargs) -> str:
+    def chat(self, messages: List[Dict[str, str]], **kwargs) -> LLMResponse:
+        """发送对话请求 (P5-A.2: 返回 LLMResponse)"""
         if not self._client:
             return self._mock_response(messages)
 
@@ -154,12 +173,21 @@ class ZhipuClient(LLMClient):
                 temperature=kwargs.get("temperature", self.temperature),
                 max_tokens=kwargs.get("max_tokens", self.max_tokens)
             )
-            return response.choices[0].message.content
+            return LLMResponse(
+                content=response.choices[0].message.content,
+                model=response.model,
+                usage={
+                    "prompt_tokens": getattr(response.usage, "prompt_tokens", 0) or 0,
+                    "completion_tokens": getattr(response.usage, "completion_tokens", 0) or 0,
+                    "total_tokens": getattr(response.usage, "total_tokens", 0) or 0,
+                } if response.usage else {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0},
+                finish_reason=(response.choices[0].finish_reason or "stop"),
+            )
         except Exception as e:
             print(f"[WARN]  智谱AI API调用失败: {e}")
             return self._mock_response(messages)
 
-    def _mock_response(self, messages):
+    def _mock_response(self, messages) -> LLMResponse:
         return MockLLMClient().chat(messages)
 
 
@@ -193,7 +221,8 @@ class BaiduClient(LLMClient):
     def is_available(self) -> bool:
         return self._access_token is not None
 
-    def chat(self, messages: List[Dict[str, str]], **kwargs) -> str:
+    def chat(self, messages: List[Dict[str, str]], **kwargs) -> LLMResponse:
+        """发送对话请求 (P5-A.2: 返回 LLMResponse)"""
         if not self._access_token:
             return self._mock_response(messages)
 
@@ -209,13 +238,24 @@ class BaiduClient(LLMClient):
             response = requests.post(url, json=payload)
             if response.ok:
                 result = response.json()
-                return result.get("result", "")
+                content = result.get("result", "")
+                usage = result.get("usage", {}) or {}
+                return LLMResponse(
+                    content=content,
+                    model=self.model,
+                    usage={
+                        "prompt_tokens": usage.get("prompt_tokens", 0) or 0,
+                        "completion_tokens": usage.get("completion_tokens", 0) or 0,
+                        "total_tokens": usage.get("total_tokens", 0) or 0,
+                    },
+                    finish_reason=result.get("finish_reason", "stop") or "stop",
+                )
             return self._mock_response(messages)
         except Exception as e:
             print(f"[WARN]  百度文心一言 API调用失败: {e}")
             return self._mock_response(messages)
 
-    def _mock_response(self, messages):
+    def _mock_response(self, messages) -> LLMResponse:
         return MockLLMClient().chat(messages)
 
 
@@ -248,7 +288,8 @@ class AliClient(LLMClient):
     def is_available(self) -> bool:
         return self._client is not None
 
-    def chat(self, messages: List[Dict[str, str]], **kwargs) -> str:
+    def chat(self, messages: List[Dict[str, str]], **kwargs) -> LLMResponse:
+        """发送对话请求 (P5-A.2: 返回 LLMResponse)"""
         if not self._client:
             return self._mock_response(messages)
 
@@ -259,12 +300,21 @@ class AliClient(LLMClient):
                 temperature=kwargs.get("temperature", self.temperature),
                 max_tokens=kwargs.get("max_tokens", self.max_tokens)
             )
-            return response.choices[0].message.content
+            return LLMResponse(
+                content=response.choices[0].message.content,
+                model=response.model,
+                usage={
+                    "prompt_tokens": getattr(response.usage, "prompt_tokens", 0) or 0,
+                    "completion_tokens": getattr(response.usage, "completion_tokens", 0) or 0,
+                    "total_tokens": getattr(response.usage, "total_tokens", 0) or 0,
+                } if response.usage else {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0},
+                finish_reason=(response.choices[0].finish_reason or "stop"),
+            )
         except Exception as e:
             print(f"[WARN]  阿里通义千问 API调用失败: {e}")
             return self._mock_response(messages)
 
-    def _mock_response(self, messages):
+    def _mock_response(self, messages) -> LLMResponse:
         return MockLLMClient().chat(messages)
 
 
@@ -306,7 +356,8 @@ class MiniMaxClient(LLMClient):
     def is_available(self) -> bool:
         return self._client is not None
 
-    def chat(self, messages: List[Dict[str, str]], **kwargs) -> str:
+    def chat(self, messages: List[Dict[str, str]], **kwargs) -> LLMResponse:
+        """发送对话请求 (P5-A.2: 返回 LLMResponse,带指数退避重试)"""
         if not self._client:
             return self._mock_response(messages)
 
@@ -320,7 +371,16 @@ class MiniMaxClient(LLMClient):
                     temperature=kwargs.get("temperature", self.temperature),
                     max_tokens=kwargs.get("max_tokens", self.max_tokens)
                 )
-                return response.choices[0].message.content
+                return LLMResponse(
+                    content=response.choices[0].message.content,
+                    model=response.model,
+                    usage={
+                        "prompt_tokens": getattr(response.usage, "prompt_tokens", 0) or 0,
+                        "completion_tokens": getattr(response.usage, "completion_tokens", 0) or 0,
+                        "total_tokens": getattr(response.usage, "total_tokens", 0) or 0,
+                    } if response.usage else {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0},
+                    finish_reason=(response.choices[0].finish_reason or "stop"),
+                )
 
             except Exception as e:
                 last_error = e
@@ -341,7 +401,7 @@ class MiniMaxClient(LLMClient):
         print(f"MiniMax API 重试 {self._max_retries} 次后仍失败: {last_error}")
         return self._mock_response(messages)
 
-    def _mock_response(self, messages):
+    def _mock_response(self, messages) -> LLMResponse:
         return MockLLMClient().chat(messages)
 
 
@@ -374,7 +434,8 @@ class DeepSeekClient(LLMClient):
     def is_available(self) -> bool:
         return self._client is not None
 
-    def chat(self, messages: List[Dict[str, str]], **kwargs) -> str:
+    def chat(self, messages: List[Dict[str, str]], **kwargs) -> LLMResponse:
+        """发送对话请求 (P5-A.2: 返回 LLMResponse)"""
         if not self._client:
             return self._mock_response(messages)
 
@@ -385,12 +446,21 @@ class DeepSeekClient(LLMClient):
                 temperature=kwargs.get("temperature", self.temperature),
                 max_tokens=kwargs.get("max_tokens", self.max_tokens)
             )
-            return response.choices[0].message.content
+            return LLMResponse(
+                content=response.choices[0].message.content,
+                model=response.model,
+                usage={
+                    "prompt_tokens": getattr(response.usage, "prompt_tokens", 0) or 0,
+                    "completion_tokens": getattr(response.usage, "completion_tokens", 0) or 0,
+                    "total_tokens": getattr(response.usage, "total_tokens", 0) or 0,
+                } if response.usage else {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0},
+                finish_reason=(response.choices[0].finish_reason or "stop"),
+            )
         except Exception as e:
             print(f"[WARN]  DeepSeek API调用失败: {e}")
             return self._mock_response(messages)
 
-    def _mock_response(self, messages):
+    def _mock_response(self, messages) -> LLMResponse:
         return MockLLMClient().chat(messages)
 
 
@@ -400,16 +470,23 @@ class MockLLMClient(LLMClient):
     def is_available(self) -> bool:
         return True
 
-    def chat(self, messages: List[Dict[str, str]], **kwargs) -> str:
-        """返回Mock响应"""
+    def chat(self, messages: List[Dict[str, str]], **kwargs) -> LLMResponse:
+        """返回Mock响应 (P5-A.2: 统一返回 LLMResponse)"""
         last_message = messages[-1]["content"] if messages else ""
 
         if "碳" in last_message:
-            return "碳中和是指通过植树造林、节能减排等方式，抵消自身产生的二氧化碳排放，实现二氧化碳'净零排放'。"
+            content = "碳中和是指通过植树造林、节能减排等方式，抵消自身产生的二氧化碳排放，实现二氧化碳'净零排放'。"
         elif "建议" in last_message or "推荐" in last_message:
-            return "推荐你尝试以下低碳行动：1) 短距离出行选择步行或骑行；2) 购物时自带环保袋；3) 减少食物浪费。"
+            content = "推荐你尝试以下低碳行动：1) 短距离出行选择步行或骑行；2) 购物时自带环保袋；3) 减少食物浪费。"
         else:
-            return "好的，让我来回答你的问题..."
+            content = "好的，让我来回答你的问题..."
+
+        return LLMResponse(
+            content=content,
+            model="mock",
+            usage={"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0},
+            finish_reason="stop",
+        )
 
 
 # ========== 贝叶斯模型路由器 ==========
@@ -736,9 +813,9 @@ class BayesianModelRouter:
         model_id: str = None,
         force_model: str = None,
         **kwargs
-    ) -> str:
+    ) -> LLMResponse:
         """
-        贝叶斯路由的chat接口
+        贝叶斯路由的chat接口 (P5-A.2: 返回 LLMResponse)
 
         Args:
             messages: 对话消息
@@ -747,7 +824,7 @@ class BayesianModelRouter:
             **kwargs: 传递给LLM的参数
 
         Returns:
-            LLM响应文本
+            LLMResponse
         """
         if force_model:
             target = force_model
@@ -760,7 +837,13 @@ class BayesianModelRouter:
             # fallback
             available_clients = list(self._clients.keys())
             if not available_clients:
-                return "[BayesianRouter] 没有任何可用的LLM客户端"
+                return LLMResponse(
+                    content="[BayesianRouter] 没有任何可用的LLM客户端",
+                    model="bayesian-router",
+                    usage={"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0},
+                    finish_reason="error",
+                    error="no_available_clients",
+                )
             target = random.choice(available_clients)
 
         client = self._clients[target]
@@ -770,20 +853,37 @@ class BayesianModelRouter:
             response = client.chat(messages, **kwargs)
             latency_ms = (time.time() - start) * 1000
             success = self._is_valid_response(response)
-            self.record_result(target, success, latency_ms, response)
+            self.record_result(target, success, latency_ms, response.content if hasattr(response, "content") else str(response))
+            # 若子 client 已经填了 latency,router 的测量值覆盖(更准,含路由开销)
+            try:
+                response.latency_ms = latency_ms
+            except Exception:
+                pass
             return response
         except Exception as e:
             latency_ms = (time.time() - start) * 1000
             self.record_result(target, False, latency_ms, "")
             print(f"[BayesianRouter] 模型 {target} 调用异常: {e}")
-            return f"[错误] 调用失败: {e}"
+            return LLMResponse(
+                content=f"[错误] 调用失败: {e}",
+                model=target,
+                usage={"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0},
+                finish_reason="error",
+                error=str(e),
+                latency_ms=latency_ms,
+            )
 
-    def _is_valid_response(self, response: str) -> bool:
-        """判断响应是否有效"""
+    def _is_valid_response(self, response) -> bool:
+        """判断响应是否有效 (P5-A.2: 兼容 LLMResponse)"""
         if not response:
             return False
+        content = response.content if hasattr(response, "content") else str(response)
+        if not content:
+            return False
+        if hasattr(response, "error") and response.error:
+            return False
         invalid_patterns = ["[错误]", "调用失败", "rate limit", "timeout", "exception", "Error"]
-        return not any(p.lower() in str(response).lower() for p in invalid_patterns)
+        return not any(p.lower() in content.lower() for p in invalid_patterns)
 
     def get_all_stats(self) -> Dict[str, Any]:
         """获取所有模型的统计信息"""
@@ -888,7 +988,8 @@ class BayesianLLMClient(LLMClient):
         )
         print(f"[OK] 贝叶斯LLM客户端初始化成功 (策略: {strategy})")
 
-    def chat(self, messages: List[Dict[str, str]], **kwargs) -> str:
+    def chat(self, messages: List[Dict[str, str]], **kwargs) -> LLMResponse:
+        """P5-A.2: 透传 router.chat() 的 LLMResponse"""
         return self.router.chat(messages, **kwargs)
 
     def is_available(self) -> bool:
@@ -1131,7 +1232,7 @@ if __name__ == "__main__":
     ]
 
     response = client.chat(messages)
-    print(f"\n测试回复:\n{response}")
+    print(f"\n测试回复:\n{response.content}")
 
     # 2. 贝叶斯客户端测试
     print("\n" + "=" * 60)
@@ -1165,7 +1266,9 @@ if __name__ == "__main__":
         msg = [{"role": "user", "content": q}]
         resp = bayes_client.chat(msg)
         chosen = bayes_client.router.get_recommendation()["recommended"]
-        print(f"  [{i+1}] Q: {q[:20]}... → 模型: {chosen} → {resp[:40]}...")
+        # P5-A.2: resp 是 LLMResponse
+        resp_text = resp.content if hasattr(resp, "content") else str(resp)
+        print(f"  [{i+1}] Q: {q[:20]}... → 模型: {chosen} → {resp_text[:40]}...")
 
     print("\n--- 统计摘要 ---")
     print(bayes_client.summary())
