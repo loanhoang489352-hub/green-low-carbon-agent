@@ -53,6 +53,95 @@ def _provider_name(cls_name: str) -> str:
     return cls_name.replace("Client", "").lower()
 
 
+# P5-C: 默认 LLM 调用超时/重试参数 (可被环境变量覆盖)
+def _llm_timeout() -> float:
+    return float(os.environ.get("LLM_TIMEOUT_SECONDS", "30"))
+
+
+def _llm_max_retries() -> int:
+    return int(os.environ.get("LLM_MAX_RETRIES", "2"))
+
+
+def _is_retryable_error(exc: Exception) -> bool:
+    """
+    判断异常是否可重试 (P5-C)
+
+    不可重试: 4xx 客户端错误 (auth, bad request, not found)
+    可重试: timeout / connection / 5xx / 429
+    """
+    # timeout
+    if isinstance(exc, (TimeoutError, ConnectionError)):
+        return True
+    # OpenAI SDK 异常层级
+    exc_name = type(exc).__name__
+    if exc_name in ("APITimeoutError", "APIConnectionError", "InternalServerError", "RateLimitError"):
+        return True
+    exc_str = str(exc).lower()
+    # 5xx
+    if any(code in exc_str for code in ["500", "502", "503", "504", "internal server error", "bad gateway", "service unavailable"]):
+        return True
+    # 429
+    if "429" in exc_str or "rate limit" in exc_str or "too many requests" in exc_str:
+        return True
+    # SSL 网络问题
+    if "ssl" in exc_str or "certificate" in exc_str:
+        return True
+    # 4xx 不重试
+    if any(code in exc_str for code in ["401", "403", "404", "400"]):
+        return False
+    return True  # 默认重试
+
+
+def _classify_error(exc: Exception) -> str:
+    """
+    把异常归类为短字符串,填入 LLMResponse.error
+
+    返回: "timeout" / "rate_limit" / "ssl_error" / "auth_error" / "5xx" / "exception: <msg>"
+    """
+    exc_str = str(exc).lower()
+    exc_name = type(exc).__name__
+    if isinstance(exc, TimeoutError) or exc_name == "APITimeoutError" or "timeout" in exc_str:
+        return "timeout"
+    if exc_name == "RateLimitError" or "429" in exc_str or "rate limit" in exc_str:
+        return "rate_limit"
+    if "ssl" in exc_str or "certificate" in exc_str:
+        return "ssl_error"
+    if any(code in exc_str for code in ["401", "403", "authentication", "unauthorized"]):
+        return "auth_error"
+    if any(code in exc_str for code in ["500", "502", "503", "504"]):
+        return "5xx"
+    return f"exception: {type(exc).__name__}: {str(exc)[:100]}"
+
+
+def _with_retry(fn, max_retries: int, base_delay: float = 1.0, label: str = "llm"):
+    """
+    指数退避重试包装 (P5-C)
+    - 1st retry after 1s, 2nd after 2s, 3rd after 4s ...
+    - 不可重试异常立即抛出
+    - 超出 max_retries 抛出最后一次异常
+    """
+    last_exc = None
+    for attempt in range(max_retries + 1):
+        try:
+            return fn()
+        except Exception as e:
+            last_exc = e
+            retryable = _is_retryable_error(e)
+            if not retryable or attempt >= max_retries:
+                raise
+            delay = base_delay * (2 ** attempt)
+            _logger.warning(
+                "llm_retry",
+                extra={
+                    "event": "llm_retry", "label": label,
+                    "attempt": attempt + 1, "max_retries": max_retries,
+                    "delay_s": delay, "error": str(e)[:200],
+                },
+            )
+            time.sleep(delay)
+    raise last_exc  # pragma: no cover
+
+
 class LLMClient:
     """LLM客户端基类"""
     
@@ -77,23 +166,33 @@ class LLMClient:
         trace_id: str,
     ) -> LLMResponse:
         """
-        OpenAI-SDK 兼容客户端的通用调用路径 (P5-B)
+        OpenAI-SDK 兼容客户端的通用调用路径 (P5-B + P5-C)
 
         适用: OpenAI / Zhipu / Ali / DeepSeek (都用 openai SDK 风格)
-        子类只需:
-        1. 在 chat() 入口生成 trace_id + 检查 self._client
-        2. 调用本方法完成 success/fail 路径
+        P5-C 加固:
+        - timeout=LLM_TIMEOUT_SECONDS (默认 30s)
+        - max_retries=0 (禁用 SDK 内置重试,由外层 _with_retry 统一管)
+        - 3 次重试 + 1s→2s→4s 指数退避
+        - LLMResponse.error 字段填充 error 分类
         """
         provider = _provider_name(type(self).__name__)
         start = time.time()
+        timeout_s = _llm_timeout()
+        max_retries = _llm_max_retries()
 
-        try:
-            response = self._client.chat.completions.create(
+        def _do_call():
+            return self._client.chat.completions.create(
                 model=self.model,
                 messages=messages,
                 temperature=kwargs.get("temperature", self.temperature),
                 max_tokens=kwargs.get("max_tokens", self.max_tokens),
+                timeout=timeout_s,
+                # 禁用 SDK 内置重试,由 _with_retry 统一管
+                max_retries=0,
             )
+
+        try:
+            response = _with_retry(_do_call, max_retries=max_retries, base_delay=1.0, label=error_label)
             latency_ms = round((time.time() - start) * 1000, 2)
             usage_dict = {
                 "prompt_tokens": getattr(response.usage, "prompt_tokens", 0) or 0,
@@ -128,20 +227,25 @@ class LLMClient:
             )
         except Exception as e:
             latency_ms = round((time.time() - start) * 1000, 2)
+            error_class = _classify_error(e)
             _logger.warning(
                 "llm_call_failed",
                 extra={
                     "event": "llm_call_failed", "trace_id": trace_id, "provider": provider,
                     "model": self.model, "latency_ms": latency_ms,
-                    "error": str(e), "success": False,
+                    "error": str(e), "error_class": error_class, "success": False,
                 },
             )
             get_metrics_collector().record(
                 provider=provider, model=self.model,
-                latency_ms=latency_ms, success=False, error=str(e),
+                latency_ms=latency_ms, success=False, error=error_class,
             )
-            print(f"[WARN]  {error_label} API调用失败: {e}")
-            return self._mock_response(messages, trace_id=trace_id)
+            print(f"[WARN]  {error_label} API调用失败 [{error_class}]: {e}")
+            # P5-C: 即使 fallback 到 mock,LLMResponse.error 也填 error_class
+            mock_resp = self._mock_response(messages, trace_id=trace_id)
+            mock_resp.error = error_class
+            mock_resp.finish_reason = "error"
+            return mock_resp
 
 
 class OpenAIClient(LLMClient):
@@ -288,24 +392,29 @@ class BaiduClient(LLMClient):
         return self._access_token is not None
 
     def chat(self, messages: List[Dict[str, str]], **kwargs) -> LLMResponse:
-        """发送对话请求 (P5-A.2: 返回 LLMResponse, P5-B: 注入 trace_id + 记录 metrics)"""
+        """发送对话请求 (P5-A.2: 返回 LLMResponse, P5-B: 注入 trace_id + 记录 metrics, P5-C: timeout + retry)"""
         trace_id = kwargs.pop("trace_id", None) or new_trace_id()
         provider = _provider_name(type(self).__name__)
         start = time.time()
+        timeout_s = _llm_timeout()
+        max_retries = _llm_max_retries()
 
         if not self._access_token:
             return self._mock_response(messages, trace_id=trace_id)
 
-        try:
+        def _do_request():
             import requests
             url = (f"https://aip.baidubce.com/rpc/2.0/ai_custom/v1/"
                    f"wenxinworkshop/chat/completions?access_token={self._access_token}")
             payload = {
                 "messages": messages,
                 "temperature": kwargs.get("temperature", self.temperature),
-                "max_tokens": kwargs.get("max_tokens", self.max_tokens)
+                "max_tokens": kwargs.get("max_tokens", self.max_tokens),
             }
-            response = requests.post(url, json=payload)
+            return requests.post(url, json=payload, timeout=timeout_s)
+
+        try:
+            response = _with_retry(_do_request, max_retries=max_retries, base_delay=1.0, label="百度文心一言")
             latency_ms = round((time.time() - start) * 1000, 2)
             if response.ok:
                 result = response.json()
@@ -343,35 +452,43 @@ class BaiduClient(LLMClient):
                     request_id=trace_id,
                 )
             # 4xx/5xx
+            error_class = f"http_{response.status_code}"
             _logger.warning(
                 "llm_call_failed",
                 extra={
                     "event": "llm_call_failed", "trace_id": trace_id, "provider": provider,
                     "model": self.model, "latency_ms": latency_ms,
-                    "error": f"http {response.status_code}", "success": False,
+                    "error": error_class, "success": False,
                 },
             )
             get_metrics_collector().record(
                 provider=provider, model=self.model, latency_ms=latency_ms,
-                success=False, error=f"http {response.status_code}",
+                success=False, error=error_class,
             )
-            return self._mock_response(messages, trace_id=trace_id)
+            mock_resp = self._mock_response(messages, trace_id=trace_id)
+            mock_resp.error = error_class
+            mock_resp.finish_reason = "error"
+            return mock_resp
         except Exception as e:
             latency_ms = round((time.time() - start) * 1000, 2)
+            error_class = _classify_error(e)
             _logger.warning(
                 "llm_call_failed",
                 extra={
                     "event": "llm_call_failed", "trace_id": trace_id, "provider": provider,
                     "model": self.model, "latency_ms": latency_ms,
-                    "error": str(e), "success": False,
+                    "error": str(e), "error_class": error_class, "success": False,
                 },
             )
             get_metrics_collector().record(
                 provider=provider, model=self.model, latency_ms=latency_ms,
-                success=False, error=str(e),
+                success=False, error=error_class,
             )
-            print(f"[WARN]  百度文心一言 API调用失败: {e}")
-            return self._mock_response(messages, trace_id=trace_id)
+            print(f"[WARN]  百度文心一言 API调用失败 [{error_class}]: {e}")
+            mock_resp = self._mock_response(messages, trace_id=trace_id)
+            mock_resp.error = error_class
+            mock_resp.finish_reason = "error"
+            return mock_resp
 
     def _mock_response(self, messages, trace_id: Optional[str] = None) -> LLMResponse:
         return MockLLMClient().chat(messages, trace_id=trace_id)
@@ -435,15 +552,17 @@ class MiniMaxClient(LLMClient):
         try:
             from openai import OpenAI
 
-            # 禁用 SSL 证书验证
+            # P5-C: SSL 跳过由 INSECURE_SKIP_VERIFY 控制(默认 False)
+            # 通过 http_client=httpx.Client(verify=False) 局部生效,不再污染全局环境变量
             import os
-            os.environ['CURL_CA_BUNDLE'] = ''
-            os.environ['REQUESTS_CA_BUNDLE'] = ''
+            insecure = os.environ.get("INSECURE_SKIP_VERIFY", "").lower() in ("1", "true", "yes", "on")
+            kwargs = {"api_key": self.api_key, "base_url": "https://api.minimax.chat/v1"}
+            if insecure:
+                import httpx
+                kwargs["http_client"] = httpx.Client(verify=False)
+                print("[WARN]  MiniMax 客户端 SSL 验证已禁用 (INSECURE_SKIP_VERIFY=true)")
 
-            self._client = OpenAI(
-                api_key=self.api_key,
-                base_url="https://api.minimax.chat/v1"
-            )
+            self._client = OpenAI(**kwargs)
             print(f"[OK] MiniMax客户端初始化成功 (模型: {self.model})")
         except ImportError:
             print("[WARN]  openai包未安装，请运行: pip install openai")
@@ -456,10 +575,11 @@ class MiniMaxClient(LLMClient):
         return self._client is not None
 
     def chat(self, messages: List[Dict[str, str]], **kwargs) -> LLMResponse:
-        """发送对话请求 (P5-A.2: 返回 LLMResponse,带指数退避重试; P5-B: 注入 trace_id + metrics)"""
+        """发送对话请求 (P5-A.2: 返回 LLMResponse,带指数退避重试; P5-B: 注入 trace_id + metrics; P5-C: timeout)"""
         trace_id = kwargs.pop("trace_id", None) or new_trace_id()
         provider = _provider_name(type(self).__name__)
         start = time.time()
+        timeout_s = _llm_timeout()
 
         if not self._client:
             return self._mock_response(messages, trace_id=trace_id)
@@ -472,7 +592,9 @@ class MiniMaxClient(LLMClient):
                     model=self.model,
                     messages=messages,
                     temperature=kwargs.get("temperature", self.temperature),
-                    max_tokens=kwargs.get("max_tokens", self.max_tokens)
+                    max_tokens=kwargs.get("max_tokens", self.max_tokens),
+                    timeout=timeout_s,
+                    max_retries=0,  # 禁用 SDK 内置重试
                 )
                 latency_ms = round((time.time() - start) * 1000, 2)
                 usage_dict = {
@@ -520,38 +642,46 @@ class MiniMaxClient(LLMClient):
                 else:
                     # 其他错误，直接返回 mock
                     latency_ms = round((time.time() - start) * 1000, 2)
+                    error_class = _classify_error(e)
                     _logger.warning(
                         "llm_call_failed",
                         extra={
                             "event": "llm_call_failed", "trace_id": trace_id, "provider": provider,
                             "model": self.model, "latency_ms": latency_ms,
-                            "error": str(e), "success": False, "attempts": attempt + 1,
+                            "error": str(e), "error_class": error_class, "success": False, "attempts": attempt + 1,
                         },
                     )
                     get_metrics_collector().record(
                         provider=provider, model=self.model, latency_ms=latency_ms,
-                        success=False, error=str(e),
+                        success=False, error=error_class,
                     )
-                    print(f"MiniMax API 调用失败: {e}")
-                    return self._mock_response(messages, trace_id=trace_id)
+                    print(f"MiniMax API 调用失败 [{error_class}]: {e}")
+                    mock_resp = self._mock_response(messages, trace_id=trace_id)
+                    mock_resp.error = error_class
+                    mock_resp.finish_reason = "error"
+                    return mock_resp
 
         # 所有重试都失败
         latency_ms = round((time.time() - start) * 1000, 2)
+        error_class = _classify_error(last_error) if last_error else "max_retries_exceeded"
         _logger.warning(
             "llm_call_failed",
             extra={
                 "event": "llm_call_failed", "trace_id": trace_id, "provider": provider,
                 "model": self.model, "latency_ms": latency_ms,
                 "error": f"max retries {self._max_retries} exhausted: {last_error}",
-                "success": False, "attempts": self._max_retries,
+                "error_class": error_class, "success": False, "attempts": self._max_retries,
             },
         )
         get_metrics_collector().record(
             provider=provider, model=self.model, latency_ms=latency_ms,
-            success=False, error=f"max retries exhausted: {last_error}",
+            success=False, error=error_class,
         )
-        print(f"MiniMax API 重试 {self._max_retries} 次后仍失败: {last_error}")
-        return self._mock_response(messages, trace_id=trace_id)
+        print(f"MiniMax API 重试 {self._max_retries} 次后仍失败 [{error_class}]: {last_error}")
+        mock_resp = self._mock_response(messages, trace_id=trace_id)
+        mock_resp.error = error_class
+        mock_resp.finish_reason = "error"
+        return mock_resp
 
     def _mock_response(self, messages, trace_id: Optional[str] = None) -> LLMResponse:
         return MockLLMClient().chat(messages, trace_id=trace_id)

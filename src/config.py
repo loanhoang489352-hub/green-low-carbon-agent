@@ -35,6 +35,9 @@ class LLMConfig:
     provider: str = field(default_factory=lambda: os.environ.get("API_PROVIDER", "openai"))
     model: str = field(default_factory=lambda: os.environ.get("API_MODEL", "gpt-4o-mini"))
     temperature: float = field(default_factory=lambda: float(os.environ.get("LLM_TEMPERATURE", "0.7")))
+    timeout_seconds: float = field(default_factory=lambda: float(os.environ.get("LLM_TIMEOUT_SECONDS", "30")))
+    max_retries: int = field(default_factory=lambda: _env_int("LLM_MAX_RETRIES", 2))
+    insecure_skip_verify: bool = field(default_factory=lambda: _env_bool("INSECURE_SKIP_VERIFY", False))
 
 
 @dataclass
