@@ -1,6 +1,7 @@
 """
 应用工厂
 将 RequestHandler 改造为通过 RouterRegistry 分发
+P5-D: _dispatch 接入 with_auth 中间件
 """
 import json
 import os
@@ -11,7 +12,7 @@ from pathlib import Path
 from typing import Optional
 from urllib.parse import urlparse, parse_qs
 
-from .router import Route, get_registry
+from .router import Route, get_registry, is_auth_enabled
 from .routers import register_all_routes
 
 # 确保 src 在路径中
@@ -81,6 +82,29 @@ class RoutedRequestHandler(BaseHTTPRequestHandler):
         if route is None:
             self.send_error(404, f"Not Found: {method} {path}")
             return
+
+        # P5-D: 鉴权中间件
+        if route.auth_required and is_auth_enabled():
+            try:
+                from auth.account_manager import AccountManager
+                if not hasattr(self.__class__, "_auth_account_mgr"):
+                    self.__class__._auth_account_mgr = AccountManager()
+                mgr = self.__class__._auth_account_mgr
+                identity = mgr.verify_token(self.headers, data)
+            except Exception:
+                identity = None
+            if identity is None:
+                self.send_json({
+                    "ok": False,
+                    "error": {
+                        "code": "UNAUTHORIZED",
+                        "message": "Invalid or missing session token",
+                        "status": 401,
+                    },
+                }, status=401)
+                return
+            # 把身份写入 handler
+            self.current_user = identity
 
         try:
             if method == "GET":

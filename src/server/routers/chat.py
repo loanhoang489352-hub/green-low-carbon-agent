@@ -88,17 +88,8 @@ def register_chat_routes(registry) -> None:
         except Exception as e:
             handler.send_error(500, f"Internal error: {str(e)}")
 
-    def personalization_context(handler, data):
-        user_id = data.get("user_id")
-        if not user_id:
-            handler.send_json({"error": "user_id required"}, status=400)
-            return
-        ctx = handler.agent.get_personalization_context(user_id)
-        handler.send_json({"context": ctx})
-
     registry.add_route("POST", "/api/chat", chat, auth_required=False, description="基础聊天")
     registry.add_route("POST", "/api/chat/enhanced", chat_enhanced, auth_required=False, description="增强聊天(RAG+个性化)")
     registry.add_route("POST", "/api/conversation/reset", conversation_reset, auth_required=False, description="重置对话")
     registry.add_route("POST", "/api/conversation/history", conversation_history, auth_required=False, description="对话历史")
     registry.add_route("POST", "/api/recommendations", recommendations, auth_required=False, description="个性化推荐")
-    registry.add_route("POST", "/api/personalization/context", personalization_context, auth_required=False, description="个性化上下文")

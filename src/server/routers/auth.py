@@ -1,0 +1,87 @@
+"""
+认证路由: 注册 / 登录 / 登出 / 会话验证
+P5-D 迁移 (从 main.py 拆分)
+"""
+import uuid
+
+
+def register_auth_routes(registry) -> None:
+    """注册认证相关路由"""
+
+    def auth_register(handler, data):
+        username = data.get("username")
+        password = data.get("password")
+        if not username or not password:
+            handler.send_json({"error": "用户名和密码必填"}, status=400)
+            return
+        result = handler.account_manager.register(username, password)
+        if result.get("success"):
+            handler.send_json({
+                "status": "success",
+                "account_id": result.get("account_id"),
+                "username": result.get("username"),
+            })
+        else:
+            handler.send_json({"error": result.get("error", "注册失败")}, status=400)
+
+    def auth_login(handler, data):
+        username = data.get("username")
+        password = data.get("password")
+        if not username or not password:
+            handler.send_json({"error": "用户名和密码必填"}, status=400)
+            return
+        result = handler.account_manager.login(username, password)
+        if result.get("success"):
+            account_id = result.get("account_id")
+            user_id = handler.account_manager.get_user_id_by_account(account_id)
+            if not user_id:
+                agent = handler.agent
+                user_id = agent.register_user(account_id=account_id)
+            handler.send_json({
+                "status": "success",
+                "session_id": result.get("session_id"),
+                "account_id": account_id,
+                "username": result.get("username"),
+                "user_id": user_id,
+                "expires_at": result.get("expires_at"),
+            })
+        else:
+            handler.send_json({"error": result.get("error", "登录失败")}, status=401)
+
+    def auth_logout(handler, data):
+        session_id = data.get("session_id")
+        if session_id:
+            handler.account_manager.logout(session_id)
+        handler.send_json({"status": "success"})
+
+    def auth_check(handler, data):
+        session_id = data.get("session_id")
+        if not session_id:
+            handler.send_json({"valid": False, "error": "session_id required"})
+            return
+        account_id = handler.account_manager.validate_session(session_id)
+        if account_id:
+            info = handler.account_manager.get_account_info(account_id)
+            if info:
+                handler.send_json({
+                    "valid": True,
+                    "account_id": account_id,
+                    "username": info.get("username"),
+                })
+                return
+        handler.send_json({"valid": False})
+
+    def auth_session(handler, data):
+        session_id = data.get("session_id")
+        if not session_id:
+            handler.send_json({"error": "session_id required"}, status=400)
+            return
+        session_info = handler.account_manager.get_session_info(session_id)
+        handler.send_json({"status": "success", "session": session_info})
+
+    # P5-D: 认证端点本身不要鉴权
+    registry.add_route("POST", "/api/auth/register", auth_register, auth_required=False, description="用户注册")
+    registry.add_route("POST", "/api/auth/login", auth_login, auth_required=False, description="登录")
+    registry.add_route("POST", "/api/auth/logout", auth_logout, auth_required=False, description="登出")
+    registry.add_route("POST", "/api/auth/check", auth_check, auth_required=False, description="验证会话")
+    registry.add_route("POST", "/api/auth/session", auth_session, auth_required=False, description="会话详情")

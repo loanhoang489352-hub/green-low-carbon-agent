@@ -376,6 +376,74 @@ class AccountManager:
             print(f"[Auth] 会话验证失败: {e}")
             return None
 
+    def verify_token(
+        self,
+        headers,
+        body: Optional[Dict[str, Any]] = None,
+    ) -> Optional[Dict[str, Any]]:
+        """
+        P5-D 鉴权: 从 HTTP headers (和 body) 提取 session_id 验证,返回用户身份
+
+        优先顺序:
+        1. Authorization: Bearer <session_id> 头
+        2. X-Session-Id: <session_id> 头
+        3. body.session_id 字段
+        4. body.sessionId 字段
+
+        Args:
+            headers: 任意 dict-like / HTTP 头对象(BaseHTTPRequestHandler.headers / dict)
+            body: 可选 POST body dict,作为最后 fallback
+
+        Returns:
+            成功: {"account_id": ..., "user_id": ..., "username": ...}
+            失败: None
+        """
+        token = None
+
+        # 1. Authorization 头
+        try:
+            auth_header = headers.get("Authorization") if hasattr(headers, "get") else None
+            if auth_header:
+                if isinstance(auth_header, str) and auth_header.lower().startswith("bearer "):
+                    token = auth_header[7:].strip()
+        except Exception:
+            pass
+
+        # 2. X-Session-Id 头
+        if not token:
+            try:
+                token = headers.get("X-Session-Id") if hasattr(headers, "get") else None
+                if token:
+                    token = str(token).strip()
+            except Exception:
+                pass
+
+        # 3. body.session_id / body.sessionId
+        if not token and body:
+            token = body.get("session_id") or body.get("sessionId")
+            if token:
+                token = str(token).strip()
+
+        if not token:
+            return None
+
+        # 验证 session
+        account_id = self.validate_session(token)
+        if not account_id:
+            return None
+
+        # 获取用户 ID + 用户名
+        user_id = self.get_user_id_by_account(account_id)
+        info = self.get_account_info(account_id)
+        username = info.get("username") if info else None
+
+        return {
+            "account_id": account_id,
+            "user_id": user_id or account_id,  # 兜底用 account_id
+            "username": username,
+            "session_id": token,
+        }
+
     def get_account_info(self, account_id: str) -> Optional[Dict[str, Any]]:
         """
         获取账号信息（不含密码）
