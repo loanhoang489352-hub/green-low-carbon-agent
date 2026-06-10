@@ -70,6 +70,7 @@ data/logs/
 **/.DS_Store
 
 # Worktrees (Claude Code)
+.claude/
 .claude/worktrees/
 
 # 学术资料(本地保留,不进仓库)
