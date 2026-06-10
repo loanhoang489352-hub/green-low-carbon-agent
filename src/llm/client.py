@@ -601,7 +601,8 @@ class BayesianModelRouter:
 
         self._models: Dict[str, ModelStats] = {}
         self._clients: Dict[str, LLMClient] = {}
-        self._lock = threading.Lock()
+        # RLock: get_recommendation() 嵌套调用 get_best_model(),普通 Lock 会同线程死锁
+        self._lock = threading.RLock()
         self._total_decisions = 0
 
         if auto_add_clients:

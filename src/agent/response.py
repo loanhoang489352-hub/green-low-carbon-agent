@@ -417,7 +417,9 @@ class ResponseGenerator:
         """推断建议类别"""
         # 基于最近的对话历史推断
         if context.conversation_history:
-            last_message = context.conversation_history[-1].get("content", "")
+            last_msg = context.conversation_history[-1]
+            # 兼容 dict 和 langchain HumanMessage/AIMessage 对象
+            last_message = last_msg.get("content", "") if isinstance(last_msg, dict) else getattr(last_msg, "content", "")
 
             if any(kw in last_message for kw in ["开车", "出行", "交通", "车"]):
                 return "出行"
