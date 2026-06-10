@@ -535,11 +535,35 @@ class KnowledgeUpdater:
         )
 
     def _fetch_content_hash(self, url: str) -> str:
-        """获取内容hash（用于检测变化）"""
+        """获取内容hash（用于检测变化, P5-H.D 分块 hash）"""
         html, _ = self._fetch_html(url)
         if html:
-            return hashlib.md5(html[:20000].encode('utf-8', errors='ignore')).hexdigest()
+            return self._compute_content_hash(html)
         return ""
+
+    @staticmethod
+    def _compute_content_hash(html: str, large_threshold: int = 50 * 1024) -> str:
+        """P5-H.D: 分块 hash 改进
+
+        - 小文档 (<50KB): md5(html[:20000]) 保持旧行为
+        - 大文档 (>=50KB): SHA256 整文,避免开头不变中段变化漏检
+        - 同时按段落分块后串接 hash 列表的 hash,稳定性更好
+        """
+        if not html:
+            return ""
+        b = html.encode("utf-8", errors="ignore")
+        if len(b) >= large_threshold:
+            return "sha256:" + hashlib.sha256(b).hexdigest()
+        # 小文档:按段落分块求 hash,串接后再 md5(对开头/中段/结尾变化都敏感)
+        paragraphs = [p.strip() for p in html.split("\n\n") if p.strip()]
+        if len(paragraphs) <= 1:
+            return "md5:" + hashlib.md5(b[:20000]).hexdigest()
+        chunk_hashes = [
+            hashlib.md5(p.encode("utf-8", errors="ignore")).hexdigest()[:16]
+            for p in paragraphs[:50]  # 最多 50 段,防止超长段落 hash 太慢
+        ]
+        joined = "|".join(chunk_hashes)
+        return "md5:" + hashlib.md5(joined.encode("utf-8")).hexdigest()
 
     def check_updates(self) -> List[UpdateResult]:
         """检查所有源的更新"""
@@ -580,7 +604,7 @@ class KnowledgeUpdater:
                     timestamp=datetime.now().isoformat()
                 )
 
-            content_hash = hashlib.md5(html[:20000].encode('utf-8', errors='ignore')).hexdigest()
+            content_hash = self._compute_content_hash(html)
 
             if source.last_hash is None:
                 # 首次检查，初始化hash

@@ -88,36 +88,62 @@ class ChromaStore(VectorStore):
         self.collection_name = collection_name
         self._client = None
         self._collection = None
+        # P5-H.A: 显式记录是否真的用上 PersistentClient(chromadb 1.5 客户端
+        # 类名是 Client,无法从 type 区分,需自维护标志)
+        self._is_persistent: bool = False
+        self._use_inmemory: bool = False
         self._init_collection()
 
     def _init_collection(self):
-        """初始化 ChromaDB 集合"""
+        """初始化 ChromaDB 集合
+
+        P5-H.A: Windows 也使用 PersistentClient(chromadb>=0.4.24 Windows 兼容),
+        重启不丢索引。安装失败/无 chromadb 时降级为内存存储。
+        """
         try:
             import chromadb
             from chromadb.config import Settings
 
-            # Windows 上使用内存模式避免兼容性问题
-            import platform
-            if platform.system() == 'Windows':
-                self._client = chromadb.Client()
-            else:
+            # P5-H.A: 统一使用 PersistentClient,Windows 也持久化
+            # allow_reset=False 防止误调 reset() 清空全部
+            Path(self.persist_directory).mkdir(parents=True, exist_ok=True)
+            try:
                 self._client = chromadb.PersistentClient(
                     path=self.persist_directory,
+                    settings=Settings(
+                        anonymized_telemetry=False,
+                        allow_reset=False,
+                    ),
+                )
+                self._is_persistent = True
+            except Exception as e:
+                # Windows 上偶发的 sqlite/native lib 兼容问题,降级为 EphemeralClient
+                _logger.warning(
+                    "PersistentClient 初始化失败,降级 EphemeralClient(重启会丢): %s", e,
+                )
+                self._client = chromadb.EphemeralClient(
                     settings=Settings(anonymized_telemetry=False)
                 )
+                self._is_persistent = False
 
             self._collection = self._client.get_or_create_collection(
                 name=self.collection_name,
                 metadata={"description": "知识库向量存储"}
             )
-            print(f"[OK] ChromaDB 集合 '{self.collection_name}' 初始化完成")
+            print(f"[OK] ChromaDB 集合 '{self.collection_name}' 初始化完成 (path={self.persist_directory}, persistent={self._is_persistent})")
 
         except ImportError:
             _logger.warning("ChromaDB 未安装,使用内存存储")
             self._client = None
             self._use_inmemory = True
+            self._is_persistent = False
             self._inmemory_docs: Dict[str, Document] = {}
             self._inmemory_embeddings: List[np.ndarray] = []
+
+    @property
+    def is_persistent(self) -> bool:
+        """P5-H.A: 是否真的使用 PersistentClient(非 EphemeralClient / 内存降级)"""
+        return self._is_persistent
 
     def add(self, documents: List[Document]) -> None:
         """添加文档到 ChromaDB"""

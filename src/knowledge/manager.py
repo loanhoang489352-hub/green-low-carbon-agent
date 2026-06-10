@@ -1,6 +1,14 @@
 """
-知识库管理器
-支持本地文件加载和关键词匹配检索
+知识库管理器(P5-H.B: 标记为 deprecated,新代码请用 RAGEngine)
+
+历史:
+- P0~P3 用关键词 TF-IDF 检索,RAGEngine 出现后职责重叠
+- P5-H.B: search() 发 DeprecationWarning,建议改用
+    from rag.rag_engine import get_rag_engine; engine.retrieve(query, top_k=N)
+
+仍保留:
+- _load_knowledge_base / get_categories / get_stats 等本地文件操作型 API
+- 单纯关键词搜索(适合无 embedder 的场景);RAGEngine 不可用时仍可降级
 """
 
 # Windows UTF-8 encoding setup - Only if not already wrapped (avoid duplicate wrapping)
@@ -13,10 +21,19 @@ if sys.platform == 'win32':
 
 import os
 import uuid
+import warnings
 from pathlib import Path
 from typing import List, Dict, Any, Optional
 from datetime import datetime
 import hashlib
+
+# P5-F: 模块级 logger
+try:
+    from observability import get_logger
+    _logger = get_logger("knowledge.manager")
+except Exception:
+    import logging
+    _logger = logging.getLogger("knowledge.manager")
 
 # 添加项目根目录
 project_root = Path(__file__).parent.parent.parent
@@ -154,7 +171,44 @@ class KnowledgeManager:
             return False
 
     def search(self, query: str, top_k: int = 5) -> List[Dict]:
-        """搜索文档"""
+        """搜索文档
+
+        P5-H.B: 优先委托给 RAGEngine.retrieve(),失败/不可用时降级为关键词搜索。
+        发 DeprecationWarning 提示调用方迁移。
+        """
+        # 优先 RAGEngine
+        try:
+            from rag.rag_engine import get_rag_engine
+            engine = get_rag_engine()
+            if engine is not None and getattr(engine, "_initialized", False):
+                rag_results = engine.retrieve(query, top_k=top_k)
+                if rag_results:
+                    # 转换 RAGEngine 的 RetrievalResult → KnowledgeManager 兼容格式
+                    converted = []
+                    for r in rag_results:
+                        md = getattr(r, "metadata", {}) or {}
+                        converted.append({
+                            "id": getattr(r, "id", ""),
+                            "title": md.get("source", "")
+                                       .replace("\\", "/").split("/")[-1]
+                                       .replace(".md", "") or "knowledge",
+                            "content": getattr(r, "content", ""),
+                            "category": md.get("category", "rag"),
+                            "tags": [],
+                            "score": float(getattr(r, "score", 0.0)),
+                            "highlight": getattr(r, "content", "")[:200],
+                        })
+                    return converted
+        except Exception as e:
+            _logger.debug("[KnowledgeManager] RAGEngine 不可用,降级关键词: %s", e)
+
+        # 降级:旧关键词路径
+        warnings.warn(
+            "KnowledgeManager.search() 关键词降级路径已废弃,新代码请用 "
+            "rag.rag_engine.get_rag_engine().retrieve()",
+            DeprecationWarning,
+            stacklevel=2,
+        )
         query_keywords = self._extract_keywords(query)
 
         scored_docs = []

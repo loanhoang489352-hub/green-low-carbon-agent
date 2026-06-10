@@ -82,6 +82,31 @@ def register_system_routes(registry) -> None:
             "engine": "ok" if getattr(agent, "rag_engine", None) else "not_initialized",
         })
 
+    def rag_status(handler):
+        """P5-H.C: 查 RAG 异步重建进度
+
+        响应字段:
+        - state: idle / running / done / error
+        - progress: 0-100
+        - total: 已索引文档块数(done 时)
+        - message: 当前阶段描述或错误信息
+        - started_at: 任务开始时间(若有)
+        """
+        try:
+            from rag.rag_engine import get_rag_engine
+            engine = get_rag_engine()
+            if engine is None or not getattr(engine, "_initialized", False):
+                handler.send_json({
+                    "state": "idle",
+                    "progress": 0,
+                    "total": 0,
+                    "message": "rag engine not initialized",
+                })
+                return
+            handler.send_json(engine.get_rebuild_status())
+        except Exception as e:
+            handler.send_json({"state": "error", "message": str(e)}, status=500)
+
     def policy_latest(handler):
         updater = handler.policy_updater
         policies = updater.get_latest_policies(limit=10)
@@ -99,5 +124,6 @@ def register_system_routes(registry) -> None:
     registry.add_route("GET", "/api/metrics", metrics, auth_required=False, description="LLM 调用指标(P5-B)")
     registry.add_route("GET", "/api/knowledge/stats", knowledge_stats, auth_required=False, description="知识库统计")
     registry.add_route("GET", "/api/rag/stats", rag_stats, auth_required=False, description="RAG 状态")
+    registry.add_route("GET", "/api/rag/status", rag_status, auth_required=False, description="RAG 异步重建进度(P5-H.C)")
     registry.add_route("GET", "/api/policy/latest", policy_latest, auth_required=False, description="最新政策")
     registry.add_route("GET", "/api/policy/summary", policy_summary, auth_required=False, description="政策摘要")

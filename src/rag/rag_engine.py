@@ -74,6 +74,15 @@ class RAGEngine:
             'avg_query_time_ms': 0
         }
 
+        # P5-H.C: 异步重建状态
+        self._rebuild_state: Dict[str, Any] = {
+            "state": "idle",  # idle | running | done | error
+            "progress": 0,
+            "total": 0,
+            "message": "",
+        }
+        self._rebuild_lock = threading.Lock()
+
     @property
     def is_enabled(self) -> bool:
         return self.config.enabled and self._initialized
@@ -443,11 +452,174 @@ class RAGEngine:
             return False
 
     def rebuild_index(self, knowledge_base_path: str) -> int:
-        """重建索引"""
+        """重建索引(同步)"""
         print("🔄 重建知识库索引...")
         self._vector_store.clear()
         self._bm25_documents.clear()
         return self.load_knowledge_base(knowledge_base_path, force_reload=True)
+
+    # ------------------------------------------------------------------
+    # P5-H.C: 异步重建 + 进度查询
+    # ------------------------------------------------------------------
+    def rebuild_index_async(self, knowledge_base_path: str) -> Dict[str, Any]:
+        """启动后台重建任务(立刻返回)
+
+        前端可调 GET /api/rag/status 查 {state, progress, total, message}
+        若已有任务在跑,返回当前状态而非排队第二次。
+        """
+        with self._rebuild_lock:
+            if self._rebuild_state.get("state") == "running":
+                return dict(self._rebuild_state)
+
+            self._rebuild_state = {
+                "state": "running",
+                "progress": 0,
+                "total": 0,
+                "message": "starting",
+                "started_at": time.strftime("%Y-%m-%d %H:%M:%S"),
+            }
+
+        def _worker():
+            try:
+                self._update_rebuild_state(message="clearing index", progress=5)
+                self._vector_store.clear()
+                self._bm25_documents.clear()
+                self._update_rebuild_state(message="loading knowledge base", progress=10)
+                count = self.load_knowledge_base(knowledge_base_path, force_reload=True)
+                self._update_rebuild_state(
+                    state="done",
+                    progress=100,
+                    total=count,
+                    message=f"完成,共 {count} 个文档块",
+                )
+            except Exception as e:
+                _logger.exception("[RAG] 异步重建失败: %s", e)
+                self._update_rebuild_state(state="error", message=str(e))
+
+        t = threading.Thread(target=_worker, name="rag-rebuild", daemon=True)
+        t.start()
+        return dict(self._rebuild_state)
+
+    def _update_rebuild_state(self, **kwargs) -> None:
+        with self._rebuild_lock:
+            self._rebuild_state.update(kwargs)
+
+    def get_rebuild_status(self) -> Dict[str, Any]:
+        """P5-H.C: 查异步重建进度"""
+        with self._rebuild_lock:
+            return dict(self._rebuild_state)
+
+    # ------------------------------------------------------------------
+    # P5-H.E: 增量 upsert API
+    # ------------------------------------------------------------------
+    def add_documents(self, paths: List[str], base_path: Optional[str] = None) -> int:
+        """增量加入指定 markdown 文件(不重建全量)
+
+        Args:
+            paths: 要加入的 markdown 路径列表(绝对或相对 base_path)
+            base_path: 用于计算 metadata.source 的根目录;不传则用 path.parent
+        Returns:
+            实际加入的文档块数
+        """
+        if not self.is_enabled:
+            return 0
+
+        base = Path(base_path) if base_path else None
+        documents: List[Document] = []
+        bm25_new: List[Dict] = []
+
+        for p in paths:
+            md_file = Path(p)
+            if not md_file.exists() or md_file.suffix.lower() != ".md":
+                _logger.warning("[RAG] add_documents 跳过(不存在或非 md): %s", md_file)
+                continue
+            try:
+                content = md_file.read_text(encoding="utf-8")
+                metadata = self._parse_metadata(content)
+                metadata["source"] = (
+                    str(md_file.relative_to(base)) if base else str(md_file.name)
+                )
+                metadata["category"] = (
+                    md_file.parent.name if md_file.parent else "root"
+                )
+                for chunk in self._chunk_document(content, metadata):
+                    documents.append(Document(
+                        id=chunk["id"],
+                        content=chunk["content"],
+                        metadata=chunk["metadata"],
+                        embedding=None,
+                    ))
+                    bm25_new.append({
+                        "id": chunk["id"],
+                        "content": chunk["content"],
+                        "metadata": chunk["metadata"],
+                    })
+            except Exception as e:
+                _logger.warning("[RAG] add_documents 读失败 %s: %s", md_file, e)
+
+        if not documents:
+            return 0
+
+        contents = [d.content for d in documents]
+        embeddings = self._embedder.encode(contents)
+        for i, d in enumerate(documents):
+            d.embedding = embeddings[i]
+
+        self._vector_store.add(documents)
+        self._bm25_documents.extend(bm25_new)
+
+        if isinstance(self._retriever, HybridRetriever):
+            self._retriever.update_bm25_documents(self._bm25_documents)
+
+        self.stats["total_documents"] = self._vector_store.count()
+        self.stats["last_index_time"] = time.strftime("%Y-%m-%d %H:%M:%S")
+        return len(documents)
+
+    def delete_documents(self, sources: List[str]) -> int:
+        """按 metadata.source(文件名或相对路径)删除该文档的所有 chunk
+
+        Returns:
+            实际删除的 chunk 数(粗略估计,删除前后 count 差)
+        """
+        if not self.is_enabled:
+            return 0
+
+        before = self._vector_store.count()
+
+        # 收集所有匹配 source 的 chunk id(BM25 / ChromaDB 都需要)
+        norm_sources = {self._norm_source(s) for s in sources}
+        ids_to_delete: List[str] = []
+        remaining_bm25: List[Dict] = []
+        for d in self._bm25_documents:
+            doc_src = self._norm_source(d.get("metadata", {}).get("source", ""))
+            if doc_src in norm_sources:
+                ids_to_delete.append(d["id"])
+            else:
+                remaining_bm25.append(d)
+
+        if ids_to_delete:
+            self._vector_store.delete(ids_to_delete)
+        self._bm25_documents = remaining_bm25
+
+        if isinstance(self._retriever, HybridRetriever):
+            self._retriever.update_bm25_documents(self._bm25_documents)
+
+        after = self._vector_store.count()
+        self.stats["total_documents"] = after
+        return max(before - after, len(ids_to_delete))
+
+    @staticmethod
+    def _norm_source(s: str) -> str:
+        """规范化 source 路径用于比较(统一分隔符 + 取文件名)"""
+        if not s:
+            return ""
+        s = s.replace("\\", "/").strip()
+        # 允许传 "xxx.md" 或 "policy/xxx.md" 或 stem "xxx" 三种形式
+        # 统一比较 stem
+        name = s.split("/")[-1]
+        if name.endswith(".md"):
+            name = name[:-3]
+        return name
 
     def get_stats(self) -> Dict[str, Any]:
         """获取统计信息"""
