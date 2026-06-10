@@ -94,8 +94,10 @@ def setup_logging(
             fh.setFormatter(formatter)
             root.addHandler(fh)
         except Exception as e:
-            # 文件创建失败不阻塞,只 warn 到 stderr
-            print(f"[WARN] 无法创建日志文件 {log_file}: {e}", file=sys.stderr)
+            # 文件创建失败不阻塞:用 stderr logger 兜底(不经过 JSONFormatter,避免循环依赖)
+            logging.getLogger("observability.logger").warning(
+                "无法创建日志文件 %s: %s", log_file, e
+            )
 
 
 def get_logger(name: str) -> logging.Logger:

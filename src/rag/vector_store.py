@@ -22,6 +22,14 @@ import numpy as np
 import json
 from dataclasses import dataclass, asdict
 
+# P5-F: 模块级 logger
+try:
+    from observability import get_logger
+    _logger = get_logger("rag.vector_store")
+except Exception:
+    import logging
+    _logger = logging.getLogger("rag.vector_store")
+
 
 @dataclass
 class Document:
@@ -105,7 +113,7 @@ class ChromaStore(VectorStore):
             print(f"[OK] ChromaDB 集合 '{self.collection_name}' 初始化完成")
 
         except ImportError:
-            print("[WARN]  ChromaDB 未安装，使用内存存储")
+            _logger.warning("ChromaDB 未安装,使用内存存储")
             self._client = None
             self._use_inmemory = True
             self._inmemory_docs: Dict[str, Document] = {}
@@ -278,7 +286,7 @@ class FAISSStore(VectorStore):
                 print("📝 FAISS 将使用新的空索引")
 
         except ImportError:
-            print("[WARN]  faiss 或 pickle 不可用")
+            _logger.warning("faiss 或 pickle 不可用")
             self._index = None
 
     def add(self, documents: List[Document]) -> None:

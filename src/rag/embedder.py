@@ -13,6 +13,14 @@ sys.path.insert(0, str(project_root / 'src'))
 from typing import List, Optional, Union
 import numpy as np
 
+# P5-F: 模块级 logger
+try:
+    from observability import get_logger
+    _logger = get_logger("rag.embedder")
+except Exception:
+    import logging
+    _logger = logging.getLogger("rag.embedder")
+
 
 class Embedder:
     """文本嵌入器基类"""
@@ -135,7 +143,7 @@ class OpenAIEmbedder(Embedder):
             self._dimension = 1536 if "3-small" in self.model else 3072
             print(f"[OK] OpenAI 嵌入模型初始化完成 (维度: {self._dimension})")
         except ImportError:
-            print("[WARN]  openai 包未安装")
+            _logger.warning("openai 包未安装")
             self._client = None
 
     def _encode_impl(self, texts: List[str]) -> np.ndarray:

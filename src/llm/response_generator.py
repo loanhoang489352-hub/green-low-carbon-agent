@@ -7,6 +7,14 @@ import sys
 from pathlib import Path
 from typing import Dict, Any, List, Optional
 
+# P5-F: 模块级 logger
+try:
+    from observability import get_logger
+    _logger = get_logger("llm.response_generator")
+except Exception:
+    import logging
+    _logger = logging.getLogger("llm.response_generator")
+
 script_path = Path(__file__).resolve()
 project_root = script_path.parent.parent.parent
 if str(project_root) not in sys.path:
@@ -111,7 +119,7 @@ class LLMResponseGenerator:
                 personalization_ctx=personalization_ctx
             )
         except Exception as e:
-            print(f"[WARN]  LLM 生成失败，使用降级响应: {e}")
+            _logger.warning(f"LLM 生成失败,使用降级响应: {e}")
             return fallback_response
 
 

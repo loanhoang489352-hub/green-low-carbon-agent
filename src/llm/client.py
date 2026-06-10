@@ -240,7 +240,7 @@ class LLMClient:
                 provider=provider, model=self.model,
                 latency_ms=latency_ms, success=False, error=error_class,
             )
-            print(f"[WARN]  {error_label} API调用失败 [{error_class}]: {e}")
+            _logger.warning(f"{error_label} API调用失败 [{error_class}]: {e}")
             # P5-C: 即使 fallback 到 mock,LLMResponse.error 也填 error_class
             mock_resp = self._mock_response(messages, trace_id=trace_id)
             mock_resp.error = error_class
@@ -269,10 +269,10 @@ class OpenAIClient(LLMClient):
             self._client = OpenAI(api_key=self.api_key)
             print(f"[OK] OpenAI客户端初始化成功 (模型: {self.model})")
         except ImportError:
-            print("[WARN]  openai包未安装，请运行: pip install openai")
+            _logger.warning("openai 包未安装,请运行: pip install openai")
             self._client = None
         except Exception as e:
-            print(f"[WARN]  OpenAI客户端初始化失败: {e}")
+            _logger.warning(f"OpenAI客户端初始化失败: {e}")
             self._client = None
     
     def is_available(self) -> bool:
@@ -341,10 +341,10 @@ class ZhipuClient(LLMClient):
             self._client = zhipuai.ZhipuAI(api_key=self.api_key)
             print(f"[OK] 智谱AI客户端初始化成功 (模型: {self.model})")
         except ImportError:
-            print("[WARN]  zhipuai包未安装，请运行: pip install zhipuai")
+            _logger.warning("zhipuai 包未安装,请运行: pip install zhipuai")
             self._client = None
         except Exception as e:
-            print(f"[WARN]  智谱AI客户端初始化失败: {e}")
+            _logger.warning(f"智谱AI客户端初始化失败: {e}")
             self._client = None
 
     def is_available(self) -> bool:
@@ -386,7 +386,7 @@ class BaiduClient(LLMClient):
                 self._access_token = response.json().get("access_token")
                 print(f"[OK] 百度文心一言客户端初始化成功 (模型: {self.model})")
         except Exception as e:
-            print(f"[WARN]  百度文心一言客户端初始化失败: {e}")
+            _logger.warning(f"百度文心一言客户端初始化失败: {e}")
 
     def is_available(self) -> bool:
         return self._access_token is not None
@@ -484,7 +484,7 @@ class BaiduClient(LLMClient):
                 provider=provider, model=self.model, latency_ms=latency_ms,
                 success=False, error=error_class,
             )
-            print(f"[WARN]  百度文心一言 API调用失败 [{error_class}]: {e}")
+            _logger.warning(f"百度文心一言 API调用失败 [{error_class}]: {e}")
             mock_resp = self._mock_response(messages, trace_id=trace_id)
             mock_resp.error = error_class
             mock_resp.finish_reason = "error"
@@ -514,10 +514,10 @@ class AliClient(LLMClient):
             )
             print(f"[OK] 阿里通义千问客户端初始化成功 (模型: {self.model})")
         except ImportError:
-            print("[WARN]  openai包未安装，请运行: pip install openai")
+            _logger.warning("openai 包未安装,请运行: pip install openai")
             self._client = None
         except Exception as e:
-            print(f"[WARN]  阿里通义千问客户端初始化失败: {e}")
+            _logger.warning(f"阿里通义千问客户端初始化失败: {e}")
             self._client = None
 
     def is_available(self) -> bool:
@@ -560,15 +560,15 @@ class MiniMaxClient(LLMClient):
             if insecure:
                 import httpx
                 kwargs["http_client"] = httpx.Client(verify=False)
-                print("[WARN]  MiniMax 客户端 SSL 验证已禁用 (INSECURE_SKIP_VERIFY=true)")
+                _logger.warning("MiniMax 客户端 SSL 验证已禁用 (INSECURE_SKIP_VERIFY=true)")
 
             self._client = OpenAI(**kwargs)
             print(f"[OK] MiniMax客户端初始化成功 (模型: {self.model})")
         except ImportError:
-            print("[WARN]  openai包未安装，请运行: pip install openai")
+            _logger.warning("openai 包未安装,请运行: pip install openai")
             self._client = None
         except Exception as e:
-            print(f"[WARN]  MiniMax客户端初始化失败: {e}")
+            _logger.warning(f"MiniMax客户端初始化失败: {e}")
             self._client = None
 
     def is_available(self) -> bool:
@@ -707,10 +707,10 @@ class DeepSeekClient(LLMClient):
             )
             print(f"[OK] DeepSeek客户端初始化成功 (模型: {self.model})")
         except ImportError:
-            print("[WARN]  openai包未安装，请运行: pip install openai")
+            _logger.warning("openai 包未安装,请运行: pip install openai")
             self._client = None
         except Exception as e:
-            print(f"[WARN]  DeepSeek客户端初始化失败: {e}")
+            _logger.warning(f"DeepSeek客户端初始化失败: {e}")
             self._client = None
 
     def is_available(self) -> bool:
@@ -1355,10 +1355,10 @@ def create_llm_client(provider: str = "openai", **kwargs) -> LLMClient:
     elif provider == "deepseek":
         return DeepSeekClient(**kwargs)
     elif provider == "local":
-        print("[WARN]  本地模型支持待实现，使用Mock客户端")
+        _logger.warning("本地模型支持待实现,使用 Mock 客户端")
         return MockLLMClient(**kwargs)
     else:
-        print(f"[WARN]  未知的LLM provider: {provider}，使用Mock客户端")
+        _logger.warning(f"未知的LLM provider: {provider},使用Mock客户端")
         return MockLLMClient(**kwargs)
 
 

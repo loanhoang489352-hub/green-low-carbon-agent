@@ -10,6 +10,14 @@ from pathlib import Path
 from typing import Optional, List, Dict, Any
 from dataclasses import dataclass
 
+# P5-F: 模块级 logger
+try:
+    from observability import get_logger
+    _logger = get_logger("llm")
+except Exception:
+    import logging
+    _logger = logging.getLogger("llm")
+
 # Windows UTF-8 encoding setup - only if not already done
 if sys.platform == 'win32' and hasattr(sys.stdout, 'buffer'):
     try:
@@ -95,10 +103,10 @@ class OpenAIClient(LLMClient):
             self._initialized = True
             print(f"[OK] OpenAI 客户端初始化成功 (模型: {self.model})")
         except ImportError:
-            print("[WARN]  openai 包未安装，将使用 Mock 模式")
+            _logger.warning("openai 包未安装,将使用 Mock 模式")
             self.client = None
         except Exception as e:
-            print(f"[WARN]  OpenAI 客户端初始化失败: {e}")
+            _logger.warning(f"OpenAI 客户端初始化失败: {e}")
             self.client = None
 
     def is_available(self) -> bool:
@@ -239,7 +247,7 @@ def create_llm_client(
             max_tokens=max_tokens
         )
     else:
-        print(f"[WARN]  不支持的 LLM 提供商: {provider}，使用 Mock 模式")
+        _logger.warning(f"不支持的 LLM 提供商: {provider},使用 Mock 模式")
         return MockLLMClient(model=model)
 
 

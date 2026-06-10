@@ -28,6 +28,14 @@ from .embedder import Embedder, create_embedder, SentenceTransformerEmbedder
 from .vector_store import VectorStore, Document, create_vector_store
 from .retriever import Retriever, SemanticRetriever, BM25Retriever, HybridRetriever, RetrievalResult
 
+# P5-F: 模块级 logger
+try:
+    from observability import get_logger
+    _logger = get_logger("rag.engine")
+except Exception:
+    import logging
+    _logger = logging.getLogger("rag.engine")
+
 
 @dataclass
 class RAGConfig:
@@ -81,7 +89,7 @@ class RAGEngine:
             是否初始化成功
         """
         if not self.config.enabled:
-            print("[WARN]  RAG 功能已禁用")
+            _logger.warning("RAG 功能已禁用")
             return False
 
         try:
@@ -152,7 +160,7 @@ class RAGEngine:
         """
         base_path = Path(base_path)
         if not base_path.exists():
-            print(f"[WARN]  知识库路径不存在: {base_path}")
+            _logger.warning(f"知识库路径不存在: {base_path}")
             return 0
 
         # 检查是否已有索引

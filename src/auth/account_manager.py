@@ -37,7 +37,13 @@ try:
     BCRYPT_AVAILABLE = True
 except ImportError:
     BCRYPT_AVAILABLE = False
-    print("[Auth] bcrypt 未安装，将使用 PBKDF2 替代（建议安装 bcrypt: pip install bcrypt）")
+
+# P5-F: 模块级 logger(无论 bcrypt 是否安装都需要)
+import logging
+_auth_logger = logging.getLogger("auth")
+
+if not BCRYPT_AVAILABLE:
+    _auth_logger.warning("bcrypt 未安装,将使用 PBKDF2 替代(建议安装 bcrypt: pip install bcrypt)")
 
 
 def _hash_password(password: str) -> str:
@@ -206,7 +212,7 @@ class AccountManager:
             conn.commit()
             conn.close()
 
-            print(f"[Auth] 新账号注册: {username} (account_id: {account_id})")
+            _auth_logger.info(f"[Auth] 新账号注册: {username} (account_id: {account_id})")
 
             return {
                 "success": True,
@@ -215,7 +221,7 @@ class AccountManager:
             }
 
         except Exception as e:
-            print(f"[Auth] 注册失败: {e}")
+            _auth_logger.warning(f"[Auth] 注册失败: {e}")
             return {"success": False, "error": f"注册失败: {str(e)}"}
 
     def login(self, username: str, password: str) -> Dict[str, Any]:
@@ -275,7 +281,7 @@ class AccountManager:
             conn.commit()
             conn.close()
 
-            print(f"[Auth] 用户登录: {username} (account_id: {account_id})")
+            _auth_logger.info(f"[Auth] 用户登录: {username} (account_id: {account_id})")
 
             return {
                 "success": True,
@@ -286,7 +292,7 @@ class AccountManager:
             }
 
         except Exception as e:
-            print(f"[Auth] 登录失败: {e}")
+            _auth_logger.warning(f"[Auth] 登录失败: {e}")
             return {"success": False, "error": f"登录失败: {str(e)}"}
 
     def logout(self, session_id: str) -> bool:
@@ -312,12 +318,12 @@ class AccountManager:
             conn.close()
 
             if affected:
-                print(f"[Auth] 会话销毁: {session_id}")
+                _auth_logger.info(f"[Auth] 会话销毁: {session_id}")
 
             return affected
 
         except Exception as e:
-            print(f"[Auth] 登出失败: {e}")
+            _auth_logger.warning(f"[Auth] 登出失败: {e}")
             return False
 
     def validate_session(self, session_id: str) -> Optional[str]:
@@ -373,7 +379,7 @@ class AccountManager:
             return row['account_id']
 
         except Exception as e:
-            print(f"[Auth] 会话验证失败: {e}")
+            _auth_logger.warning(f"[Auth] 会话验证失败: {e}")
             return None
 
     def verify_token(
@@ -478,7 +484,7 @@ class AccountManager:
             }
 
         except Exception as e:
-            print(f"[Auth] 获取账号信息失败: {e}")
+            _auth_logger.warning(f"[Auth] 获取账号信息失败: {e}")
             return None
 
     def get_user_id_by_account(self, account_id: str) -> Optional[str]:
@@ -504,7 +510,7 @@ class AccountManager:
             return row['user_id'] if row else None
 
         except Exception as e:
-            print(f"[Auth] 获取用户ID失败: {e}")
+            _auth_logger.warning(f"[Auth] 获取用户ID失败: {e}")
             return None
 
     def link_user_profile(self, account_id: str, user_id: str) -> bool:
@@ -532,7 +538,7 @@ class AccountManager:
             return True
 
         except Exception as e:
-            print(f"[Auth] 关联用户画像失败: {e}")
+            _auth_logger.warning(f"[Auth] 关联用户画像失败: {e}")
             return False
 
     def delete_account(self, account_id: str, password: str) -> bool:
@@ -572,12 +578,12 @@ class AccountManager:
             conn.commit()
             conn.close()
 
-            print(f"[Auth] 账号注销: {account_id}")
+            _auth_logger.info(f"[Auth] 账号注销: {account_id}")
 
             return True
 
         except Exception as e:
-            print(f"[Auth] 注销账号失败: {e}")
+            _auth_logger.warning(f"[Auth] 注销账号失败: {e}")
             return False
 
     def cleanup_expired_sessions(self) -> int:
@@ -601,12 +607,12 @@ class AccountManager:
             conn.close()
 
             if affected > 0:
-                print(f"[Auth] 清理了 {affected} 个过期会话")
+                _auth_logger.info(f"[Auth] 清理了 {affected} 个过期会话")
 
             return affected
 
         except Exception as e:
-            print(f"[Auth] 清理过期会话失败: {e}")
+            _auth_logger.warning(f"[Auth] 清理过期会话失败: {e}")
             return 0
 
     def get_session_info(self, session_id: str) -> Optional[Dict[str, Any]]:
@@ -646,7 +652,7 @@ class AccountManager:
             }
 
         except Exception as e:
-            print(f"[Auth] 获取会话信息失败: {e}")
+            _auth_logger.warning(f"[Auth] 获取会话信息失败: {e}")
             return None
 
     def get_all_accounts(self, limit: int = 100) -> List[Dict[str, Any]]:
@@ -684,5 +690,5 @@ class AccountManager:
             return accounts
 
         except Exception as e:
-            print(f"[Auth] 获取账号列表失败: {e}")
+            _auth_logger.warning(f"[Auth] 获取账号列表失败: {e}")
             return []

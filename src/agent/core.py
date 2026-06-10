@@ -4,6 +4,14 @@
 支持增强的用户画像和个性化推荐
 """
 
+# P5-F: 模块级 logger
+try:
+    from observability import get_logger
+    _logger = get_logger("agent.core")
+except Exception:
+    import logging
+    _logger = logging.getLogger("agent.core")
+
 # Windows UTF-8 encoding setup
 import sys
 # Windows UTF-8 encoding setup - Only if not already wrapped (avoid duplicate wrapping)
@@ -177,7 +185,7 @@ class GreenAgent:
                 self.rag_enabled = True
                 print(f"[OK] RAG 引擎初始化成功")
         except Exception as e:
-            print(f"[WARN]  RAG 引擎初始化失败: {e}")
+            _logger.warning(f"RAG 引擎初始化失败: {e}")
             self.rag_enabled = False
             self.rag_engine = None
 

@@ -31,6 +31,14 @@ from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Set, Tuple
 
+# P5-F: 模块级 logger
+try:
+    from observability import get_logger
+    _logger = get_logger("memory.working")
+except Exception:
+    import logging
+    _logger = logging.getLogger("memory.working")
+
 project_root = Path(__file__).parent.parent.parent
 if str(project_root / "src") not in sys.path:
     sys.path.insert(0, str(project_root / "src"))
@@ -162,8 +170,8 @@ class _UserWorkspace:
                 old_agent = existing.get("agent", "?")
                 old_value = existing.get("value")
                 if old_value != value:
-                    print(
-                        f"[WARN][WM:{self.user_id}] Agent {agent_name or '?'} "
+                    _logger.warning(
+                        f"[WM:{self.user_id}] Agent {agent_name or '?'} "
                         f"覆盖了 key={key!r}(原 {old_agent})"
                     )
             self.scope[key] = {
@@ -279,8 +287,8 @@ class WorkingMemory:
         ws = self._get_workspace(user_id)
         with ws._lock:
             if ws.scope and LOG_OVERWRITE:
-                print(
-                    f"[WARN][WM:{user_id}] 上次任务 workspace 仍有 {len(ws.scope)} 个 key,"
+                _logger.warning(
+                    f"[WM:{user_id}] 上次任务 workspace 仍有 {len(ws.scope)} 个 key,"
                     f" 先 end_task 再 start 避免污染"
                 )
             ws.current_task = task_name
@@ -449,7 +457,7 @@ class WorkingMemory:
             return True
         except Exception as e:
             if LOG_OVERWRITE:
-                print(f"[WARN][WM] 快照保存失败 {user_id}: {e}")
+                _logger.warning(f"[WM] 快照保存失败 {user_id}: {e}")
             return False
 
     def _load_all_snapshots(self) -> int:
@@ -467,7 +475,7 @@ class WorkingMemory:
                 loaded += 1
             except Exception as e:
                 if LOG_OVERWRITE:
-                    print(f"[WARN][WM] 快照恢复失败 {f.name}: {e}")
+                    _logger.warning(f"[WM] 快照恢复失败 {f.name}: {e}")
         return loaded
 
     def list_users(self) -> List[str]:
