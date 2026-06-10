@@ -82,7 +82,7 @@ class WebSearcher:
         """搜索天气信息"""
         return self._get_simulated_weather()
 
-    # 主要城市 code 映射(和风天气 LocationID)
+    # 主要城市备用列表(Open-Meteo 支持中文名,这里保留作为 fallback)
     _CITY_CODES = {
         "北京": "101010100", "上海": "101020100", "广州": "101280101",
         "深圳": "101280601", "杭州": "101210101", "南京": "101190101",
@@ -90,33 +90,87 @@ class WebSearcher:
         "天津": "101030100", "重庆": "101040100", "苏州": "101190401",
     }
 
+    # Open-Meteo WMO weathercode → 中文描述
+    _WEATHER_CODE_CN = {
+        0: "晴", 1: "少云", 2: "多云", 3: "阴",
+        45: "雾", 48: "雾凇",
+        51: "毛毛雨", 53: "毛毛雨", 55: "毛毛雨",
+        56: "冻雨", 57: "冻雨",
+        61: "小雨", 63: "中雨", 65: "大雨",
+        66: "冻雨", 67: "冻雨",
+        71: "小雪", 73: "中雪", 75: "大雪",
+        77: "米雪",
+        80: "阵雨", 81: "阵雨", 82: "强阵雨",
+        85: "阵雪", 86: "强阵雪",
+        95: "雷暴", 96: "雷暴伴冰雹", 99: "强雷暴伴冰雹",
+    }
+
     def fetch_weather_from_api(self, city: str = "北京") -> str:
-        """调用和风天气 API 获取实时天气(配置 HEFENG_WEATHER_API_KEY 时走真实 API)"""
-        import os
-        api_key = os.environ.get("HEFENG_WEATHER_API_KEY", "")
-        if not api_key or api_key == "__SET_ME__":
-            return self._get_simulated_weather()
-        city_id = self._CITY_CODES.get(city, city)
-        url = f"https://devapi.qweather.com/v7/weather/now?location={city_id}&key={api_key}"
+        """调用 Open-Meteo 免费 API 获取实时天气(无需 key,全球覆盖)
+        注:已从和风天气(403)切换到 Open-Meteo
+        """
+        # 1. geocode: 中文城市名 → 经纬度
+        geo_url = f"https://geocoding-api.open-meteo.com/v1/search?name={quote(city)}&count=1&language=zh"
         try:
-            req = Request(url, headers=self.session_headers)
+            req = Request(geo_url, headers=self.session_headers)
+            with urlopen(req, timeout=10) as resp:
+                geo = json.loads(resp.read().decode("utf-8"))
+            results = geo.get("results")
+            if not results:
+                return f"获取天气信息失败: 找不到城市 '{city}'"
+            lat = results[0]["latitude"]
+            lon = results[0]["longitude"]
+        except (URLError, HTTPError, TimeoutError) as e:
+            return f"获取天气信息失败: geocode {type(e).__name__}: {e}"
+
+        # 2. 实时天气 + 湿度(湿度在 hourly 里)
+        weather_url = (
+            f"https://api.open-meteo.com/v1/forecast?latitude={lat}&longitude={lon}"
+            f"&current_weather=true&hourly=relative_humidity_2m&forecast_days=1"
+        )
+        try:
+            req = Request(weather_url, headers=self.session_headers)
             with urlopen(req, timeout=10) as resp:
                 data = json.loads(resp.read().decode("utf-8"))
-            if data.get("code") != "200":
-                return f"获取天气信息失败: 和风 API code={data.get('code')}"
-            now = data.get("now", {})
-            return (
-                f"**{city}实时天气**({now.get('obsTime', '')})\n\n"
-                f"- 天气:{now.get('text', '?')}\n"
-                f"- 气温:{now.get('temp', '?')}°C\n"
-                f"- 体感:{now.get('feelsLike', '?')}°C\n"
-                f"- 湿度:{now.get('humidity', '?')}%\n"
-                f"- 风向:{now.get('windDir', '?')}\n"
-                f"- 风力:{now.get('windScale', '?')} 级\n"
-                f"- 能见度:{now.get('vis', '?')} km"
-            )
         except (URLError, HTTPError, TimeoutError) as e:
-            return f"获取天气信息失败: {type(e).__name__}: {e}"
+            return f"获取天气信息失败: weather {type(e).__name__}: {e}"
+
+        cw = data.get("current_weather", {})
+        if not cw:
+            return f"获取天气信息失败: 天气数据为空"
+
+        # 取当前时刻对应的湿度(hourly 时间数组与 current.time 对齐)
+        humidity = "?"
+        hourly = data.get("hourly", {})
+        if hourly:
+            times = hourly.get("time", [])
+            hums = hourly.get("relative_humidity_2m", [])
+            ct = cw.get("time", "")
+            if ct in times:
+                idx = times.index(ct)
+                if idx < len(hums):
+                    humidity = hums[idx]
+
+        code = cw.get("weathercode", 0)
+        desc = self._WEATHER_CODE_CN.get(code, f"代码{code}")
+        wind_dir = self._wind_direction_cn(cw.get("winddirection", 0))
+
+        return (
+            f"**{city}实时天气**({cw.get('time', '')})\n\n"
+            f"- 天气:{desc}\n"
+            f"- 气温:{cw.get('temperature', '?')}°C\n"
+            f"- 风速:{cw.get('windspeed', '?')} km/h\n"
+            f"- 风向:{wind_dir}\n"
+            f"- 湿度:{humidity}%\n"
+            f"- 数据源:Open-Meteo(免费)"
+        )
+
+    @staticmethod
+    def _wind_direction_cn(deg: float) -> str:
+        """风向角度 → 中文(0=北, 90=东, 180=南, 270=西)"""
+        dirs = ["北", "东北", "东", "东南", "南", "西南", "西", "西北"]
+        idx = int((deg + 22.5) // 45) % 8
+        return dirs[idx]
 
     def _get_simulated_weather(self) -> str:
         """返回模拟天气数据"""
