@@ -63,6 +63,8 @@ data/source_test_report.md
 # Data
 data/
 !data/.gitkeep
+!data/perf_report.md  # P6.Q 性能报告
+!data/eval_report.md  # P5-G 检索质量评估
 vector_db/
 chroma.sqlite3
 
