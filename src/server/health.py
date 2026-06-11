@@ -139,9 +139,43 @@ def _check_disk_space() -> Dict[str, Any]:
         return {"status": HealthStatus.DEGRADED, "detail": f"{type(e).__name__}: {e}"}
 
 
-def health_probe() -> Dict[str, Any]:
+# ========== P6.B.0: health_probe 缓存 ==========
+# 基线测试显示 100 并发 /api/health 8.5 req/s、p50=2s。
+# 7 项子探活每次新建 sqlite3 连接 + 7 次 IO = 主要瓶颈。
+# 5s TTL 缓存整体结果:K8s 探活(默认 10s interval)+ LB 探活完全无感知。
+# 真有故障最迟 5s 内反映,DOWN 状态不缓存(立即上报)。
+
+import threading as _threading
+
+_HEALTH_CACHE: Dict[str, Any] = {}
+_HEALTH_CACHE_LOCK = _threading.Lock()
+_HEALTH_CACHE_TTL = 5.0  # 秒
+
+
+def _health_cache_get() -> Dict[str, Any] | None:
+    """读缓存,过期或无返 None"""
+    with _HEALTH_CACHE_LOCK:
+        if not _HEALTH_CACHE:
+            return None
+        if time.time() - _HEALTH_CACHE.get("_ts", 0) > _HEALTH_CACHE_TTL:
+            return None
+        return {k: v for k, v in _HEALTH_CACHE.items() if k != "_ts"}
+
+
+def _health_cache_set(payload: Dict[str, Any]) -> None:
+    """写缓存 + 时间戳"""
+    with _HEALTH_CACHE_LOCK:
+        _HEALTH_CACHE.clear()
+        _HEALTH_CACHE.update(payload)
+        _HEALTH_CACHE["_ts"] = time.time()
+
+
+def health_probe(force_refresh: bool = False) -> Dict[str, Any]:
     """
     完整健康检查:返回 checks + 整体 status
+
+    P6.B.0: 5s TTL 缓存,force_refresh=True 跳过缓存。
+    DOWN 状态不缓存(下次请求立即重跑,故障快速反映)。
 
     返回结构:
     {
@@ -158,6 +192,13 @@ def health_probe() -> Dict[str, Any]:
     """
     from .errors import health_check_payload
 
+    # 1) 缓存命中
+    if not force_refresh:
+        cached = _health_cache_get()
+        if cached is not None:
+            return cached
+
+    # 2) 真探活
     checks = {
         "accounts_db": _check_accounts_db(),
         "user_profiles_db": _check_user_profiles_db(),
@@ -167,6 +208,11 @@ def health_probe() -> Dict[str, Any]:
         "disk_space": _check_disk_space(),
     }
     payload = health_check_payload(checks)
+
+    # 3) DOWN 状态不缓存(快速反映);OK/DEGRADED 缓存
+    if payload.get("status") != HealthStatus.DOWN:
+        _health_cache_set(payload)
+
     return payload
 
 
