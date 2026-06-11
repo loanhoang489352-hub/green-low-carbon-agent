@@ -322,6 +322,22 @@ class AgentNodes:
             # 把更新写回 profile
             if updates and isinstance(updates, dict):
                 self._apply_profile_updates(user_id, profile, updates)
+
+            # P6.D: 画像有更新时清缓存(避免新画像用旧 LLM 响应)
+            if updates and isinstance(updates, dict) and updates:
+                try:
+                    from agent.cache import get_query_cache
+                    cleared = get_query_cache().invalidate(user_id)
+                    if cleared > 0:
+                        import logging
+                        logging.getLogger(__name__).info(
+                            "[LangGraph] QueryCache.invalidate user=%s cleared=%d (因画像更新)",
+                            user_id, cleared,
+                        )
+                except Exception as e:
+                    import logging
+                    logging.getLogger(__name__).warning("[LangGraph] QueryCache.invalidate 异常(非致命): %s", e)
+
             return {"profile_updates": updates}
         except Exception as e:
             return {"profile_updates": {}, "error": f"画像更新失败: {str(e)}"}
@@ -457,20 +473,51 @@ class AgentNodes:
             except Exception:
                 pass
 
-            if self._response_generator and self._response_generator._use_llm and working_memory_text:
-                # 走 LLM 路径,带 working memory
-                response_text = self._response_generator.generate_with_llm(
-                    user_input=message,
-                    context=context,
-                    rag_context=rag_context,
-                    working_memory=working_memory_text,
-                )
-                response = {"message": response_text, "suggestions": suggestions or []}
+            # P6.D: Query Cache 命中时复用 message + suggestions,跳过 LLM 调用
+            # 后续 rag_context 拼接、STM 写入、consolidation 仍跑(因画像变)
+            cached_response = None
+            try:
+                from agent.cache import get_query_cache
+                cached_response = get_query_cache().get(message, user_id, profile)
+            except Exception as e:
+                import logging
+                logging.getLogger(__name__).warning("[LangGraph] QueryCache.get 异常(非致命): %s", e)
+
+            if cached_response:
+                response_text = cached_response["message"]
+                final_suggestions = cached_response.get("suggestions", []) or suggestions or []
             else:
-                response = self._response_generator.generate_response(
-                    user_input=message,
-                    context=context
-                )
+                if self._response_generator and self._response_generator._use_llm and working_memory_text:
+                    # 走 LLM 路径,带 working memory
+                    response_text = self._response_generator.generate_with_llm(
+                        user_input=message,
+                        context=context,
+                        rag_context=rag_context,
+                        working_memory=working_memory_text,
+                    )
+                    response = {"message": response_text, "suggestions": suggestions or []}
+                else:
+                    response = self._response_generator.generate_response(
+                        user_input=message,
+                        context=context
+                    )
+                    response_text = response.get("message", "")
+
+                final_suggestions = suggestions or response.get("suggestions", [])
+
+                # 写缓存(失败非致命)
+                try:
+                    from agent.cache import get_query_cache
+                    get_query_cache().set(
+                        message, user_id, profile,
+                        response_text, final_suggestions,
+                    )
+                except Exception as e:
+                    import logging
+                    logging.getLogger(__name__).warning("[LangGraph] QueryCache.set 异常(非致命): %s", e)
+
+            # 兼容旧逻辑用的 response dict
+            response = {"message": response_text, "suggestions": final_suggestions}
 
             response_text = response.get("message", "")
             if rag_context and intent_type == "knowledge_query":

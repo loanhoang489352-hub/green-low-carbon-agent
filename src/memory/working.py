@@ -337,6 +337,8 @@ class WorkingMemory:
         # 容量保护:超过 WORKSPACE_MAX_KEYS 触发 LRU 清理
         if ws.size() > WORKSPACE_MAX_KEYS:
             self._lru_evict(user_id, target=WORKSPACE_MAX_KEYS)
+        # P6.D 修复:set 后落 JSON 快照(原版只在 end_task 保存,跨进程重启丢中间 set)
+        self._save_snapshot(user_id)
         return ok
 
     def get(self, user_id: str, key: str, default: Any = None) -> Any:
