@@ -54,9 +54,10 @@ def register_onboarding_routes(registry) -> None:
         handler.agent.profile_manager.update_profile(user_id, profile_data)
         handler.send_json({"status": "updated"})
 
+    # P6.A: questions 公开(初次访问展示问题);status/start/answer/user.update 全部需鉴权
     registry.add_route("GET", "/api/onboarding/questions", onboarding_questions, auth_required=False, description="获取引导问题")
-    registry.add_route("POST", "/api/onboarding/status", onboarding_status, auth_required=False, description="引导状态")
-    registry.add_route("POST", "/api/onboarding/start", onboarding_start, auth_required=False, description="开始引导")
-    registry.add_route("POST", "/api/onboarding/answer", onboarding_answer, auth_required=False, description="回答引导问题")
-    registry.add_route("POST", "/api/user/register", user_register, auth_required=False, description="注册用户")
-    registry.add_route("POST", "/api/user/update", user_update, auth_required=False, description="更新用户画像")
+    registry.add_route("POST", "/api/onboarding/status", onboarding_status, auth_required=True, description="引导状态")
+    registry.add_route("POST", "/api/onboarding/start", onboarding_start, auth_required=True, description="开始引导")
+    registry.add_route("POST", "/api/onboarding/answer", onboarding_answer, auth_required=True, description="回答引导问题")
+    registry.add_route("POST", "/api/user/register", user_register, auth_required=False, description="注册用户(等同 auth/register)")
+    registry.add_route("POST", "/api/user/update", user_update, auth_required=True, description="更新用户画像")

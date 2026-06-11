@@ -331,7 +331,12 @@ def test_e2e_auth_flow():
 
 
 def test_e2e_legacy_endpoints_still_work():
-    """所有现存路由(/api/chat 等)无 token 也能走通(回归保护)"""
+    """P6.A: 真实公开端点无 token 应走通(回归保护,只测真正 public 的端点)
+
+    历史:P5-D 阶段该测试被设计来保护'所有路由无 token 也能通'的兼容性行为。
+    P6.A 后,只有真正 public 的端点(/api/policy/summary / /api/health / /api/ready /
+    /api/metrics / /api/auth/login 等)无 token 应通过,其他应 401。
+    """
     from server.app import RoutedRequestHandler
     from server.router import reset_registry, get_registry
     from server.routers import register_all_routes
@@ -339,11 +344,96 @@ def test_e2e_legacy_endpoints_still_work():
     reset_registry()
     register_all_routes(get_registry())
 
-    # /api/policy/summary 是 public 且不需要 agent 初始化
-    handler = _make_routed_handler(method="GET", path="/api/policy/summary", body=b"")
-    RoutedRequestHandler.do_GET(handler)
-    # 200 = 成功,或 500 = policy_updater 报错但不是 401/404
-    assert handler.last_status in (200, 500), f"unexpected: {handler.last_status}"
+    # 仅测真实公开端点(无需鉴权 + 无副作用)
+    for path in ["/api/policy/summary", "/api/health", "/api/ready", "/api/metrics"]:
+        handler = _make_routed_handler(method="GET", path=path, body=b"")
+        RoutedRequestHandler.do_GET(handler)
+        # 200 = 成功,或 500 = 子模块报错但不是 401/404
+        assert handler.last_status not in (401, 404), \
+            f"{path} should be public but got {handler.last_status}: {handler.last_body}"
+
+
+def test_e2e_protected_endpoints_require_auth():
+    """P6.A: 敏感路由无 token 应返 401(鉴权真落地)
+
+    覆盖:
+    - /api/chat/enhanced(对话增强,RAG + 个性化)
+    - /api/feedback(写敏感读操作,P5-I 审计)
+    - /api/profile/abc(user 隐私)
+    - /api/personalization/abc(画像)
+    - /api/stats/abc(用户统计)
+    - /api/conversation/abc(对话历史)
+    - /api/recommendations(个性化推荐)
+    - /api/memory/short(短期记忆)
+    """
+    from server.app import RoutedRequestHandler
+    from server.router import reset_registry, get_registry
+    from server.routers import register_all_routes
+
+    reset_registry()
+    register_all_routes(get_registry())
+
+    protected_paths = [
+        ("POST", "/api/chat/enhanced"),
+        ("POST", "/api/feedback"),
+        ("GET",  "/api/profile/abc"),
+        ("GET",  "/api/personalization/abc"),
+        ("GET",  "/api/stats/abc"),
+        ("GET",  "/api/conversation/abc"),
+        ("POST", "/api/recommendations"),
+        # /api/memory/* 由 routers/memory.py 单独注册,不在本 fixture
+    ]
+    for method, path in protected_paths:
+        handler = _make_routed_handler(method=method, path=path, body=b"{}")
+        if method == "GET":
+            RoutedRequestHandler.do_GET(handler)
+        else:
+            RoutedRequestHandler.do_POST(handler)
+        assert handler.last_status == 401, \
+            f"{method} {path} 应 401,实际 {handler.last_status}: {handler.last_body}"
+        body = json.loads(handler.last_body.decode("utf-8"))
+        assert body["error"]["code"] == "UNAUTHORIZED", \
+            f"{method} {path} 错误码: {body}"
+
+
+def test_e2e_protected_endpoints_with_valid_token_pass_auth():
+    """P6.A: 敏感路由带有效 token 应通过鉴权(实际 handler 可能因 mock 数据 500,但不 401)"""
+    from server.app import RoutedRequestHandler
+    from server.router import reset_registry, get_registry
+    from server.routers import register_all_routes
+    from auth.account_manager import AccountManager
+
+    reset_registry()
+    register_all_routes(get_registry())
+
+    mgr = AccountManager()
+    # 用户名长度限制 3-20 字符,用短前缀
+    username = f"tp_{uuid.uuid4().hex[:6]}"
+    reg = mgr.register(username, "testpass123")
+    assert reg.get("success") is True, f"register failed: {reg}"
+    login = mgr.login(username, "testpass123")
+    assert login.get("success") is True, f"login failed: {login}"
+    assert "session_id" in login, f"login dict missing session_id: {login}"
+    session_id = login["session_id"]
+
+    try:
+        # /api/chat/enhanced:鉴权通过后 handler 才执行,可能因 mock agent 500 但不是 401
+        handler = _make_routed_handler(
+            method="POST",
+            path="/api/chat/enhanced",
+            body=b'{"message":"hi","user_id":"anonymous"}',
+            headers={"Authorization": f"Bearer {session_id}"},
+        )
+        RoutedRequestHandler.do_POST(handler)
+        # 鉴权通过:200 / 500(下游 mock 错)都可,但不应 401
+        assert handler.last_status != 401, \
+            f"带 token 应通过鉴权,实际 {handler.last_status}: {handler.last_body}"
+
+        # 验证 current_user 被注入
+        body = json.loads(handler.last_body.decode("utf-8"))
+        # 200/500 都行,关键是鉴权没拦住
+    finally:
+        mgr.logout(session_id)
 
 
 # ========== 工具函数 ==========

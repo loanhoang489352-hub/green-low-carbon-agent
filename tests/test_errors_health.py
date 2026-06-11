@@ -375,20 +375,35 @@ def test_routers_no_inline_str_e_500():
 # ========== 7. 端到端: 真实 handler 抛 APIError ==========
 
 def test_e2e_chat_no_message_returns_400():
-    """POST /api/chat 缺 message → 400 + BAD_REQUEST"""
+    """P6.A: POST /api/chat 缺 message → 400 + BAD_REQUEST(带 token 走鉴权)"""
     from server.app import RoutedRequestHandler
     from server.router import reset_registry, get_registry
     from server.routers import register_all_routes
+    from auth.account_manager import AccountManager
+    import uuid as _uuid
     reset_registry()
     register_all_routes(get_registry())
 
-    body = json.dumps({"user_id": "u1"}).encode("utf-8")
-    handler = _make_routed_handler(method="POST", path="/api/chat", body=body)
-    RoutedRequestHandler.do_POST(handler)
-    assert handler.last_status == 400
-    body_json = json.loads(handler.last_body.decode("utf-8"))
-    assert body_json["error"]["code"] == "BAD_REQUEST"
-    assert "Message is required" in body_json["error"]["message"]
+    # P6.A: chat 路由现在需鉴权,先注册拿 token
+    mgr = AccountManager()
+    username = f"tc_{_uuid.uuid4().hex[:6]}"
+    mgr.register(username, "testpass123")
+    login = mgr.login(username, "testpass123")
+    session_id = login["session_id"]
+
+    try:
+        body = json.dumps({"user_id": "u1"}).encode("utf-8")
+        handler = _make_routed_handler(
+            method="POST", path="/api/chat", body=body,
+            headers={"Authorization": f"Bearer {session_id}"},
+        )
+        RoutedRequestHandler.do_POST(handler)
+        assert handler.last_status == 400
+        body_json = json.loads(handler.last_body.decode("utf-8"))
+        assert body_json["error"]["code"] == "BAD_REQUEST"
+        assert "Message is required" in body_json["error"]["message"]
+    finally:
+        mgr.logout(session_id)
 
 
 def test_e2e_metrics_endpoint_still_works():

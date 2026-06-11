@@ -76,9 +76,9 @@ def register_auth_routes(registry) -> None:
         session_info = handler.account_manager.get_session_info(session_id)
         handler.send_json({"status": "success", "session": session_info})
 
-    # P5-D: 认证端点本身不要鉴权
+    # P6.A: register/login/check/session 公开(认证端点本身);logout 需鉴权(要验证 token 才登出)
     registry.add_route("POST", "/api/auth/register", auth_register, auth_required=False, description="用户注册")
     registry.add_route("POST", "/api/auth/login", auth_login, auth_required=False, description="登录")
-    registry.add_route("POST", "/api/auth/logout", auth_logout, auth_required=False, description="登出")
+    registry.add_route("POST", "/api/auth/logout", auth_logout, auth_required=True, description="登出")
     registry.add_route("POST", "/api/auth/check", auth_check, auth_required=False, description="验证会话")
     registry.add_route("POST", "/api/auth/session", auth_session, auth_required=False, description="会话详情")

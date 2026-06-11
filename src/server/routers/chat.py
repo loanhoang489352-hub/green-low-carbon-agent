@@ -78,8 +78,9 @@ def register_chat_routes(registry) -> None:
             ]
         })
 
-    registry.add_route("POST", "/api/chat", chat, auth_required=False, description="基础聊天")
-    registry.add_route("POST", "/api/chat/enhanced", chat_enhanced, auth_required=False, description="增强聊天(RAG+个性化)")
-    registry.add_route("POST", "/api/conversation/reset", conversation_reset, auth_required=False, description="重置对话")
-    registry.add_route("POST", "/api/conversation/history", conversation_history, auth_required=False, description="对话历史")
-    registry.add_route("POST", "/api/recommendations", recommendations, auth_required=False, description="个性化推荐")
+    # P6.A: P5-D 鉴权真落地 — chat/conversation/recommendations 全员需 Bearer session_id
+    registry.add_route("POST", "/api/chat", chat, auth_required=True, description="基础聊天")
+    registry.add_route("POST", "/api/chat/enhanced", chat_enhanced, auth_required=True, description="增强聊天(RAG+个性化)")
+    registry.add_route("POST", "/api/conversation/reset", conversation_reset, auth_required=True, description="重置对话")
+    registry.add_route("POST", "/api/conversation/history", conversation_history, auth_required=True, description="对话历史")
+    registry.add_route("POST", "/api/recommendations", recommendations, auth_required=True, description="个性化推荐")

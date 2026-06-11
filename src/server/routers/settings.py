@@ -80,4 +80,4 @@ def register_settings_routes(registry) -> None:
             "model": os.environ.get("API_MODEL"),
         })
 
-    registry.add_route("POST", "/api/settings/api-key", save_api_key, auth_required=False, description="保存 API Key")
+    registry.add_route("POST", "/api/settings/api-key", save_api_key, auth_required=True, description="保存 API Key(写操作,需鉴权)")
