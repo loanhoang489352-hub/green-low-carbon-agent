@@ -1,22 +1,99 @@
-version: '3.8'
+# ========== 绿色低碳智能体 - Production docker-compose (P5-J) ==========
+# 启动:  make prod   (读 .env.prod)
+# 停止:  make prod-stop
+# 日志:  make prod-logs
 
 services:
   green-agent:
-    build: .
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: green-agent:2.0
     container_name: green-agent
+    restart: unless-stopped
+
+    # 端口映射(只暴露 8000,/api/metrics 不走外部,通过 nginx 限内网)
     ports:
       - "8000:8000"
+
+    # 读 .env.prod(包含真实 API key)
+    # P5-I 启动时强校验非占位符
+    env_file:
+      - .env.prod
+
+    # 额外环境变量覆盖
     environment:
-      - OPENAI_API_KEY=${OPENAI_API_KEY:-}
-      - MINIMAX_API_KEY=${MINIMAX_API_KEY:-}
-      - USE_LANGGRAPH=${USE_LANGGRAPH:-false}
+      # 容器内 Python 路径
+      - PYTHONPATH=/app/src
+      # 时区
+      - TZ=Asia/Shanghai
+      # P5-I: 生产模式严格校验
+      - ENV=production
+
+    # 卷挂载
+    # - ./data → /app/data(主数据:SQLite DBs + ChromaDB 索引)
+    # - ./backups → /app/backups(运维备份)
+    # 容器内日志走 stdout/stderr(由 docker logging driver 收集)
     volumes:
       - ./data:/app/data
-      - ./logs:/app/logs
-    restart: unless-stopped
+      - ./backups:/app/backups:ro
+    # NOTE: 不要把 /app/data 设为 read_only,SQLite WAL + ChromaDB PersistentClient
+    #       需要写入。read_only 仅在 DEBUG 排查时单独启用。
+
+    # 资源限制(防止内存泄漏拖垮 host)
+    deploy:
+      resources:
+        limits:
+          cpus: '2.0'
+          memory: 2G
+        reservations:
+          cpus: '0.5'
+          memory: 512M
+
+    # 容器安全加固(P5-J)
+    security_opt:
+      - no-new-privileges:true   # 禁止容器内进程获取新权限
+    cap_drop:
+      - ALL                       # 丢弃所有 Linux capabilities
+    cap_add:
+      - CHOWN                    # 唯一保留:文件所有权变更
+      - SETUID
+      - SETGID
+    # 临时文件系统(/tmp 给 Python tempfile / ChromaDB 锁文件)
+    tmpfs:
+      - /tmp:size=512M,mode=1777
+      - /run:size=64M,mode=0755
+
+    # 健康检查(与 Dockerfile HEALTHCHECK 同步;docker compose 优先级更高)
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8000/api/health"]
+      test: ["CMD", "curl", "-fsS", "http://localhost:8000/api/ready"]
       interval: 30s
       timeout: 10s
       retries: 3
       start_period: 40s
+
+    # 日志驱动(限制每个容器日志 100MB × 3 个文件 = 300MB 上限)
+    logging:
+      driver: json-file
+      options:
+        max-size: "100m"
+        max-file: "3"
+        labels: "service,environment"
+
+    # 网络模式(默认 bridge 即可;如果用 K8s 改为 cluster 模式)
+    networks:
+      - green-agent-net
+
+# ========== 网络 ==========
+networks:
+  green-agent-net:
+    driver: bridge
+    name: green-agent-net
+
+# ========== 卷(预留) ==========
+# 实际数据通过 bind mount 挂载 ./data,如需切换到 named volume 把 volumes 改为:
+# volumes:
+#   green-agent-data:
+#     name: green-agent-data
+# volumes:
+#   green-agent-data:
