@@ -38,23 +38,33 @@ def test_api_error_basic():
 
 
 def test_api_error_default_message():
-    """不传 message → 用 HTTP_STATUS_MAP 默认值"""
+    """P6.H: 不传 message → 用 HTTP_STATUS_MAP 默认值(按 locale 选)"""
     from server.errors import APIError
-    e = APIError("UNAUTHORIZED")
-    assert e.message == "Authentication required"
+
+    # 默认 locale = zh(中文)
+    e = APIError("UNAUTHORIZED")  # 不传 locale
+    assert e.message == "需要登录"
     assert e.status == 401
 
     e2 = APIError("INTERNAL")
     assert e2.message == "服务暂时不可用"
     assert e2.status == 500
 
+    # 显式 locale="en" → 英文
+    e_en = APIError("UNAUTHORIZED", locale="en")
+    assert e_en.message == "Authentication required"
+
 
 def test_api_error_unknown_code():
-    """未知 code → 500 + Unknown error"""
+    """未知 code → 500 + Unknown error(P6.H: 按 locale)"""
     from server.errors import APIError
     e = APIError("WEIRD_CODE")
     assert e.status == 500
-    assert e.message == "Unknown error"
+    # 默认 zh 返中文
+    assert "未知" in e.message
+
+    e_en = APIError("WEIRD_CODE", locale="en")
+    assert e_en.message == "Unknown error"
 
 
 def test_api_error_to_dict():
@@ -82,7 +92,7 @@ def test_api_error_to_dict_with_extra():
 
 
 def test_status_for_known_codes():
-    """status_for / message_for 查表"""
+    """status_for / message_for 查表(P6.H: message_for 按 locale)"""
     from server.errors import status_for, message_for
     assert status_for("BAD_REQUEST") == 400
     assert status_for("UNAUTHORIZED") == 401
@@ -94,8 +104,13 @@ def test_status_for_known_codes():
     assert status_for("TIMEOUT") == 504
     assert status_for("WEIRD") == 500  # default
 
-    assert message_for("UNAUTHORIZED") == "Authentication required"
+    # 默认 locale=zh
+    assert message_for("UNAUTHORIZED") == "需要登录"
     assert "服务" in message_for("INTERNAL")
+
+    # 显式 locale="en"
+    assert message_for("UNAUTHORIZED", locale="en") == "Authentication required"
+    assert "Service" in message_for("INTERNAL", locale="en")
 
 
 # ========== 2. health_check_payload 聚合 ==========

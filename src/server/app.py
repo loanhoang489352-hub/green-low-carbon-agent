@@ -195,7 +195,14 @@ class RoutedRequestHandler(BaseHTTPRequestHandler):
                     )
                 except Exception:
                     pass
-                ae = APIError("UNAUTHORIZED", "Invalid or missing session token")
+                # P6.H: 根据 Accept-Language 头选 locale
+                accept_lang = self.headers.get("Accept-Language") if hasattr(self, "headers") else None
+                try:
+                    from i18n import get_locale_from_header, set_locale
+                    set_locale(get_locale_from_header(accept_lang))
+                except Exception:
+                    pass
+                ae = APIError("UNAUTHORIZED")  # 不传 message,自动按 locale 翻译
                 self.send_json(ae.to_dict(), status=ae.status)
                 return
             self.current_user = identity
