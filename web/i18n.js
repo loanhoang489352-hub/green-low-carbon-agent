@@ -82,6 +82,9 @@
   function applyI18n(loc) {
     const dict = I18N[loc] || I18N.zh;
 
+    // 0. P6.P: <title>(P6.L 之前没改,补)
+    if (dict["ui.title"]) document.title = dict["ui.title"];
+
     // 1. data-i18n 元素(替换 textContent)
     document.querySelectorAll("[data-i18n]").forEach((el) => {
       const key = el.getAttribute("data-i18n");
