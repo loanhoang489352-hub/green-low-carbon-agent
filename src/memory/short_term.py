@@ -46,6 +46,9 @@ class ShortTermMemory:
             db_path = str(SHORT_TERM_DB)
         self.db_path = Path(db_path)
         self.db_path.parent.mkdir(parents=True, exist_ok=True)
+        # P6.E.2: 连接池接入 — 同线程 60s 内复用连接
+        self._pool_get_conn = None  # lazy init
+        self._release = lambda c: None  # 池化连接由 db.connection 管 TTL
 
         # 内存缓存(加速热路径读;scheduler/cascaded_recall 等读频繁)
         # 注意:内部用 _cache,公共方法仍以 self.conversations 形式暴露(向后兼容)
@@ -56,6 +59,11 @@ class ShortTermMemory:
 
         self._init_db()
         self._load_from_db()
+
+    def _get_conn(self):
+        """P6.E.2: 连接池获取(同线程 60s 内复用)"""
+        from db.connection import get_connection
+        return get_connection(str(self.db_path))
         _logger.info("[STM] 持久化初始化完成,db=%s,加载 %d 个会话",
                      self.db_path, len(self._cache))
 
@@ -65,7 +73,7 @@ class ShortTermMemory:
 
     def _init_db(self) -> None:
         """初始化 DB 表(WAL 模式 + busy_timeout)"""
-        conn = sqlite3.connect(str(self.db_path))
+        conn = self._get_conn()
         conn.execute("PRAGMA journal_mode=WAL")
         conn.execute("PRAGMA busy_timeout=5000")
         conn.execute("PRAGMA synchronous=NORMAL")
@@ -84,12 +92,12 @@ class ShortTermMemory:
             );
         """)
         conn.commit()
-        conn.close()
+        self._release(conn)
 
     def _load_from_db(self) -> None:
         """从 DB 加载到内存缓存(只在 __init__ 调一次)"""
         try:
-            conn = sqlite3.connect(str(self.db_path))
+            conn = self._get_conn()
             conn.row_factory = sqlite3.Row
             for row in conn.execute("SELECT conversation_id, payload FROM conversations"):
                 try:
@@ -106,14 +114,14 @@ class ShortTermMemory:
                     "last_activity": row["last_activity"],
                     "created_at": row["created_at"],
                 }
-            conn.close()
+            self._release(conn)
         except Exception as e:
             _logger.warning("[STM] 从 DB 加载失败,当作空 STM 处理: %s", e)
 
     def _persist_messages(self, cid: str) -> None:
         """写穿:把 _cache[cid] 序列化到 conversations 表"""
         try:
-            conn = sqlite3.connect(str(self.db_path))
+            conn = self._get_conn()
             conn.execute(
                 "INSERT OR REPLACE INTO conversations (conversation_id, payload, updated_at) "
                 "VALUES (?, ?, ?)",
@@ -121,7 +129,7 @@ class ShortTermMemory:
                  datetime.now().isoformat()),
             )
             conn.commit()
-            conn.close()
+            self._release(conn)
         except Exception as e:
             _logger.warning("[STM] 持久化 messages 失败 cid=%s: %s", cid, e)
 
@@ -129,7 +137,7 @@ class ShortTermMemory:
         """写穿:把 metadata[cid] 写入 conversation_meta 表"""
         md = self.metadata.get(cid, {})
         try:
-            conn = sqlite3.connect(str(self.db_path))
+            conn = self._get_conn()
             conn.execute(
                 "INSERT OR REPLACE INTO conversation_meta "
                 "(conversation_id, user_id, message_count, last_activity, created_at) "
@@ -138,7 +146,7 @@ class ShortTermMemory:
                  md.get("last_activity"), md.get("created_at")),
             )
             conn.commit()
-            conn.close()
+            self._release(conn)
         except Exception as e:
             _logger.warning("[STM] 持久化 meta 失败 cid=%s: %s", cid, e)
 
@@ -149,11 +157,11 @@ class ShortTermMemory:
 
     def _delete_from_db(self, cid: str) -> None:
         try:
-            conn = sqlite3.connect(str(self.db_path))
+            conn = self._get_conn()
             conn.execute("DELETE FROM conversations WHERE conversation_id = ?", (cid,))
             conn.execute("DELETE FROM conversation_meta WHERE conversation_id = ?", (cid,))
             conn.commit()
-            conn.close()
+            self._release(conn)
         except Exception as e:
             _logger.warning("[STM] 删 DB 失败 cid=%s: %s", cid, e)
 

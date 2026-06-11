@@ -41,24 +41,33 @@ class LongTermMemory:
     def __init__(self, db_path: str = None):
         """
         初始化长期记忆
-        
+
         Args:
             db_path: 数据库路径
         """
         if db_path is None:
             db_path = project_root / "data" / "long_term_memory.db"
-        
+
         self.db_path = Path(db_path)
         self.db_path.parent.mkdir(parents=True, exist_ok=True)
-        
+
+        # P6.E.2: 连接池接入 — 同线程 60s 内复用连接
+        # 必须在 _init_database() 之前定义,因为后者会调 self._release(conn)
+        self._release = lambda c: None  # 池化连接由 db.connection 管 TTL
+
         # 初始化数据库
         self._init_database()
-        
+
         print("📝 长期记忆系统初始化完成")
+
+    def _get_conn(self):
+        """P6.E.2: 连接池获取(同线程 60s 内复用)"""
+        from db.connection import get_connection
+        return get_connection(str(self.db_path))
     
     def _init_database(self):
         """初始化数据库表"""
-        conn = sqlite3.connect(str(self.db_path))
+        conn = self._get_conn()
         # 启用 WAL 模式支持并发读写,设置 busy_timeout 避免短时间锁定
         conn.execute("PRAGMA journal_mode=WAL")
         conn.execute("PRAGMA busy_timeout=5000")
@@ -116,7 +125,7 @@ class LongTermMemory:
                 _logger.warning("[LTM] ALTER TABLE embedding 失败: %s", e)
 
         conn.commit()
-        conn.close()
+        self._release(conn)
     
     def add_memory(
         self,
@@ -139,7 +148,7 @@ class LongTermMemory:
         Returns:
             记忆ID
         """
-        conn = sqlite3.connect(str(self.db_path))
+        conn = self._get_conn()
         cursor = conn.cursor()
 
         now = datetime.now().isoformat()
@@ -157,7 +166,7 @@ class LongTermMemory:
         memory_id = cursor.lastrowid
 
         conn.commit()
-        conn.close()
+        self._release(conn)
 
         return memory_id
 
@@ -202,7 +211,7 @@ class LongTermMemory:
         Returns:
             记忆列表
         """
-        conn = sqlite3.connect(str(self.db_path))
+        conn = self._get_conn()
         cursor = conn.cursor()
 
         # P5-G: SELECT 加 embedding 列(返回 dict 不暴露,但要 fetch 让 sqlite
@@ -225,7 +234,7 @@ class LongTermMemory:
             """, (user_id, limit))
 
         rows = cursor.fetchall()
-        conn.close()
+        self._release(conn)
 
         memories = []
         for row in rows:
@@ -264,14 +273,14 @@ class LongTermMemory:
         - embedder 不可用 → 整个向量步骤跳过,降级为纯 LIKE(原行为)
         - embedding IS NULL 的行 → 向量步骤跳过,LIKE 仍命中
         """
-        conn = sqlite3.connect(str(self.db_path))
+        conn = self._get_conn()
         cursor = conn.cursor()
         rows = cursor.execute(
             "SELECT id, memory_type, content, importance, created_at, tags, embedding "
             "FROM user_memories WHERE user_id = ?",
             (user_id,),
         ).fetchall()
-        conn.close()
+        self._release(conn)
 
         if not rows:
             return []
@@ -379,7 +388,7 @@ class LongTermMemory:
         """
         if not memory_ids:
             return
-        conn = sqlite3.connect(str(self.db_path))
+        conn = self._get_conn()
         cursor = conn.cursor()
         now = datetime.now().isoformat()
         try:
@@ -395,7 +404,7 @@ class LongTermMemory:
             )
             conn.commit()
         finally:
-            conn.close()
+            self._release(conn)
     
     def update_preference(
         self,
@@ -413,7 +422,7 @@ class LongTermMemory:
             value: 偏好值
             confidence: 置信度
         """
-        conn = sqlite3.connect(str(self.db_path))
+        conn = self._get_conn()
         cursor = conn.cursor()
         
         now = datetime.now().isoformat()
@@ -433,7 +442,7 @@ class LongTermMemory:
         """, (user_id, preference_type, value, confidence, now))
         
         conn.commit()
-        conn.close()
+        self._release(conn)
     
     def get_preferences(self, user_id: str) -> Dict[str, Dict]:
         """
@@ -445,7 +454,7 @@ class LongTermMemory:
         Returns:
             偏好字典 {type: {value, confidence, updated_at}}
         """
-        conn = sqlite3.connect(str(self.db_path))
+        conn = self._get_conn()
         cursor = conn.cursor()
         
         cursor.execute("""
@@ -455,7 +464,7 @@ class LongTermMemory:
         """, (user_id,))
         
         rows = cursor.fetchall()
-        conn.close()
+        self._release(conn)
         
         preferences = {}
         for row in rows:
@@ -482,7 +491,7 @@ class LongTermMemory:
         Returns:
             删除的记忆数量
         """
-        conn = sqlite3.connect(str(self.db_path))
+        conn = self._get_conn()
         cursor = conn.cursor()
         
         cutoff = (
@@ -497,7 +506,7 @@ class LongTermMemory:
         deleted = cursor.rowcount
         
         conn.commit()
-        conn.close()
+        self._release(conn)
         
         return deleted
     
@@ -510,7 +519,7 @@ class LongTermMemory:
             half_life_days: 半衰期天数,系统根据"距上次访问天数"自动计算衰减率。
                           调度器默认传 30。半衰期公式:rate = 0.5 ** (days / half_life)
         """
-        conn = sqlite3.connect(str(self.db_path))
+        conn = self._get_conn()
         cursor = conn.cursor()
 
         if half_life_days is not None and half_life_days > 0:
@@ -543,7 +552,7 @@ class LongTermMemory:
                     )
                     updated += 1
             conn.commit()
-            conn.close()
+            self._release(conn)
             return updated
 
         # 兼容旧调用:整体乘以 decay_rate
@@ -554,7 +563,7 @@ class LongTermMemory:
         """, (decay_rate,))
 
         conn.commit()
-        conn.close()
+        self._release(conn)
         return cursor.rowcount
     
     def consolidate_short_term(
@@ -579,7 +588,7 @@ class LongTermMemory:
     
     def get_stats(self) -> Dict[str, Any]:
         """获取统计信息"""
-        conn = sqlite3.connect(str(self.db_path))
+        conn = self._get_conn()
         cursor = conn.cursor()
         
         cursor.execute("SELECT COUNT(*) FROM user_memories")
@@ -591,7 +600,7 @@ class LongTermMemory:
         cursor.execute("SELECT COUNT(*) FROM user_preferences")
         total_preferences = cursor.fetchone()[0]
         
-        conn.close()
+        self._release(conn)
         
         return {
             "total_memories": total_memories,
