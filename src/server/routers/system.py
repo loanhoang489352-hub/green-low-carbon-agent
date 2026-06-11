@@ -77,6 +77,21 @@ def register_system_routes(registry) -> None:
         else:
             raise APIError("NOT_FOUND", "HTML file not found")
 
+    def i18n_js(handler):
+        """P6.L: 提供 web/i18n.js 静态文件(浏览器加载用)"""
+        js_path = Path(__file__).resolve().parent.parent.parent / "web" / "i18n.js"
+        if not js_path.exists():
+            js_path = handler.project_root / "web" / "i18n.js"
+        if js_path.exists():
+            content = js_path.read_text(encoding="utf-8")
+            handler.send_response(200)
+            handler.send_header("Content-type", "application/javascript; charset=utf-8")
+            handler.send_header("Cache-Control", "public, max-age=3600")
+            handler.end_headers()
+            handler.wfile.write(content.encode("utf-8"))
+        else:
+            raise APIError("NOT_FOUND", "i18n.js not found")
+
     def knowledge_stats(handler):
         agent = handler.agent
         stats = agent.get_knowledge_stats()
@@ -126,6 +141,7 @@ def register_system_routes(registry) -> None:
 
     registry.add_route("GET", "/", index, auth_required=False, description="Web 入口")
     registry.add_route("GET", "/index.html", index, auth_required=False, description="Web 入口")
+    registry.add_route("GET", "/i18n.js", i18n_js, auth_required=False, description="P6.L: i18n 静态 JS")
     registry.add_route("GET", "/api/health", health, auth_required=False, description="健康检查(P5-E 真探活)")
     registry.add_route("GET", "/api/ready", ready, auth_required=False, description="K8s readiness probe(P5-E)")
     registry.add_route("GET", "/api/metrics", metrics, auth_required=False, description="LLM 调用指标(P5-B)")
