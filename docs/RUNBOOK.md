@@ -320,6 +320,49 @@ make prod-stop
 systemctl stop green-agent
 ```
 
+### 灾备(P6.F 脚本)
+
+```bash
+# 全量备份(打包 7 个 SQLite + ChromaDB + memory_snapshots 到 backups/)
+python scripts/backup.py
+
+# 增量备份(只备份自上次 backup 改过的文件)
+python scripts/backup.py --incremental
+
+# 排除 logs/(节省空间)
+python scripts/backup.py --exclude-logs
+
+# 保留最近 10 个备份(默认 30)
+python scripts/backup.py --keep 10
+
+# 列出要备份的文件(不实际打包)
+python scripts/backup.py --dry-run
+
+# 上传到 S3(需 BACKUP_S3_BUCKET env)
+BACKUP_S3_BUCKET=my-bucket BACKUP_S3_PREFIX=backups/ python scripts/backup.py --upload s3
+
+# 列出可用备份(交互式选)
+python scripts/restore.py
+
+# 直接选最新恢复(--yes 跳过确认)
+python scripts/restore.py --latest --yes
+
+# 列出 tar 内容(不实际解压)
+python scripts/restore.py --latest --dry-run
+
+# 备份文件命名:data_YYYYMMDD_HHMMSS.tar.gz + .sha256 + .manifest.json
+# 恢复前会自动 SHA256 校验,失败返 1
+# 恢复前会自动备份当前 data/ 到 data_BEFORE_RESTORE_*.tar.gz
+```
+
+**自动备份 cron**(推荐):
+```bash
+# 每天凌晨 3 点全量 + 保留 14 天
+0 3 * * * cd /opt/green-agent && python scripts/backup.py --keep 14 --upload s3
+# 每小时增量
+0 * * * * cd /opt/green-agent && python scripts/backup.py --incremental --keep 48
+```
+
 ### 日志查看
 
 ```bash

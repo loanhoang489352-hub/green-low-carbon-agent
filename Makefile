@@ -144,20 +144,17 @@ prod-restart:
 # ========== 运维 ==========
 
 backup:
-	@mkdir -p backups
-	@TS=$$(date +%Y%m%d_%H%M%S); \
-	tar czf backups/data_$$TS.tar.gz data/ 2>/dev/null || (echo "[WARN] data/ 不存在或为空" && tar czf backups/data_$$TS.tar.gz --files-from /dev/null); \
-	echo "[OK] 备份到 backups/data_$$TS.tar.gz"
+	python scripts/backup.py
+
+backup-incremental:
+	python scripts/backup.py --incremental
 
 restore:
-	@if [ -z "$(FILE)" ]; then \
-		echo "[ERROR] 用法: make restore FILE=backups/data_xxx.tar.gz"; \
-		exit 1; \
+	@if [ -n "$(FILE)" ]; then \
+		python scripts/restore.py --file $(FILE) --yes; \
+	else \
+		python scripts/restore.py --latest --yes; \
 	fi
-	@echo "[WARN] 将覆盖现有 data/ 目录"
-	@read -p "确认继续? (yes/no): " confirm && [ "$$confirm" = "yes" ]
-	tar xzf $(FILE)
-	@echo "[OK] 已从 $(FILE) 恢复"
 
 db-shell:
 	@echo "进入 data/accounts.db 调试(用 sqlite3):"

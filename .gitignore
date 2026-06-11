@@ -40,6 +40,13 @@ env/
 htmlcov/
 .tox/
 
+# Backups (P6.F 灾备脚本产物)
+backups/data_*.tar.gz
+backups/data_*.tar.gz.sha256
+backups/data_*.manifest.json
+backups/data_BEFORE_RESTORE_*.tar.gz
+backups/.last_backup_ts
+
 # Environment
 .env
 .env.local
