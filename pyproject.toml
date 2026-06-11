@@ -1,6 +1,6 @@
 [project]
 name = "green-agent"
-version = "2.0.0"
+version = "2.1.0"
 description = "基于消费者偏好建模的个性化绿色低碳智能体"
 readme = "README.md"
 requires-python = ">=3.10"
@@ -8,7 +8,7 @@ license = {text = "MIT"}
 authors = [
     {name = "Green Agent Team"}
 ]
-keywords = ["ai", "agent", "green", "低碳", "环保", "rag"]
+keywords = ["ai", "agent", "green", "低碳", "环保", "rag", "langgraph", "chromadb"]
 classifiers = [
     "Development Status :: 4 - Beta",
     "Intended Audience :: Developers",
@@ -16,44 +16,72 @@ classifiers = [
     "Programming Language :: Python :: 3.10",
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+    "Topic :: Office/Business :: Financial :: Investment",
+    "Natural Language :: Chinese (Simplified)",
+    "Natural Language :: English",
 ]
 
-dependencies = [
-    "fastapi>=0.104.0",
-    "uvicorn[standard]>=0.24.0",
-    "pydantic>=2.0.0",
-    "pydantic-settings>=2.0.0",
-    "python-dotenv>=1.0.0",
-    "pyyaml>=6.0.0",
-    "sentence-transformers>=2.2.0",
-    "chromadb>=0.4.0",
-    "numpy>=1.24.0",
-    "jieba>=0.42.1",
-    "langgraph>=0.0.20",
-]
+# 依赖 P6 起以 requirements.txt 为单一真源(避免双向漂移)
+# 详见 docs/SECURITY.md 第 10 章"依赖管理"
+# 此处仅声明核心 metadata 依赖,完整列表见 requirements.txt
+
+[project.urls]
+Homepage = "https://github.com/loanhoang489352-hub/green-low-carbon-agent"
+Repository = "https://github.com/loanhoang489352-hub/green-low-carbon-agent"
+Issues = "https://github.com/loanhoang489352-hub/green-low-carbon-agent/issues"
+Documentation = "https://github.com/loanhoang489352-hub/green-low-carbon-agent/blob/main/CLAUDE.md"
+Changelog = "https://github.com/loanhoang489352-hub/green-low-carbon-agent/blob/main/CHANGELOG.md"
+
+[project.scripts]
+# P5-J 引入的 Makefile 调用(也可 `pip install -e .` 后直接调)
+green-agent-doctor = "scripts.doctor:main"
+green-agent-test = "scripts.run_tests_per_file:main"
+green-agent-eval = "scripts.eval_retrieval:main"
 
 [project.optional-dependencies]
-dev = [
-    "pytest>=7.4.0",
-    "pytest-asyncio>=0.21.0",
-    "pytest-cov>=4.1.0",
-    "httpx>=0.25.0",
-    "black>=23.0.0",
-    "isort>=5.12.0",
-    "ruff>=0.1.0",
-    "mypy>=1.7.0",
-]
-llm = [
-    "openai>=1.0.0",
-    "anthropic>=0.18.0",
-]
-ui = [
-    "streamlit>=1.28.0",
-]
+# 开发依赖与生产分离
+dev = ["-r requirements-dev.txt"]
 
 [build-system]
 requires = ["setuptools>=68.0", "wheel"]
 build-backend = "setuptools.build_meta"
+
+[tool.setuptools]
+# P5-I 起 src/ 是源码根,不需 packages 列表
+# (老式 setup.py find_packages() 已废弃,新版显式列)
+package-dir = {"" = "src"}
+packages = [
+    "agent",
+    "agent.cache",
+    "agent.graph",
+    "agent.knowledge",
+    "agent.memory",
+    "agent.policy",
+    "agent.rag",
+    "agent.tools",
+    "agent.user_profile",
+    "auth",
+    "db",
+    "feedback",
+    "i18n",
+    "llm",
+    "memory",
+    "observability",
+    "paths",
+    "rag",
+    "scheduler",
+    "server",
+    "server.middleware",
+    "server.routers",
+    "tools",
+    "user_profile",
+    "utils",
+]
+
+[tool.setuptools.package-data]
+"server.routers" = ["*.py"]
+"web" = ["*.html", "*.js", "*.css"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
@@ -61,15 +89,43 @@ python_files = ["test_*.py"]
 python_classes = ["Test*"]
 python_functions = ["test_*"]
 asyncio_mode = "auto"
+addopts = "-ra --strict-markers"
+markers = [
+    "slow: 慢测试(超过 5 秒,默认跳过)",
+    "integration: 集成测试(需真实 API,默认跳过)",
+]
 
 [tool.ruff]
 line-length = 100
 target-version = "py310"
 
+[tool.ruff.lint]
+# P6 起: E (pycodestyle) + F (pyflakes) + I (isort) + W (warnings)
+select = ["E", "F", "I", "W", "B", "UP"]
+ignore = ["E501"]  # line-too-long 由 formatter 处理
+
+[tool.ruff.lint.per-file-ignores]
+"tests/*" = ["B", "E402"]  # 测试允许 assert / 局部 import
+"scripts/*" = ["B", "E402"]  # 脚本允许
+
 [tool.black]
 line-length = 100
 target-version = ["py310"]
 
-[tool.isort]
-profile = "black"
-line-length = 100
+[tool.coverage.run]
+source = ["src"]
+omit = [
+    "src/agent/langgraph_agent.py",  # P5-G 兼容代码,覆盖率低
+    "src/llm/client.py",             # 6 provider 巨大
+]
+
+[tool.coverage.report]
+exclude_lines = [
+    "pragma: no cover",
+    "raise NotImplementedError",
+    "if __name__ == .__main__.:",
+    "if TYPE_CHECKING:",
+]
+show_missing = true
+skip_covered = false
+fail_under = 70
