@@ -4,7 +4,9 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## 项目概述
 
-绿色低碳智能体是一个基于消费者偏好建模的个性化低碳生活助手,解决"知行鸿沟"(从知道绿色低碳到行动起来),通过**三层记忆(短+工作+长,P4-H)+ 用户画像图谱 + 实时知识同步 + 个性化行动推荐**,实现"个性化绿色低碳行为促进"。P0–P4-H + P5-A→I 全部完成(共 23 commit),端到端可运行,达到 **production-ready 边界**;P5-J(部署/SRE)是 plan 中唯一未完成项。
+绿色低碳智能体是一个基于消费者偏好建模的个性化低碳生活助手,解决"知行鸿沟"(从知道绿色低碳到行动起来),通过**三层记忆(短+工作+长,P4-H)+ 用户画像图谱 + 实时知识同步 + 个性化行动推荐**,实现"个性化绿色低碳行为促进"。P0–P5-I + P5-J + P6.A–J 全部完成(共 36 commit),达到 **production-ready**;License MIT。
+
+**P6 完成的 10 方向**(plan 之外):鉴权真落地 / 健康缓存 / Query Cache / 全链路回归 / SQLite 池(12.5x)/ 池扩 3 模块 / 灾备脚本 / LLM_MOCK / i18n / async LLM PoC / 拓源 7 源。
 
 ## 常用命令
 

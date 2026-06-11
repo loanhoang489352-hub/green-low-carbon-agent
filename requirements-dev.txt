@@ -1,0 +1,29 @@
+# 绿色低碳智能体 — 开发依赖
+# 安装: pip install -r requirements-dev.txt
+# 生产环境只需: pip install -r requirements.txt
+
+# 测试
+pytest>=9.0.0
+pytest-mock>=3.14.0
+pytest-asyncio>=0.24.0
+pytest-timeout>=2.3.0
+httpx>=0.27.0           # 测试 mock HTTP
+
+# 代码质量
+ruff>=0.7.0             # 替代 flake8/pylint,快 10x
+black>=24.10.0          # 代码格式化
+mypy>=1.13.0            # 类型检查(可选)
+
+# 文档
+mkdocs>=1.6.0
+mkdocs-material>=9.5.0
+
+# 依赖管理(可选,生产用 pip-compile 锁版本)
+pip-tools>=7.4.0
+pip-licenses>=5.0.0     # 生成 THIRD_PARTY_NOTICES
+
+# 灾备测试
+boto3>=1.35.0           # S3 上传(可选)
+
+# LangSmith / 调试
+langsmith>=0.3.0

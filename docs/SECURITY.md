@@ -136,3 +136,48 @@ X-Session-Id: <session_id>
 
 发现安全问题:本仓库 GitHub Issues(私有) + 邮件给维护者。
 请勿在公开 Issue 中贴具体 PoC。
+
+## 10. 依赖管理(P6.K)
+
+### 双 requirements.txt 分离
+
+- `requirements.txt` — 生产依赖(锁最低版本,部署到生产)
+- `requirements-dev.txt` — 开发依赖(pytest / ruff / black / mkdocs 等)
+- 部署只装 `requirements.txt`,不装 dev 依赖,减少攻击面
+
+### 版本锁定策略
+
+- `requirements.txt` 用 `>=` 锁**最低**版本(让 pip 解析最新兼容版本)
+- 生产环境推荐用 `pip-compile`(dev 依赖)生成 `requirements.lock`(Pinned + Hash)
+- CI 跑 `pip install --require-hashes -r requirements.lock`(防止依赖混淆攻击)
+
+### 已知供应链风险
+
+- **chromadb**:依赖较多 native 库(grpcio / pyarrow),版本冲突时建议 `pip install --no-deps` + 手动装
+- **sentence-transformers**:首次运行下载约 100MB 模型,需访问 huggingface.co
+- **langgraph-checkpoint-sqlite**:LangGraph 官方 SQLite checkpointer,版本需与 langgraph 匹配
+
+### 第三方许可证
+
+- 整体 License: **MIT**(见 `LICENSE` 文件)
+- 第三方依赖许可证:用 `pip-licenses` 自动生成 `THIRD_PARTY_NOTICES.md`
+  ```bash
+  pip install pip-licenses
+  pip-licenses --format=markdown --output-file=THIRD_PARTY_NOTICES.md
+  ```
+
+### 依赖更新策略
+
+- **安全补丁**:立即更新,跑全量回归(235+ 测试)
+- **功能更新**:每月底 review PyPI releases,小版本直接升,大版本评估
+- **依赖审计**:`pip-audit` 跑 CVE 扫描(可加进 CI)
+  ```bash
+  pip install pip-audit
+  pip-audit -r requirements.txt
+  ```
+
+### 私有依赖(如未来有)
+
+- `pip.conf` 配私有 index:`[global] index-url = https://pypi.your-org.com/simple/`
+- `requirements.lock` 用 `pip download` 生成 hash 锁
+- CI 跑 `pip install --require-hashes`
