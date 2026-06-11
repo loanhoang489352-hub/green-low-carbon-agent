@@ -260,13 +260,63 @@ class RoutedRequestHandler(BaseHTTPRequestHandler):
                 pass
 
     def do_GET(self):
-        self._dispatch("GET")
+        _inflight_begin()
+        try:
+            self._dispatch("GET")
+        finally:
+            _inflight_end()
 
     def do_POST(self):
-        self._dispatch("POST")
+        _inflight_begin()
+        try:
+            self._dispatch("POST")
+        finally:
+            _inflight_end()
 
     def log_message(self, format, *args):
         print(f"[HTTP] {args[0]}")
+
+
+# ========== P5-J: 优雅退出 — inflight 计数器 ==========
+
+import threading as _threading_mod
+_INFLIGHT_COUNT = 0
+_INFLIGHT_LOCK = _threading_mod.Lock()
+
+
+def _inflight_begin() -> None:
+    """请求开始(inflight + 1)"""
+    global _INFLIGHT_COUNT
+    with _INFLIGHT_LOCK:
+        _INFLIGHT_COUNT += 1
+
+
+def _inflight_end() -> None:
+    """请求结束(inflight - 1)"""
+    global _INFLIGHT_COUNT
+    with _INFLIGHT_LOCK:
+        _INFLIGHT_COUNT -= 1
+
+
+def get_inflight_count() -> int:
+    """当前在处理的请求数"""
+    with _INFLIGHT_LOCK:
+        return _INFLIGHT_COUNT
+
+
+def wait_for_inflight_drain(timeout_s: float = 10.0, poll_interval_s: float = 0.1) -> bool:
+    """
+    P5-J: 等待 inflight 请求处理完毕(给 SIGTERM 优雅退出用)
+
+    返回: True = 全部完成 / False = 超时仍有未完成
+    """
+    import time
+    deadline = time.time() + timeout_s
+    while time.time() < deadline:
+        if get_inflight_count() == 0:
+            return True
+        time.sleep(poll_interval_s)
+    return get_inflight_count() == 0
 
 
 def create_handler():
@@ -344,10 +394,40 @@ def _start_scheduler_safe() -> None:
         logging.getLogger(__name__).warning("[App] 调度器启动失败: %s", e)
 
 
-def shutdown_app() -> None:
-    """关闭应用:停止调度器"""
+def shutdown_app(timeout_s: float = 10.0) -> None:
+    """
+    P5-J: 关闭应用
+    1) 等待 inflight 请求处理完毕(≤ timeout_s)
+    2) 停止调度器(wait=False,不阻塞)
+    3) 记录结构化日志
+
+    参数:
+        timeout_s: 等待 inflight 清零的最大秒数
+    """
+    import logging
+    logger = logging.getLogger(__name__)
+
+    # 1) 等待 inflight 排空
+    remaining = get_inflight_count()
+    if remaining > 0:
+        logger.info(
+            "[App] 收到关闭信号,等待 %d 个 inflight 请求完成 (timeout=%.1fs)",
+            remaining, timeout_s,
+        )
+        drained = wait_for_inflight_drain(timeout_s=timeout_s)
+        remaining_after = get_inflight_count()
+        if drained:
+            logger.info("[App] inflight 已全部完成")
+        else:
+            logger.warning(
+                "[App] 等待超时,仍有 %d 个请求未完成,强制退出",
+                remaining_after,
+            )
+
+    # 2) 停止调度器
     try:
         from scheduler import stop_scheduler
         stop_scheduler(wait=False)
-    except Exception:
-        pass
+        logger.info("[App] 调度器已停止")
+    except Exception as e:
+        logger.warning("[App] 调度器停止异常: %s", e)
