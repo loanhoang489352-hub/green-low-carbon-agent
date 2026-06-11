@@ -324,6 +324,117 @@ class OpenAIClient(LLMClient):
             return self._mock_response(messages, trace_id=trace_id)
         return self._call_openai_sdk(messages, kwargs, error_label="OpenAI", trace_id=trace_id)
 
+    async def achat(
+        self,
+        messages: List[Dict[str, str]],
+        **kwargs,
+    ) -> LLMResponse:
+        """P6.I: 异步 chat — 用 httpx.AsyncClient 调 OpenAI API
+
+        适用场景:
+        - 同一进程内多个并发 LLM 请求(避免 ThreadingHTTPServer 线程开销)
+        - LangGraph ainvoke 流程
+        - 异步 web 框架(aiohttp / FastAPI)
+
+        与 chat() 区别:
+        - async def,需 await
+        - httpx.AsyncClient 替代 openai SDK
+        - 超时/重试由 httpx.timeout / tenacity 统一管
+
+        限制:
+        - P6.B 已验证 server 端 10万 req/s,ThreadingHTTPServer + GIL 释放已够用
+        - 30s LLM timeout 才是真瓶颈,async 不解决
+        - 仅当真实有并发 LLM 调用场景时才有价值
+        """
+        trace_id = kwargs.pop("trace_id", None) or new_trace_id()
+        # P6.G: LLM_MOCK=true 强制 mock(async 路径也支持)
+        if _should_use_mock(self):
+            _log_mock_decision("OpenAI-async", True)
+            return self._mock_response(messages, trace_id=trace_id)
+        if not self.api_key:
+            return self._mock_response(messages, trace_id=trace_id)
+
+        timeout_s = _llm_timeout()
+        start = time.time()
+        provider = _provider_name(type(self).__name__)
+        try:
+            import httpx
+        except ImportError:
+            _logger.warning("httpx 未安装,降级到同步 chat()")
+            return self.chat(messages, **kwargs, trace_id=trace_id)
+
+        # 构造 OpenAI API 请求
+        url = "https://api.openai.com/v1/chat/completions"
+        payload = {
+            "model": self.model,
+            "messages": messages,
+            "temperature": kwargs.get("temperature", self.temperature),
+            "max_tokens": kwargs.get("max_tokens", self.max_tokens),
+        }
+        headers = {
+            "Authorization": f"Bearer {self.api_key}",
+            "Content-Type": "application/json",
+        }
+
+        last_error = None
+        for attempt in range(_llm_max_retries() + 1):
+            try:
+                async with httpx.AsyncClient(timeout=timeout_s) as client:
+                    resp = await client.post(url, json=payload, headers=headers)
+                    resp.raise_for_status()
+                    data = resp.json()
+                latency_ms = round((time.time() - start) * 1000, 2)
+                content = data["choices"][0]["message"]["content"]
+                usage = data.get("usage", {})
+                usage_dict = {
+                    "prompt_tokens": usage.get("prompt_tokens", 0),
+                    "completion_tokens": usage.get("completion_tokens", 0),
+                    "total_tokens": usage.get("total_tokens", 0),
+                }
+                # P5-B: 记 metrics
+                get_metrics_collector().record(
+                    provider=provider, model=self.model, latency_ms=latency_ms,
+                    success=True,
+                )
+                _logger.info(
+                    "llm_call",
+                    extra={
+                        "event": "llm_call", "trace_id": trace_id, "provider": provider,
+                        "model": self.model, "latency_ms": latency_ms, **usage_dict,
+                        "success": True, "async": True,
+                    },
+                )
+                return LLMResponse(
+                    content=content,
+                    model=self.model,
+                    usage=usage_dict,
+                    finish_reason=data["choices"][0].get("finish_reason", "stop"),
+                    latency_ms=latency_ms,
+                    request_id=trace_id,
+                )
+            except Exception as e:
+                last_error = e
+                _logger.warning(
+                    "[OpenAI-async] attempt %d failed: %s",
+                    attempt + 1, e,
+                )
+                if attempt < _llm_max_retries():
+                    import asyncio
+                    await asyncio.sleep(1.0 * (2 ** attempt))  # 1s, 2s, 4s
+                continue
+
+        # 全部重试失败
+        latency_ms = round((time.time() - start) * 1000, 2)
+        error_class = _classify_error(last_error) if last_error else "unknown"
+        get_metrics_collector().record(
+            provider=provider, model=self.model, latency_ms=latency_ms,
+            success=False, error=error_class,
+        )
+        mock_resp = self._mock_response(messages, trace_id=trace_id)
+        mock_resp.error = f"async_max_retries_exceeded: {last_error}"
+        mock_resp.finish_reason = "error"
+        return mock_resp
+
     def _mock_response(self, messages: List[Dict[str, str]], trace_id: Optional[str] = None) -> LLMResponse:
         """Mock响应 (P5-A.2: 返回 LLMResponse, P5-B: 携带 trace_id + latency + 记录 metrics)"""
         start = time.time()
