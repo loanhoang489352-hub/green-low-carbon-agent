@@ -116,6 +116,76 @@ CANDIDATE_SOURCES = [
     },
 ]
 
+# ========== P6.R.2: 政府站候选(需大陆 IP 才能访问) ==========
+# 港 IP 下 .gov.cn 多数 SSL 失败,需切大陆 IP 后用此列表测试
+# 详见 docs/P6R2_GOV_SOURCES_README.md
+GOV_SOURCES = [
+    {
+        "name": "生态环境部-政策文件",
+        "url": "https://www.mee.gov.cn/xxgk2018/xxgk/xxgk03/",
+        "type": "html",
+        "category": "政府-生态环境部",
+        "keywords": ["碳", "排放", "低碳", "环境", "气候"],
+        "note": "P6.R.2: 需大陆 IP",
+    },
+    {
+        "name": "国家发改委-双碳",
+        "url": "https://www.ndrc.gov.cn/xxgk/zcfb/tz/",
+        "type": "html",
+        "category": "政府-发改委",
+        "keywords": ["双碳", "低碳", "能源", "气候"],
+        "note": "P6.R.2: 政策原文(已 P6.J 启用首页,此处是子页)",
+    },
+    {
+        "name": "国家能源局",
+        "url": "https://www.nea.gov.cn/",
+        "type": "html",
+        "category": "政府-能源局",
+        "keywords": ["能源", "新能源", "碳", "电力"],
+        "note": "P6.R.2: 需大陆 IP",
+    },
+    {
+        "name": "工信部-节能与综合利用",
+        "url": "https://www.miit.gov.cn/jgsj/jns/",
+        "type": "html",
+        "category": "政府-工信部",
+        "keywords": ["节能", "减排", "低碳", "绿色制造"],
+        "note": "P6.R.2: 需大陆 IP",
+    },
+    {
+        "name": "住建部-绿色建筑",
+        "url": "https://www.mohurd.gov.cn/gongkai/zhengce/zhengcefilelib/",
+        "type": "html",
+        "category": "政府-住建部",
+        "keywords": ["绿色建筑", "节能", "低碳"],
+        "note": "P6.R.2: 需大陆 IP",
+    },
+    {
+        "name": "交通运输部-绿色交通",
+        "url": "https://www.mot.gov.cn/zhengcejiedu/green/",
+        "type": "html",
+        "category": "政府-交通部",
+        "keywords": ["绿色交通", "低碳", "新能源车"],
+        "note": "P6.R.2: 需大陆 IP",
+    },
+    {
+        "name": "农业农村部-生态农业",
+        "url": "https://www.moa.gov.cn/",
+        "type": "html",
+        "category": "政府-农业农村部",
+        "keywords": ["生态", "低碳", "农业", "绿色"],
+        "note": "P6.R.2: 需大陆 IP",
+    },
+    {
+        "name": "国家林草局-碳汇",
+        "url": "https://www.forestry.gov.cn/",
+        "type": "html",
+        "category": "政府-林草局",
+        "keywords": ["碳汇", "森林", "生态", "碳"],
+        "note": "P6.R.2: 需大陆 IP,森林碳汇权威",
+    },
+]
+
 
 def test_source(
     source: dict,
