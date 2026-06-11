@@ -466,6 +466,21 @@ class GreenAgent:
 
         profile_updates = self._apply_dynamic_updates(user_id, message_analysis)
 
+        # P6.C: 画像有更新时清缓存(避免新画像用旧 LLM 响应)
+        if profile_updates:
+            try:
+                from agent.cache import get_query_cache
+                cleared = get_query_cache().invalidate(user_id)
+                if cleared > 0:
+                    import logging
+                    logging.getLogger(__name__).info(
+                        "[GreenAgent] QueryCache.invalidate user=%s cleared=%d (因画像更新)",
+                        user_id, cleared,
+                    )
+            except Exception as e:
+                import logging
+                logging.getLogger(__name__).warning("[GreenAgent] QueryCache.invalidate 异常(非致命): %s", e)
+
         self.profile_manager.record_interaction(user_id, self._map_intent_to_interaction(intent_result))
 
         recent_memories = self._get_recent_memories(user_id)
@@ -529,9 +544,36 @@ class GreenAgent:
             intent_type=intent_result.suggested_response_type
         )
 
-        response_data = self._generate_personalized_response(
-            message, context, intent_result, rag_context, personalization_ctx, strategy
-        )
+        # P6.C: Query Cache — 命中时复用 message + suggestions,跳过 LLM 调用
+        cached_response = None
+        try:
+            from agent.cache import get_query_cache
+            cached_response = get_query_cache().get(message, user_id, user_profile)
+        except Exception as e:
+            import logging
+            logging.getLogger(__name__).warning("[GreenAgent] QueryCache.get 异常(非致命): %s", e)
+
+        if cached_response:
+            # 命中:复用 LLM 输出,其余字段(RAG/recs/profile/memory)仍跑
+            response_data = {
+                "message": cached_response["message"],
+                "suggestions": cached_response.get("suggestions", []),
+            }
+        else:
+            response_data = self._generate_personalized_response(
+                message, context, intent_result, rag_context, personalization_ctx, strategy
+            )
+            # 写缓存(失败不致命)
+            try:
+                from agent.cache import get_query_cache
+                get_query_cache().set(
+                    message, user_id, user_profile,
+                    response_data["message"],
+                    response_data.get("suggestions", []),
+                )
+            except Exception as e:
+                import logging
+                logging.getLogger(__name__).warning("[GreenAgent] QueryCache.set 异常(非致命): %s", e)
 
         self._save_conversation(conversation_id, user_id, message, response_data["message"])
         self.profile_manager.update_conversation_count(user_id)

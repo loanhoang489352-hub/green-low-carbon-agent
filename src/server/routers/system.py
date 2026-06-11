@@ -42,15 +42,22 @@ def register_system_routes(registry) -> None:
 
     def metrics(handler):
         """
-        GET /api/metrics - LLM 调用指标 (P5-B)
+        GET /api/metrics - LLM 调用指标 (P5-B) + Query Cache 指标 (P6.C)
 
         返回:
-        - 全局聚合:total_calls / error_rate / avg/P50/P95/P99 latency / total_tokens
+        - LLM 聚合:total_calls / error_rate / avg/P50/P95/P99 latency / total_tokens
         - 按 provider 分组
         - history_size (历史保留数)
+        - query_cache: hits / misses / sets / invalidations / hit_rate / size / ttl_seconds
         """
         from observability import get_metrics_collector
         summary = get_metrics_collector().summary()
+        # P6.C: 加 query_cache 指标
+        try:
+            from agent.cache import get_query_cache
+            summary["query_cache"] = get_query_cache().stats()
+        except Exception as e:
+            summary["query_cache"] = {"error": str(e)}
         handler.send_json({
             "ok": True,
             "service": "绿色低碳智能体",
