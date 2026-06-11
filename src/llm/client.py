@@ -187,8 +187,8 @@ class LLMClient:
                 temperature=kwargs.get("temperature", self.temperature),
                 max_tokens=kwargs.get("max_tokens", self.max_tokens),
                 timeout=timeout_s,
-                # 禁用 SDK 内置重试,由 _with_retry 统一管
-                max_retries=0,
+                # OpenAI 2.x SDK 已不支持 max_retries 关键字参数,
+                # 重试由外层 _with_retry 统一管
             )
 
         try:
@@ -594,7 +594,7 @@ class MiniMaxClient(LLMClient):
                     temperature=kwargs.get("temperature", self.temperature),
                     max_tokens=kwargs.get("max_tokens", self.max_tokens),
                     timeout=timeout_s,
-                    max_retries=0,  # 禁用 SDK 内置重试
+                    # OpenAI 2.x SDK 已不支持 max_retries,重试由 MiniMax 自有循环管
                 )
                 latency_ms = round((time.time() - start) * 1000, 2)
                 usage_dict = {

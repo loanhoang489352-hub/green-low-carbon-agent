@@ -98,7 +98,13 @@ def check_llm():
         from llm.client import get_llm_client
         client = get_llm_client()
         resp = client.chat([{"role": "user", "content": "回复 OK 即可"}])
-        text = resp if isinstance(resp, str) else resp.get("content", "")
+        # P5-A 后:client.chat() 返回 LLMResponse dataclass,统一用 .content
+        if hasattr(resp, "content"):
+            text = resp.content or ""
+        elif isinstance(resp, str):
+            text = resp
+        else:
+            text = str(resp)
         provider = getattr(client, "provider", getattr(client, "__class__", type("", (), {})).__name__)
         model = getattr(client, "model", "?")
         print(f"  [OK]    {provider}/{model}")

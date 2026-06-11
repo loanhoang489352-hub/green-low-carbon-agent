@@ -386,38 +386,59 @@ docs/
 - `data/langgraph_checkpoints.db`: LangGraph 状态快照(P4-A)
 - `data/logs/`: **P5-B 结构化 JSON 日志**(app.log / error.log 滚动)
 
-## API 端点(35+ 路由,P5-D 鉴权真实落地)
+## API 端点(35+ 路由)
 
-`auth_required` 列说明:🔓 公开 / 🔒 需 Bearer session_id
+**鉴权状态(P5-D 半完成)**:P5-D 写了 `with_auth` 中间件 + `_dispatch` 接入 + `AccountManager.verify_token` + 17 个 `test_auth_e2e.py` 端到端测试,**基础设施就绪**;但 `routers/*.py` 30+ 个 `add_route` 调用全部显式 `auth_required=False`(保护测试 `test_e2e_legacy_endpoints_still_work` 期望 `/api/policy/summary` 等老 API 无 token 也能通)。**鉴权**只在以下场景生效:`/api/auth/*` 自身会话校验、P5-D 测试 fixture 注入 token、P5-I 启动时密钥占位符强校验。**P6 计划**:`router.add_route` 默认 `auth_required=True` 后,把"敏感"路由(`/api/chat*` / `/api/profile*` / `/api/feedback*` / `/api/memory*` / `/api/recommendations`)切到 `True`,加 `test_e2e_real_auth.py` 全量覆盖。
 
-| 端点 | 方法 | 鉴权 | 说明 |
-|------|------|------|------|
-| `/api/health` | GET | 🔓 | 真探活(SQLite + Chroma + Scheduler + LLM 延迟,P5-E) |
-| `/api/ready` | GET | 🔓 | K8s readiness probe(P5-E) |
-| `/api/metrics` | GET | 🔓 | LLM 调用指标 `total_calls / p95 / total_tokens / error_rate`(P5-B) |
-| `/api/rag/status` | GET | 🔓 | RAG 异步重建进度 0~100%(P5-H) |
-| `/api/chat` | POST | 🔒 | 基础聊天 |
-| `/api/chat/enhanced` | POST | 🔒 | 增强聊天(RAG+个性化) |
-| `/api/auth/register` | POST | 🔓 | 用户注册(bcrypt/PBKDF2,P5-I 审计) |
-| `/api/auth/login` | POST | 🔓 | 登录(失败限流 429,P5-I) |
-| `/api/auth/logout` | POST | 🔒 | 登出 |
-| `/api/profile` | GET/PUT | 🔒 | 获取/更新画像(P5-I PII 脱敏 + 审计) |
-| `/api/onboarding/start` | POST | 🔒 | 开始引导(8 步问卷) |
-| `/api/onboarding/answer` | POST | 🔒 | 回答引导问题 |
-| `/api/feedback` | POST | 🔒 | 提交反馈(点赞/点踩/评论,P5-I PII 脱敏) |
-| `/api/knowledge/stats` | GET | 🔒 | 知识库统计 |
-| `/api/knowledge/query` | POST | 🔒 | 知识库查询 |
-| `/api/knowledge/reload` | POST | 🔒 | 强制 RAG 重建(后台线程 + 进度查询) |
-| `/api/policy/latest` | GET | 🔒 | 最新政策 |
-| `/api/policy/summary` | GET | 🔒 | 政策摘要 |
-| `/api/policy/sync` | POST | 🔒 | 触发政策爬取(httpx+bs4,P4-E) |
-| `/api/memory/short` | GET | 🔒 | 短期记忆(SQLite-backed,P5-G) |
-| `/api/memory/long` | GET | 🔒 | 长期记忆(向量+LIKE,P5-G) |
-| `/` | GET | 🔓 | Web 界面 |
+**限流**(P5-I 全部生效):所有端点 60 req/60s/IP,支持 X-Forwarded-For,超限返 429(实测第 59 次触发)。
 
-**限流**:所有端点 60 req/60s/IP(P5-I,支持 X-Forwarded-For,超限返 429)。
-**审计**:`login` / `chat_enhanced` / `profile` / `feedback` / `policy/sync` / `memory` 6 类写敏感读操作记录到 `audit_log` 表(P5-I)。
-**错误响应**:统一 `{code, message}` JSON(P5-E),不再泄栈。
+**审计**(P5-I 全部生效):6 类写敏感读操作记录到 `audit_log` 表 — `login` / `chat_enhanced` / `profile` / `feedback` / `policy/sync` / `memory`。
+
+**错误响应**(P5-E 全部生效):统一 `{code, message}` JSON,不再泄栈。
+
+### 路由表(35+)
+
+| 端点 | 方法 | 说明 |
+|------|------|------|
+| `/` | GET | Web 界面 |
+| `/api/health` | GET | 真探活(SQLite + Chroma + Scheduler + LLM 延迟 + 磁盘,P5-E) |
+| `/api/ready` | GET | K8s readiness probe(P5-E) |
+| `/api/metrics` | GET | LLM 调用指标 `total_calls / p95 / total_tokens / error_rate`(P5-B) |
+| `/api/rag/stats` | GET | RAG 状态(enabled + engine ok/not_initialized) |
+| `/api/rag/status` | GET | RAG 异步重建进度 0~100%(P5-H) |
+| `/api/knowledge/stats` | GET | 知识库统计(150 文档块,KB-v7) |
+| `/api/knowledge/query` | POST | 知识库查询 |
+| `/api/knowledge/reload` | POST | 强制 RAG 重建(后台线程 + 进度查询) |
+| `/api/policy/latest` | GET | 最新政策(limit=10) |
+| `/api/policy/summary` | GET | 政策摘要 |
+| `/api/policy/check-updates` | POST | 检查政策更新 |
+| `/api/auth/register` | POST | 用户注册(bcrypt/PBKDF2) |
+| `/api/auth/login` | POST | 登录(失败限流 + 审计) |
+| `/api/auth/logout` | POST | 登出 |
+| `/api/auth/check` | POST | 验证会话 |
+| `/api/auth/session` | POST | 会话详情 |
+| `/api/chat` | POST | 基础聊天 |
+| `/api/chat/enhanced` | POST | 增强聊天(RAG+个性化) |
+| `/api/conversation/reset` | POST | 重置对话 |
+| `/api/conversation/history` | POST | 对话历史 |
+| `/api/conversation/{conv_id}` | GET | 对话历史(GET) |
+| `/api/recommendations` | POST | 个性化推荐(基于画像) |
+| `/api/profile/{user_id}` | GET | 获取用户画像(**带 user_id**,正则前缀 `^/api/profile/`) |
+| `/api/personalization/{user_id}` | GET | 个性化上下文(GET) |
+| `/api/personalization/context` | POST | 个性化上下文(POST) |
+| `/api/stats/{user_id}` | GET | 用户统计 |
+| `/api/onboarding/questions` | GET | 获取引导问题(8 步问卷) |
+| `/api/onboarding/status` | POST | 引导状态 |
+| `/api/onboarding/start` | POST | 开始引导 |
+| `/api/onboarding/answer` | POST | 回答引导问题 |
+| `/api/user/register` | POST | 注册用户 |
+| `/api/user/update` | POST | 更新用户画像 |
+| `/api/feedback` | POST | 提交反馈(PII 脱敏) |
+| `/api/feedback/message` | POST | 消息反馈详情 |
+| `/api/feedback/stats` | POST | 反馈统计 |
+| `/api/feedback/history` | POST | 用户反馈历史 |
+| `/api/feedback/negative` | POST | 最近负面反馈 |
+| `/api/settings/api-key` | POST | 保存 API Key |
 
 ## 重构进度(P0–P5 共 26 commit,P5-A→I 全部完成,P5-J 待做)
 

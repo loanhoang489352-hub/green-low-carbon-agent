@@ -57,7 +57,6 @@ def _check_vector_store() -> Dict[str, Any]:
     """ChromaDB / FAISS / InMemory 探活"""
     try:
         # 延迟导入,避免未启用 RAG 时拖慢启动
-        from rag.vector_store import _DEFAULT_VECTOR_STORE
         from rag.rag_engine import get_rag_engine
 
         engine = get_rag_engine()
@@ -65,6 +64,8 @@ def _check_vector_store() -> Dict[str, Any]:
             return {"status": HealthStatus.OK, "detail": "vector store not configured"}
 
         store = engine.vector_store
+        # store 类型:ChromaVectorStore / FAISSVectorStore / InMemoryVectorStore
+        store_type = type(store).__name__
         # 优先用 count(),失败就退到 len(_collection._collection.get()['ids'])
         try:
             count = store.count() if hasattr(store, "count") else None
@@ -75,7 +76,7 @@ def _check_vector_store() -> Dict[str, Any]:
 
         return {
             "status": HealthStatus.OK,
-            "detail": f"vector store ok, type={_DEFAULT_VECTOR_STORE}, count={count}",
+            "detail": f"vector store ok, type={store_type}, count={count}",
         }
     except Exception as e:
         return {"status": HealthStatus.DEGRADED, "detail": f"{type(e).__name__}: {e}"}
