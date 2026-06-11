@@ -47,6 +47,9 @@ backups/data_*.manifest.json
 backups/data_BEFORE_RESTORE_*.tar.gz
 backups/.last_backup_ts
 
+# 源可达性测试报告(P6.J 跑测时生成,会变)
+data/source_test_report.md
+
 # Environment
 .env
 .env.local
