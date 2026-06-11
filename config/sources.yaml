@@ -186,6 +186,64 @@ policy_sources:
     check_interval_hours: 168
     note: "国际能源署,China 系列报告"
 
+  # ====== P6.J 拓源(2026-06-11 港 IP 实测可通) ======
+  - name: "新华网-能源频道"
+    url: "http://www.news.cn/energy/"
+    type: "html"
+    region: "national"
+    category: "媒体-能源"
+    enabled: true
+    check_interval_hours: 24
+    note: "P6.J 实测 40KB,4 关键词命中;新华社能源频道"
+  - name: "经济参考报-绿色频道"
+    url: "http://www.jjckb.cn/"
+    type: "html"
+    region: "national"
+    category: "媒体-绿色"
+    enabled: true
+    check_interval_hours: 24
+    note: "P6.J 实测 47KB,1 关键词;新华社主办"
+  - name: "财新网-环境频道"
+    url: "https://www.caixin.com/environment/"
+    type: "html"
+    region: "national"
+    category: "媒体-环境"
+    enabled: true
+    check_interval_hours: 24
+    note: "P6.J 实测 31KB,2 关键词;财新深度报道"
+  - name: "南方周末-绿色"
+    url: "https://www.infzm.com/"
+    type: "html"
+    region: "national"
+    category: "媒体-调查"
+    enabled: true
+    check_interval_hours: 24
+    note: "P6.J 实测 59KB,2 关键词"
+  - name: "国家发改委-双碳"
+    url: "https://www.ndrc.gov.cn/"
+    type: "html"
+    region: "national"
+    category: "政府-发改委"
+    enabled: true
+    check_interval_hours: 24
+    note: "P6.J 实测 .gov.cn 在港 IP 可通(85KB,2 关键词);权威政策源"
+  - name: "国家统计局-绿色发展"
+    url: "https://www.stats.gov.cn/"
+    type: "html"
+    region: "national"
+    category: "政府-统计"
+    enabled: true
+    check_interval_hours: 24
+    note: "P6.J 实测 .gov.cn 在港 IP 可通(139KB,4 关键词);数据权威"
+  - name: "Environmental Defense Fund"
+    url: "https://www.edf.org/"
+    type: "html"
+    region: "international"
+    category: "国际-NGO"
+    enabled: true
+    check_interval_hours: 168
+    note: "P6.J 实测 252KB,4 关键词(英文);国际 NGO"
+
 # 已知不可用源(2026-06 实测,留作历史记录,避免重试浪费)
 # 注:2026-06-10 升级到大陆 IP 后,以上政府站全部恢复可用
 disabled_sources:
