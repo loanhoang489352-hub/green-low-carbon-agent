@@ -18,6 +18,70 @@ except Exception:
     import logging
     _logger = logging.getLogger("llm")
 
+
+# ========== P6.G: LLM_MOCK 开关 ==========
+# LLM_MOCK=true  → 强制走 mock(即使 API key 已配好,也不调真实 API)
+# LLM_MOCK=false → 强制真实 API
+# LLM_MOCK=auto  → 默认(client 未配时 mock,配了真调)
+#
+# 用法:  pytest / dev / CI    →  LLM_MOCK=true python main.py
+#       生产                   →  LLM_MOCK=false(或 unset)
+#       单元测试              →  LLM_MOCK=true pytest
+# 价值:
+#   - 单元测试不依赖真实 API(稳定 + 0 成本)
+#   - 开发时不烧 API 配额
+#   - CI 跑全量测试不卡
+#   - 同一份代码 + 不同 env = 不同行为
+
+LLM_MOCK_VALUES = {"true", "false", "auto", "1", "0", "yes", "no", "on", "off", ""}
+
+
+def is_mock_mode() -> bool:
+    """
+    P6.G: 检查是否处于 mock 模式
+
+    规则:
+      LLM_MOCK=true/1/yes/on  → True
+      LLM_MOCK=false/0/no/off → False(强制真实 API,即使 client 没配也会失败)
+      LLM_MOCK=auto / 未设      → 取决于客户端是否配好(client None 时 mock,否则真调)
+    """
+    val = os.environ.get("LLM_MOCK", "auto").strip().lower()
+    if val in ("true", "1", "yes", "on"):
+        return True
+    if val in ("false", "0", "no", "off"):
+        return False
+    return None  # auto
+
+
+def should_use_mock(client) -> bool:
+    """
+    P6.G: 决定 chat() 是否走 mock 路径
+
+    参数:
+        client: LLM client 实例
+        (检查 .client / ._client / ._access_token 任一字段是否为 None)
+    """
+    mock_mode = is_mock_mode()
+    if mock_mode is True:
+        return True
+    if mock_mode is False:
+        return False
+    # auto: 检查常见"配置"字段
+    for attr in ("client", "_client", "_access_token"):
+        inner = getattr(client, attr, None)
+        if inner is not None:
+            return False
+    return True  # 全 None → mock
+
+
+def log_mock_decision(provider: str, used_mock: bool) -> None:
+    """记录 mock 决策(便于诊断)"""
+    val = os.environ.get("LLM_MOCK", "auto")
+    _logger.info(
+        "[LLM] provider=%s mock_mode=%s used_mock=%s",
+        provider, val, used_mock,
+    )
+
 # Windows UTF-8 encoding setup - only if not already done
 if sys.platform == 'win32' and hasattr(sys.stdout, 'buffer'):
     try:
@@ -115,9 +179,14 @@ class OpenAIClient(LLMClient):
     
     def chat(self, messages: List[Dict[str, str]]) -> LLMResponse:
         """发送聊天请求"""
+        # P6.G: LLM_MOCK 开关(强 mock)
+        if should_use_mock(self):
+            log_mock_decision("OpenAI", True)
+            return self._mock_response(messages)
+        # auto + client 未配 → mock(原行为)
         if self.client is None:
             return self._mock_response(messages)
-        
+
         try:
             response = self.client.chat.completions.create(
                 model=self.model,

@@ -48,6 +48,40 @@ project_root = script_path.parent.parent.parent
 _logger = get_logger("llm.client")
 
 
+# ========== P6.G: LLM_MOCK 开关(与 src/llm/__init__.py 同步) ==========
+def _is_mock_mode_env() -> bool | None:
+    """LLM_MOCK=true/1/yes/on → True; false/0/no/off → False; auto/未设 → None"""
+    val = os.environ.get("LLM_MOCK", "auto").strip().lower()
+    if val in ("true", "1", "yes", "on"):
+        return True
+    if val in ("false", "0", "no", "off"):
+        return False
+    return None
+
+
+def _should_use_mock(client) -> bool:
+    """P6.G: 决定 chat() 是否走 mock
+    LLM_MOCK=true → 强 mock
+    LLM_MOCK=false → 强真实(即使 client 没配也会失败)
+    LLM_MOCK=auto → 检查常见配置字段,全 None 走 mock
+    """
+    mode = _is_mock_mode_env()
+    if mode is True:
+        return True
+    if mode is False:
+        return False
+    # auto
+    for attr in ("client", "_client", "_access_token"):
+        if getattr(client, attr, None) is not None:
+            return False
+    return True
+
+
+def _log_mock_decision(provider: str, used_mock: bool) -> None:
+    _logger.info("[LLM] provider=%s LLM_MOCK=%s used_mock=%s",
+                 provider, os.environ.get("LLM_MOCK", "auto"), used_mock)
+
+
 def _provider_name(cls_name: str) -> str:
     """OpenAIClient -> openai, MockLLMClient -> mock"""
     return cls_name.replace("Client", "").lower()
@@ -282,6 +316,10 @@ class OpenAIClient(LLMClient):
     def chat(self, messages: List[Dict[str, str]], **kwargs) -> LLMResponse:
         """发送对话请求 (P5-A.2: 返回 LLMResponse, P5-B: 注入 trace_id + 记录 metrics)"""
         trace_id = kwargs.pop("trace_id", None) or new_trace_id()
+        # P6.G: LLM_MOCK=true 强制 mock
+        if _should_use_mock(self):
+            _log_mock_decision("OpenAI", True)
+            return self._mock_response(messages, trace_id=trace_id)
         if not self._client:
             return self._mock_response(messages, trace_id=trace_id)
         return self._call_openai_sdk(messages, kwargs, error_label="OpenAI", trace_id=trace_id)
@@ -353,6 +391,10 @@ class ZhipuClient(LLMClient):
     def chat(self, messages: List[Dict[str, str]], **kwargs) -> LLMResponse:
         """发送对话请求 (P5-A.2: 返回 LLMResponse, P5-B: 注入 trace_id + 记录 metrics)"""
         trace_id = kwargs.pop("trace_id", None) or new_trace_id()
+        # P6.G: LLM_MOCK=true 强制 mock
+        if _should_use_mock(self):
+            _log_mock_decision("Zhipu", True)
+            return self._mock_response(messages, trace_id=trace_id)
         if not self._client:
             return self._mock_response(messages, trace_id=trace_id)
         return self._call_openai_sdk(messages, kwargs, error_label="智谱AI", trace_id=trace_id)
@@ -399,6 +441,10 @@ class BaiduClient(LLMClient):
         timeout_s = _llm_timeout()
         max_retries = _llm_max_retries()
 
+        # P6.G: LLM_MOCK=true 强制 mock
+        if _should_use_mock(self):
+            _log_mock_decision("Baidu", True)
+            return self._mock_response(messages, trace_id=trace_id)
         if not self._access_token:
             return self._mock_response(messages, trace_id=trace_id)
 
@@ -526,6 +572,10 @@ class AliClient(LLMClient):
     def chat(self, messages: List[Dict[str, str]], **kwargs) -> LLMResponse:
         """发送对话请求 (P5-A.2: 返回 LLMResponse, P5-B: 注入 trace_id + 记录 metrics)"""
         trace_id = kwargs.pop("trace_id", None) or new_trace_id()
+        # P6.G: LLM_MOCK=true 强制 mock
+        if _should_use_mock(self):
+            _log_mock_decision("Ali", True)
+            return self._mock_response(messages, trace_id=trace_id)
         if not self._client:
             return self._mock_response(messages, trace_id=trace_id)
         return self._call_openai_sdk(messages, kwargs, error_label="阿里通义千问", trace_id=trace_id)
@@ -581,6 +631,10 @@ class MiniMaxClient(LLMClient):
         start = time.time()
         timeout_s = _llm_timeout()
 
+        # P6.G: LLM_MOCK=true 强制 mock
+        if _should_use_mock(self):
+            _log_mock_decision("MiniMax", True)
+            return self._mock_response(messages, trace_id=trace_id)
         if not self._client:
             return self._mock_response(messages, trace_id=trace_id)
 
@@ -719,6 +773,10 @@ class DeepSeekClient(LLMClient):
     def chat(self, messages: List[Dict[str, str]], **kwargs) -> LLMResponse:
         """发送对话请求 (P5-A.2: 返回 LLMResponse, P5-B: 注入 trace_id + 记录 metrics)"""
         trace_id = kwargs.pop("trace_id", None) or new_trace_id()
+        # P6.G: LLM_MOCK=true 强制 mock
+        if _should_use_mock(self):
+            _log_mock_decision("DeepSeek", True)
+            return self._mock_response(messages, trace_id=trace_id)
         if not self._client:
             return self._mock_response(messages, trace_id=trace_id)
         return self._call_openai_sdk(messages, kwargs, error_label="DeepSeek", trace_id=trace_id)
