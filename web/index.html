@@ -2448,7 +2448,11 @@
 
                 const response = await fetch(endpoint, {
                     method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
+                    headers: {
+                        'Content-Type': 'application/json',
+                        // P6.S.2 fix: 已登录用户带 Bearer token,不然 /api/chat/enhanced 返 401
+                        ...(sessionId ? { 'Authorization': 'Bearer ' + sessionId } : {})
+                    },
                     body: JSON.stringify({
                         user_id: effectiveUserId,
                         message: message,

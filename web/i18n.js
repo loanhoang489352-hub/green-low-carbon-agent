@@ -114,9 +114,9 @@
     wrap.id = "lang-switcher";
     wrap.style.cssText = [
       "position:fixed",
-      "top:12px",
-      "right:12px",
-      "z-index:9999",
+      "top:20px",
+      "right:130px",  // P6.S.2 fix: 让出设置按钮(api-key-btn 在 right:20px)
+      "z-index:99",   // 比设置按钮(z-index:100)低,防止遮挡
       "background:rgba(255,255,255,0.95)",
       "border-radius:20px",
       "padding:4px 10px",
