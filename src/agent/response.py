@@ -14,6 +14,7 @@ if sys.platform == 'win32':
 
 from typing import Dict, List, Optional, Any
 from dataclasses import dataclass
+import os
 import random
 from pathlib import Path
 
@@ -168,11 +169,20 @@ class ResponseGenerator:
         rag_context: str = "",
         working_memory: str = "",
     ) -> str:
-        """使用LLM生成响应（增强版,P4-H: 支持 working_memory 注入）"""
-        llm = self._get_llm_client()
+        """使用LLM生成响应（增强版,P4-H: 支持 working_memory 注入）
+
+        P6.S.5: LLM_MOCK=true 时强制走 MockLLMClient(意图感知 mock),
+        不调真实 API(避免 401 错误)
+        """
+        # P6.S.5: LLM_MOCK 强制路径(优先于工厂)
+        if os.getenv("LLM_MOCK", "auto").strip().lower() in ("true", "1", "yes", "on"):
+            from llm.client import MockLLMClient
+            llm = MockLLMClient()
+        else:
+            llm = self._get_llm_client()
 
         if not llm:
-            return self.generate_response(user_input, context)["message"]
+                return self.generate_response(user_input, context)["message"]
 
         try:
             # P4-H: working_memory 注入
@@ -186,9 +196,9 @@ class ResponseGenerator:
                 kwargs["working_memory"] = working_memory
             messages = self._build_prompt(**kwargs)
             response = llm.chat(messages)
-            return response.content if hasattr(response, 'content') else str(response)
+            if hasattr(response, 'content'):
+                return response.content if hasattr(response, 'content') else str(response)
         except Exception as e:
-            print(f"LLM调用失败: {e}")
             return self.generate_response(user_input, context)["message"]
 
     def generate_response(

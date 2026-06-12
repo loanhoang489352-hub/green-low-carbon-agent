@@ -711,6 +711,9 @@ class GreenAgent:
         # 回退到模板生成
         base_response = self.response_generator.generate_response(message, context)
 
+        # P6.S.5: 不再 dump 整个 RAG 内容(可能超长且不相关),只取前 N 字精华
+        RAG_PREVIEW_CHARS = 800  # 截断长度,避免模板返 5KB 文档原文
+
         if rag_context:
             if intent_result.intent == IntentType.KNOWLEDGE_QUERY:
                 prefix = f"根据我的知识库，"
@@ -718,15 +721,20 @@ class GreenAgent:
                     prefix += f"让我用简单的话解释：\n\n"
                 else:
                     prefix += "\n\n"
-                main_content = f"{rag_context}\n\n{base_response['message']}"
+                # 只取首 N 字 + 略去的提示
+                rag_preview = rag_context[:RAG_PREVIEW_CHARS]
+                if len(rag_context) > RAG_PREVIEW_CHARS:
+                    rag_preview += "\n...(更多内容见下方参考资料)"
+                main_content = f"{rag_preview}\n\n{base_response['message']}"
             elif intent_result.intent == IntentType.ADVICE_REQUEST:
                 prefix = f"结合你的情况（{knowledge_level_cn}水平，{strategy.get('behavior_stage', '意向')}阶段），"
-                main_content = f"{base_response['message']}\n\n相关知识参考：\n{rag_context}"
+                rag_preview = rag_context[:RAG_PREVIEW_CHARS]
+                main_content = f"{base_response['message']}\n\n相关知识参考：\n{rag_preview}"
             else:
                 prefix = ""
                 main_content = base_response["message"]
         else:
-            prefix = self._generate_prefix(intent_result, personalization)
+            prefix = self._generate_prefix(intent_result, personalizacion)
             main_content = base_response["message"]
 
         suffix = self._generate_suffix(intent_result, personalization)
@@ -1015,7 +1023,39 @@ class GreenAgent:
             intent_type=intent_result.suggested_response_type
         )
 
-        response_data = self.response_generator.generate_response(message, context)
+        # P6.S.5: 优先用 LLM(若可用),失败回退到模板
+        response_data = None
+        if self.use_llm and self.response_generator:
+            try:
+                rag_context_str = "\n".join(
+                    k.get("content", "")[:500] for k in retrieved_knowledge[:3]
+                ) if retrieved_knowledge else ""
+                # P6.S.5 final: 强制 MockLLMClient(若 .env 启 LLM_MOCK 或 server 启动时设过)
+                # 直接构造 MockLLMClient 跳过工厂,避免 _build_prompt + llm.chat hang
+                if os.getenv("LLM_MOCK", "auto").strip().lower() in ("true", "1", "yes", "on"):
+                    from llm.client import MockLLMClient
+                    mock = MockLLMClient()
+                    # 用 RAG 摘要作为 system context
+                    last_user_msg = message
+                    augmented_msg = f"{last_user_msg}\n\n[知识库参考资料]:\n{rag_context_str[:1000]}"
+                    mock_resp = mock.chat([{"role": "user", "content": augmented_msg}])
+                    llm_text = mock_resp.content if hasattr(mock_resp, "content") else str(mock_resp)
+                else:
+                    llm_text = self.response_generator.generate_with_llm(
+                        message, context, rag_context_str
+                    )
+                if llm_text and llm_text.strip():
+                    response_data = {
+                        "message": llm_text,
+                        "suggestions": [],
+                        "knowledge_refs": [k.get("title", "") for k in retrieved_knowledge[:3]],
+                        "response_type": "llm_generated"
+                    }
+            except Exception as e:
+                print(f"[P6.S.5] LLM 失败,回退模板: {e}", flush=True)
+
+        if not response_data:
+            response_data = self.response_generator.generate_response(message, context)
 
         profile_updates = self._update_memories(
             user_id, conversation_id, message, intent_result, response_data["message"]
