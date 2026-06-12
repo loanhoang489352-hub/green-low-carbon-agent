@@ -63,6 +63,10 @@ def _get_module(name):
         elif name == 'helpers':
             from utils.helpers import create_response_structure, get_current_datetime
             _imported_modules[name] = (create_response_structure, get_current_datetime)
+        elif name == 'tools':
+            # P6.S.3: 工具集(TravelPlanningTool 等)懒加载
+            from agent.tools.extended import TravelPlanningTool
+            _imported_modules[name] = TravelPlanningTool
     return _imported_modules.get(name)
 
 
@@ -78,6 +82,7 @@ class AgentResponse:
     profile_updates: Dict = field(default_factory=dict)
     timestamp: str = ""
     personalization_info: Dict = field(default_factory=dict)
+    tool_result: Optional[Dict] = None  # P6.S.3: 工具调用结果(地图+天气+碳排)
 
 
 @dataclass
@@ -776,6 +781,166 @@ class GreenAgent:
 
     # ========== 基础聊天 (保持向后兼容) ==========
 
+    def _handle_travel_planning(self, user_id, message, conversation_id, intent_result):
+        """P6.S.3: 出行规划专用流程 — 调高德地图 + 天气 + 碳排对比
+
+        提取 origin/destination → 调 TravelPlanningTool → 返结构化结果
+        若提取不到 origin/destination,降级为 advice(让用户补充)
+        """
+        import re
+        from utils.helpers import get_current_datetime
+
+        TravelPlanningTool = _get_module('tools')
+
+        # 1) 提取 origin / destination(P6.S.3 改进:更鲁棒,覆盖更多句式)
+        #    优先匹配: 从X到Y / 从X去Y / X到Y / X去Y / 去Y / 到Y
+        import re as _re
+        origin = None
+        destination = None
+
+        # 模式 1: "从A到B" 或 "从A去B" — 都有明确出发地
+        m = _re.search(r'从\s*([^到去,,,?？\s]+)\s*[到去]\s*([^,,,?？\s]+)', message)
+        if m:
+            origin = m.group(1).strip()
+            destination = m.group(2).strip()
+        else:
+            # 模式 2: "A到B" 或 "A去B" (无"从"),A 需 ≥3 字(排除"明天/现在/今天"等时间词)
+            m = _re.search(r'([^到去,,,?？\s]{3,15})\s*[到去]\s*([^,,,?？\s]{2,15})', message)
+            if m:
+                origin = m.group(1).strip()
+                destination = m.group(2).strip()
+            else:
+                # 模式 3: "去A" / "到A" — 只有目的地,出发地默认"当前位置"
+                m = _re.search(r'(?:去|到)\s*([^,,,?？\s]{2,15})', message)
+                if m:
+                    origin = "当前位置"
+                    destination = m.group(1).strip()
+
+        # 清理 destination 尾部的修饰词(长的先匹配,避免 "最环保" 被 "怎么走" 漏掉)
+        if destination:
+            for tail in [
+                "怎么走最环保", "怎么坐最环保", "最环保的方式", "低碳出行", "环保出行", "绿色出行",
+                "怎么走", "怎么坐", "怎么去", "怎么",
+                "几点出发", "多久到", "多久", "多长",
+                "最环保", "最绿色", "最省时", "最快",
+                "出行", "规划", "路线", "坐公交", "坐地铁", "打车",
+            ]:
+                if destination.endswith(tail):
+                    destination = destination[:-len(tail)].strip()
+                    break  # 一次只剥一个,重新进入下一轮
+            # 也清掉"去/到"尾巴
+            for tail in ["去", "到"]:
+                if destination.endswith(tail):
+                    destination = destination[:-len(tail)].strip()
+
+        # 清理 origin 同理
+        if origin and origin != "当前位置":
+            for tail in ["出发", "出发地"]:
+                if origin.endswith(tail):
+                    origin = origin[:-len(tail)].strip()
+
+        # 2) 提取不到完整信息 — 返澄清问题
+        if not origin or not destination:
+            return AgentResponse(
+                message="要帮你规划出行,需要知道 **出发地** 和 **目的地** 哦。\n\n试试这样说:\n• 从北京西单到国贸怎么走\n• 从家到公司坐公交多久\n• 明天去国贸",
+                conversation_id=conversation_id,
+                intent="travel_planning",
+                suggestions=[
+                    "从家到公司怎么走",
+                    "从北京西单到国贸,坐地铁多久",
+                    "从公司到机场,最环保的方式"
+                ],
+                timestamp=get_current_datetime()
+            )
+
+        # 2) 调工具
+        try:
+            tool = TravelPlanningTool()
+            result = tool.execute(origin=origin, destination=destination, mode="all")
+        except Exception as e:
+            return AgentResponse(
+                message=f"出行规划工具调用失败: {type(e).__name__}: {str(e)[:200]}",
+                conversation_id=conversation_id,
+                intent="travel_planning",
+                suggestions=["试试其它交通方式", "查询附近公交站"],
+                timestamp=get_current_datetime()
+            )
+
+        # 3) 格式化响应
+        if not result.success:
+            # 工具调用失败(可能没高德 API key) — 降级给 RAG 建议
+            return AgentResponse(
+                message=f"⚠️ {result.error or '路线查询失败'}\n\n"
+                        f"💡 既然你要去 **{destination}**,以下是一些通用建议:\n"
+                        f"• 优先选公交/地铁(碳排约为私家车的 1/5)\n"
+                        f"• 短途(<5km) 骑行或步行最环保\n"
+                        f"• 长途选高铁优于飞机(碳排约 1/4)",
+                conversation_id=conversation_id,
+                intent="travel_planning",
+                suggestions=["查询附近公交站", "推荐低碳餐厅", "电动车充电桩位置"],
+                tool_result={"origin": origin, "destination": destination, "error": result.error},
+                timestamp=get_current_datetime()
+            )
+
+        # 4) 成功 — 格式化路线
+        data = result.data
+        routes = data.get("routes", [])
+        weather = data.get("weather", {})
+        recommended = data.get("recommended", {})
+
+        # 格式化路线(注意:实际 key 是 'type' 不是 'mode')
+        route_lines = []
+        for i, r in enumerate(routes[:5], 1):
+            route_lines.append(
+                f"{i}. **{r.get('type', r.get('mode', '?'))}** — {r.get('distance_km', '?')}km, "
+                f"约 {r.get('duration_min', '?')} 分钟, 碳排 {r.get('carbon_kg', '?')} kg, "
+                f"¥{r.get('cost_yuan', '?')}"
+            )
+        route_text = "\n".join(route_lines) if route_lines else "(暂无路线数据)"
+
+        # 推荐路线(注意:实际 key 是 'type' 不是 'mode')
+        rec_text = ""
+        if recommended:
+            rec_text = (f"\n\n🌟 **推荐:{recommended.get('type', recommended.get('mode', '?'))}** "
+                        f"(综合评分 {recommended.get('score', '?')}/10)\n"
+                        f"理由: {recommended.get('reason', '碳排最优')}")
+
+        # 天气(注意:实际 key 是 'temp_c' 不是 'temp')
+        weather_text = ""
+        if weather:
+            w = weather
+            weather_text = (f"\n\n🌤️ 天气:{w.get('description', '?')}, "
+                            f"温度 {w.get('temp_c', w.get('temp', '?'))}°C, "
+                            f"骑行适宜度 {'✅' if w.get('cycling_ok', True) else '⚠️ 不建议'}")
+
+        message_text = (
+            f"🚲 **{origin} → {destination}** 低碳出行方案:\n\n"
+            f"{route_text}"
+            f"{rec_text}"
+            f"{weather_text}\n\n"
+            f"💡 优先选 **碳排最低** 的方式,环保又健康!"
+        )
+
+        # 5) 持久化(记忆 + 对话)
+        try:
+            self._increment_conversation_count(user_id)
+            self._save_conversation(conversation_id, user_id, message, message_text)
+        except Exception:
+            pass  # 不阻塞主流程
+
+        return AgentResponse(
+            message=message_text,
+            conversation_id=conversation_id,
+            intent="travel_planning",
+            suggestions=[
+                "查询附近公交站",
+                f"推荐 {destination} 附近的低碳餐厅",
+                "电动车充电桩位置"
+            ],
+            tool_result=data,  # 完整结构化数据给前端用
+            timestamp=get_current_datetime()
+        )
+
     def chat(self, user_id: str, message: str, conversation_id: str = None) -> 'AgentResponse':
         """处理用户对话（基础版）"""
         IntentRecognizer, IntentType, IntentResult = _get_module('intent')
@@ -788,6 +953,12 @@ class GreenAgent:
         conversation.last_updated = get_current_datetime()
 
         intent_result = self.intent_recognizer.recognize(message)
+
+        # P6.S.3: 出行规划走工具调用(高德地图 + 天气 + 碳排对比)
+        if intent_result.intent == IntentType.TRAVEL_PLANNING:
+            return self._handle_travel_planning(
+                user_id, message, conversation_id, intent_result
+            )
 
         if self.web_searcher and self.web_searcher.is_realtime_query(message):
             realtime_response = self.web_searcher.get_realtime_response(message)

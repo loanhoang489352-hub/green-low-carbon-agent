@@ -17,10 +17,13 @@ def register_chat_routes(registry) -> None:
             raise APIError("BAD_REQUEST", "Message is required")
 
         response = handler.agent.chat(user_id, message, conversation_id)
+        # P6.S.3: 完整序列化(含 tool_result 让前端可渲染地图/天气/路线)
         handler.send_json({
             "message": response.message,
             "conversation_id": response.conversation_id,
             "intent": response.intent if hasattr(response, "intent") else None,
+            "suggestions": response.suggestions if hasattr(response, "suggestions") else [],
+            "tool_result": response.tool_result if hasattr(response, "tool_result") else None,
         })
 
     def chat_enhanced(handler, data):

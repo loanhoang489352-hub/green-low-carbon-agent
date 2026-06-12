@@ -18,6 +18,7 @@ class IntentType(Enum):
     SUGGESTION_ACCEPT = "suggestion_accept"   # 采纳建议
     SUGGESTION_REJECT = "suggestion_reject"  # 拒绝建议
     QUESTION = "question"                    # 一般问题
+    TRAVEL_PLANNING = "travel_planning"      # P6.S.3: 出行规划 — 调地图+天气
     UNKNOWN = "unknown"                      # 未知
 
 
@@ -68,6 +69,14 @@ class IntentRecognizer:
         IntentType.SUGGESTION_REJECT: [
             "算了", "不要", "不想", "不合适", "太麻烦", "太复杂",
             "不需要", "不需要", "再说吧", "改天", "不了"
+        ],
+        # P6.S.3: 出行规划 — 与 ADVICE_REQUEST 区别是会调工具
+        IntentType.TRAVEL_PLANNING: [
+            "出行计划", "出行规划", "规划出行", "行程规划", "路线规划",
+            "怎么去", "怎么走", "怎么到", "如何去", "如何走", "如何到",
+            "公交路线", "地铁路线", "驾车路线", "骑行路线",
+            "最环保", "最绿色", "最节能", "最省时", "最快",
+            "查路线", "查地图", "查导航", "查路况"
         ]
     }
     
@@ -80,6 +89,27 @@ class IntentRecognizer:
         "时间相关": ["今天", "昨天", "明天", "每天", "经常", "偶尔", "最近", "平时"],
         "政策相关": ["补贴", "政策", "碳市场", "碳积分", "奖励", "优惠", "减税"]
     }
+
+    # P6.S.3: 出行规划意图关键词(高多样性,保证命中率)
+    TRAVEL_KEYWORDS = [
+        # 直接规划
+        "出行计划", "出行规划", "规划出行", "行程规划", "路线规划",
+        "怎么去", "怎么走", "怎么到", "如何去", "如何走", "如何到",
+        "去", "到", "出发", "去往", "前往", "去到", "到达",
+        # 路线
+        "路线", "路径", "导航", "地图", "路况",
+        # 交通方式
+        "公交", "地铁", "打车", "网约车", "出租车", "驾车", "开车", "骑车", "骑行",
+        "自行车", "步行", "走路", "拼车", "顺风车",
+        # 时间
+        "几点出发", "多久能到", "几小时", "多长时间", "路上要多久", "路上花多久",
+        # 碳排
+        "碳排放", "碳排", "低碳出行", "环保出行", "绿色出行", "最环保", "最绿色", "最节能",
+        # 地名/位置(常见)
+        "公司", "家", "学校", "机场", "火车站", "地铁站", "商场", "餐厅", "医院",
+        # 模糊表达
+        "出去", "去玩", "出门", "去办事", "去上班", "去上学"
+    ]
     
     # 低碳领域关键词
     LOW_CARBON_KEYWORDS = [
@@ -142,14 +172,21 @@ class IntentRecognizer:
                     score += 1
             if score > 0:
                 scores[intent_type] = score / len(patterns)
-        
+
+        # P6.S.3: 出行规划优先级提升 — 任何 TRAVEL_KEYWORDS 命中即优先
+        travel_hits = sum(1 for kw in self.TRAVEL_KEYWORDS if kw in text)
+        if travel_hits > 0:
+            # 若已匹配到其他意图且 travel 命中 ≥ 1, 覆盖为 TRAVEL_PLANNING
+            # 这样"明天去西单怎么走"会被识别为 travel,而不是 advice
+            scores[IntentType.TRAVEL_PLANNING] = scores.get(IntentType.TRAVEL_PLANNING, 0) + 0.3 + travel_hits * 0.1
+
         if not scores:
             return IntentType.UNKNOWN, 0.5
-        
+
         # 返回得分最高的意图
         best_intent = max(scores, key=scores.get)
         confidence = min(scores[best_intent] * 2, 1.0)  # 归一化置信度
-        
+
         return best_intent, confidence
     
     def _extract_entities(self, text: str) -> List[str]:
@@ -178,6 +215,7 @@ class IntentRecognizer:
             IntentType.SUGGESTION_ACCEPT: "positive",
             IntentType.SUGGESTION_REJECT: "alternative",
             IntentType.QUESTION: "knowledge",
+            IntentType.TRAVEL_PLANNING: "tool_call",  # P6.S.3: 触发工具调用
             IntentType.UNKNOWN: "clarification"
         }
 
