@@ -5,6 +5,7 @@
 """
 
 import sqlite3
+from db.connection import get_connection  # P6.P.2: 用池替裸 connect
 import json
 from typing import Dict, List, Any, Optional
 from pathlib import Path
@@ -124,9 +125,7 @@ class UserProfileManager:
 
     def _init_database(self):
         """初始化数据库"""
-        conn = sqlite3.connect(str(self.db_path))
-        conn.execute("PRAGMA busy_timeout=5000")
-        conn.execute("PRAGMA journal_mode=WAL")
+        conn = get_connection(str(self.db_path))
         cursor = conn.cursor()
 
         cursor.execute("""
@@ -143,7 +142,7 @@ class UserProfileManager:
         try:
             conn.commit()
         finally:
-            conn.close()
+            pass  # conn 池 60s TTL 自动关
 
     def _get_default_profile(self, user_id: str) -> Dict[str, Any]:
         """获取默认画像"""
@@ -206,10 +205,8 @@ class UserProfileManager:
 
     def create_profile(self, user_id: str, profile_data: Dict[str, Any] = None):
         """创建新用户画像"""
-        conn = sqlite3.connect(str(self.db_path))
-        # P6.P.2 fix: 写连接也设 busy_timeout(并发请求不会立刻 SQLITE_BUSY)
-        conn.execute("PRAGMA busy_timeout=5000")
-        conn.execute("PRAGMA journal_mode=WAL")
+        conn = get_connection(str(self.db_path))
+        # P6.P.2: 池已设 busy_timeout + WAL,无需再设
         cursor = conn.cursor()
 
         try:
@@ -232,7 +229,7 @@ class UserProfileManager:
 
             conn.commit()
         finally:
-            conn.close()
+            pass  # conn 池 60s TTL 自动关
 
         if user_id in self._profile_cache:
             del self._profile_cache[user_id]
@@ -242,16 +239,14 @@ class UserProfileManager:
         if user_id in self._profile_cache:
             return self._profile_cache[user_id]
 
-        conn = sqlite3.connect(str(self.db_path))
-        conn.execute("PRAGMA busy_timeout=5000")
-        conn.execute("PRAGMA journal_mode=WAL")
+        conn = get_connection(str(self.db_path))
         cursor = conn.cursor()
 
         try:
             cursor.execute("SELECT profile_data FROM user_profiles WHERE user_id = ?", (user_id,))
             row = cursor.fetchone()
         finally:
-            conn.close()
+            pass  # conn 池 60s TTL 自动关
 
         if row is None:
             self.create_profile(user_id)
@@ -279,9 +274,7 @@ class UserProfileManager:
 
         profile["updated_at"] = datetime.now().isoformat()
 
-        conn = sqlite3.connect(str(self.db_path))
-        conn.execute("PRAGMA busy_timeout=5000")
-        conn.execute("PRAGMA journal_mode=WAL")
+        conn = get_connection(str(self.db_path))
         cursor = conn.cursor()
 
         cursor.execute("""
@@ -294,7 +287,7 @@ class UserProfileManager:
         try:
             conn.commit()
         finally:
-            conn.close()
+            pass  # conn 池 60s TTL 自动关
 
         if user_id in self._profile_cache:
             del self._profile_cache[user_id]
@@ -316,9 +309,7 @@ class UserProfileManager:
 
         profile["updated_at"] = datetime.now().isoformat()
 
-        conn = sqlite3.connect(str(self.db_path))
-        conn.execute("PRAGMA busy_timeout=5000")
-        conn.execute("PRAGMA journal_mode=WAL")
+        conn = get_connection(str(self.db_path))
         cursor = conn.cursor()
 
         cursor.execute("""
@@ -331,7 +322,7 @@ class UserProfileManager:
         try:
             conn.commit()
         finally:
-            conn.close()
+            pass  # conn 池 60s TTL 自动关
 
         if user_id in self._profile_cache:
             del self._profile_cache[user_id]
@@ -369,9 +360,7 @@ class UserProfileManager:
         # P4-C.2: 同步到画像图谱
         profile["graph"] = self._sync_profile_to_graph(profile, eco_updates)
 
-        conn = sqlite3.connect(str(self.db_path))
-        conn.execute("PRAGMA busy_timeout=5000")
-        conn.execute("PRAGMA journal_mode=WAL")
+        conn = get_connection(str(self.db_path))
         cursor = conn.cursor()
 
         cursor.execute("""
@@ -384,7 +373,7 @@ class UserProfileManager:
         try:
             conn.commit()
         finally:
-            conn.close()
+            pass  # conn 池 60s TTL 自动关
 
         if user_id in self._profile_cache:
             del self._profile_cache[user_id]
@@ -446,9 +435,7 @@ class UserProfileManager:
         profile["behavior_profile"] = behavior_profile
         profile["updated_at"] = datetime.now().isoformat()
 
-        conn = sqlite3.connect(str(self.db_path))
-        conn.execute("PRAGMA busy_timeout=5000")
-        conn.execute("PRAGMA journal_mode=WAL")
+        conn = get_connection(str(self.db_path))
         cursor = conn.cursor()
 
         cursor.execute("""
@@ -461,7 +448,7 @@ class UserProfileManager:
         try:
             conn.commit()
         finally:
-            conn.close()
+            pass  # conn 池 60s TTL 自动关
 
         if user_id in self._profile_cache:
             del self._profile_cache[user_id]
@@ -513,9 +500,7 @@ class UserProfileManager:
         profile["preference_learning"] = pref_learning
         profile["updated_at"] = datetime.now().isoformat()
 
-        conn = sqlite3.connect(str(self.db_path))
-        conn.execute("PRAGMA busy_timeout=5000")
-        conn.execute("PRAGMA journal_mode=WAL")
+        conn = get_connection(str(self.db_path))
         cursor = conn.cursor()
 
         cursor.execute("""
@@ -528,7 +513,7 @@ class UserProfileManager:
         try:
             conn.commit()
         finally:
-            conn.close()
+            pass  # conn 池 60s TTL 自动关
 
         if user_id in self._profile_cache:
             del self._profile_cache[user_id]
@@ -573,9 +558,7 @@ class UserProfileManager:
         profile["last_interaction"] = datetime.now().isoformat()
         profile["updated_at"] = datetime.now().isoformat()
 
-        conn = sqlite3.connect(str(self.db_path))
-        conn.execute("PRAGMA busy_timeout=5000")
-        conn.execute("PRAGMA journal_mode=WAL")
+        conn = get_connection(str(self.db_path))
         cursor = conn.cursor()
 
         cursor.execute("""
@@ -588,7 +571,7 @@ class UserProfileManager:
         try:
             conn.commit()
         finally:
-            conn.close()
+            pass  # conn 池 60s TTL 自动关
 
         if user_id in self._profile_cache:
             del self._profile_cache[user_id]
@@ -597,10 +580,8 @@ class UserProfileManager:
 
     def update_conversation_count(self, user_id: str):
         """更新对话计数"""
-        conn = sqlite3.connect(str(self.db_path))
-        # P6.P.2 fix: 写连接也设 busy_timeout + try/finally(避免 get_profile 失败时锁泄漏)
-        conn.execute("PRAGMA busy_timeout=5000")
-        conn.execute("PRAGMA journal_mode=WAL")
+        conn = get_connection(str(self.db_path))
+        # P6.P.2: 池已设 busy_timeout + WAL,无需再设
         cursor = conn.cursor()
         try:
             cursor.execute("""
@@ -623,7 +604,7 @@ class UserProfileManager:
 
             conn.commit()
         finally:
-            conn.close()
+            pass  # conn 池 60s TTL 自动关
 
         if user_id in self._profile_cache:
             del self._profile_cache[user_id]
@@ -929,9 +910,7 @@ class UserProfileManager:
         profile["onboarding_step"] = 8
         profile["updated_at"] = datetime.now().isoformat()
 
-        conn = sqlite3.connect(str(self.db_path))
-        conn.execute("PRAGMA busy_timeout=5000")
-        conn.execute("PRAGMA journal_mode=WAL")
+        conn = get_connection(str(self.db_path))
         cursor = conn.cursor()
 
         cursor.execute("""
@@ -944,7 +923,7 @@ class UserProfileManager:
         try:
             conn.commit()
         finally:
-            conn.close()
+            pass  # conn 池 60s TTL 自动关
 
         if user_id in self._profile_cache:
             del self._profile_cache[user_id]
@@ -957,24 +936,20 @@ class UserProfileManager:
 
     def get_all_profiles(self) -> List[Dict]:
         """获取所有用户画像"""
-        conn = sqlite3.connect(str(self.db_path))
-        conn.execute("PRAGMA busy_timeout=5000")
-        conn.execute("PRAGMA journal_mode=WAL")
+        conn = get_connection(str(self.db_path))
         cursor = conn.cursor()
 
         try:
             cursor.execute("SELECT user_id FROM user_profiles")
             rows = cursor.fetchall()
         finally:
-            conn.close()
+            pass  # conn 池 60s TTL 自动关
 
         return [self.get_profile(row[0]) for row in rows]
 
     def delete_profile(self, user_id: str) -> bool:
         """删除用户画像"""
-        conn = sqlite3.connect(str(self.db_path))
-        conn.execute("PRAGMA busy_timeout=5000")
-        conn.execute("PRAGMA journal_mode=WAL")
+        conn = get_connection(str(self.db_path))
         cursor = conn.cursor()
 
         cursor.execute("DELETE FROM user_profiles WHERE user_id = ?", (user_id,))
@@ -983,7 +958,7 @@ class UserProfileManager:
         try:
             conn.commit()
         finally:
-            conn.close()
+            pass  # conn 池 60s TTL 自动关
 
         if user_id in self._profile_cache:
             del self._profile_cache[user_id]
@@ -992,9 +967,7 @@ class UserProfileManager:
 
     def get_stats(self) -> Dict[str, Any]:
         """获取统计信息"""
-        conn = sqlite3.connect(str(self.db_path))
-        conn.execute("PRAGMA busy_timeout=5000")
-        conn.execute("PRAGMA journal_mode=WAL")
+        conn = get_connection(str(self.db_path))
         cursor = conn.cursor()
 
         try:
@@ -1004,7 +977,7 @@ class UserProfileManager:
             cursor.execute("SELECT SUM(conversation_count) FROM user_profiles")
             total_conversations = cursor.fetchone()[0] or 0
         finally:
-            conn.close()
+            pass  # conn 池 60s TTL 自动关
 
         return {
             "total_users": total_users,
