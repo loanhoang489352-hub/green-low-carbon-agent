@@ -74,6 +74,32 @@ def register_settings_routes(registry) -> None:
         except Exception:
             pass
 
+        # P6.S.6: 用户主动设了 key,自动 clear LLM_MOCK 让真 LLM 生效
+        if os.environ.get("LLM_MOCK", "").strip().lower() in ("true", "1", "yes", "on"):
+            os.environ["LLM_MOCK"] = "false"
+            try:
+                from server.app import PROJECT_ROOT
+                env_path = PROJECT_ROOT / ".env"
+                if env_path.exists():
+                    with open(env_path, "r", encoding="utf-8") as f2:
+                        env_lines = f2.readlines()
+                    new_env = []
+                    for ln in env_lines:
+                        if ln.strip().startswith("LLM_MOCK="):
+                            new_env.append("LLM_MOCK=false\n")
+                        else:
+                            new_env.append(ln)
+                    with open(env_path, "w", encoding="utf-8") as f2:
+                        f2.writelines(new_env)
+            except Exception:
+                pass
+            try:
+                from llm import reset_llm_client
+                reset_llm_client()
+            except Exception:
+                pass
+
+
         handler.send_json({
             "status": "saved",
             "message": "设置已保存",
