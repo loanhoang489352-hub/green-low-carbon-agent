@@ -143,12 +143,23 @@ class PolicyUpdater:
             CREATE INDEX IF NOT EXISTS idx_policies_category
             ON policies(category)
         """)
-        
+
         cursor.execute("""
             CREATE INDEX IF NOT EXISTS idx_policies_publish_date
             ON policies(publish_date)
         """)
-        
+
+        # P6.S.1: 源健康表(失败 backoff,避免港 IP 下每次重试 13 个 .gov.cn 都浪费 90s)
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS source_health (
+                source_name TEXT PRIMARY KEY,
+                consecutive_failures INTEGER DEFAULT 0,
+                last_error TEXT,
+                last_success TEXT,
+                next_retry_at TEXT
+            )
+        """)
+
         conn.commit()
         conn.close()
     
@@ -388,12 +399,17 @@ class PolicyUpdater:
         """
         检查政策更新(P4-E.3 增强:失败计入日志)
 
+        P6.S.1: 失败 backoff — 连续失败的源自动跳过一段时间,避免港 IP 下
+        13 个 .gov.cn 站都浪费 7s+ 的连接等待。backoff 1h/6h/24h 指数,
+        任意一次成功重置计数。
+
         Returns:
             更新报告
         """
         report = {
             "checked_at": datetime.now().isoformat(),
             "sources_checked": [],
+            "sources_skipped": [],  # P6.S.1
             "new_policies": 0,
             "updated_policies": 0,
             "errors": [],
@@ -402,6 +418,11 @@ class PolicyUpdater:
         for source in self.POLICY_SOURCES:
             source_name = source.get("name", "unknown")
             try:
+                # P6.S.1: 先看 backoff,跳过的源不计 errors
+                if self._is_source_in_backoff(source_name):
+                    report["sources_skipped"].append(f"{source_name} (backoff)")
+                    continue
+
                 last_check = self._get_last_check_time(source_name)
                 should_check = self._should_check_source(source, last_check)
 
@@ -409,11 +430,12 @@ class PolicyUpdater:
                     added, err = self._fetch_and_ingest(source)
                     self._record_check(source_name, added, "checked" if not err else "error")
                     if err:
+                        self._record_source_health(source_name, success=False, error=err)
                         report["errors"].append(f"{source_name}: {err}")
                         report["sources_checked"].append(f"{source_name} (失败: {err[:60]})")
-                        # 写 error 日志,让失败可追溯
                         self._log_update(source_name, status="error", error=err)
                     else:
+                        self._record_source_health(source_name, success=True)
                         report["new_policies"] += added
                         report["sources_checked"].append(f"{source_name} (新增 {added} 条)")
                 else:
@@ -421,10 +443,75 @@ class PolicyUpdater:
 
             except Exception as e:
                 err_msg = f"{source_name}: {type(e).__name__}: {str(e)[:120]}"
+                self._record_source_health(source_name, success=False, error=err_msg)
                 report["errors"].append(err_msg)
                 self._log_update(source_name, status="error", error=err_msg)
 
         return report
+
+    # ============== P6.S.1: 源健康 + backoff ==============
+
+    def _is_source_in_backoff(self, source_name: str) -> bool:
+        """检查源是否在 backoff 期(连续失败 N 次后跳过一段时间)"""
+        conn = sqlite3.connect(str(self.db_path))
+        cursor = conn.cursor()
+        cursor.execute(
+            "SELECT consecutive_failures, next_retry_at FROM source_health WHERE source_name = ?",
+            (source_name,),
+        )
+        row = cursor.fetchone()
+        conn.close()
+        if not row:
+            return False
+        failures, next_retry = row
+        if not failures or failures < 2:
+            return False
+        if not next_retry:
+            return False
+        try:
+            return datetime.now() < datetime.fromisoformat(next_retry)
+        except Exception:
+            return False
+
+    def _record_source_health(self, source_name: str, success: bool, error: str = None) -> None:
+        """记录源结果,更新 backoff 状态
+        backoff 阶梯:2 次失败→1h, 3 次→6h, 4+ 次→24h
+        """
+        conn = sqlite3.connect(str(self.db_path))
+        cursor = conn.cursor()
+        if success:
+            cursor.execute("""
+                INSERT INTO source_health (source_name, consecutive_failures, last_success, next_retry_at)
+                VALUES (?, 0, ?, NULL)
+                ON CONFLICT(source_name) DO UPDATE SET
+                    consecutive_failures = 0,
+                    last_success = excluded.last_success,
+                    next_retry_at = NULL
+            """, (source_name, datetime.now().isoformat()))
+        else:
+            cursor.execute("""
+                SELECT consecutive_failures FROM source_health WHERE source_name = ?
+            """, (source_name,))
+            row = cursor.fetchone()
+            failures = (row[0] if row else 0) + 1
+            # 阶梯 backoff
+            if failures >= 4:
+                backoff_hours = 24
+            elif failures >= 3:
+                backoff_hours = 6
+            else:
+                backoff_hours = 1
+            next_retry = (datetime.now() + timedelta(hours=backoff_hours)).isoformat()
+            cursor.execute("""
+                INSERT INTO source_health (source_name, consecutive_failures, last_error, next_retry_at)
+                VALUES (?, ?, ?, ?)
+                ON CONFLICT(source_name) DO UPDATE SET
+                    consecutive_failures = excluded.consecutive_failures,
+                    last_error = excluded.last_error,
+                    next_retry_at = excluded.next_retry_at
+            """, (source_name, failures, error[:200] if error else None, next_retry))
+        conn.commit()
+        conn.close()
 
     def _log_update(self, source: str, status: str = "success",
                     added: int = 0, error: str = None) -> None:
