@@ -333,9 +333,10 @@ def main():
     args = parser.parse_args()
 
     if args.only_candidates:
-        sources = CANDIDATE_SOURCES
+        # P6.R.2: 候选含 CANDIDATE_SOURCES(媒体)+ GOV_SOURCES(.gov.cn)
+        sources = CANDIDATE_SOURCES + GOV_SOURCES
     else:
-        sources = load_yaml_sources() + CANDIDATE_SOURCES
+        sources = load_yaml_sources() + CANDIDATE_SOURCES + GOV_SOURCES
 
     if not sources:
         print("[ERROR] 没有可测试的源")

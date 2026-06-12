@@ -244,6 +244,40 @@ policy_sources:
     check_interval_hours: 168
     note: "P6.J 实测 252KB,4 关键词(英文);国际 NGO"
 
+  # ====== P6.R.2 拓源(2026-06-12 大陆 IP 实测) ======
+  - name: "国家能源局"
+    url: "https://www.nea.gov.cn/"
+    type: "html"
+    region: "national"
+    category: "政府-能源局"
+    enabled: true
+    check_interval_hours: 24
+    note: "P6.R.2 实测 106KB,3 关键词;能源政策权威"
+  - name: "工信部-节能与综合利用"
+    url: "https://www.miit.gov.cn/jgsj/jns/"
+    type: "html"
+    region: "national"
+    category: "政府-工信部"
+    enabled: true
+    check_interval_hours: 24
+    note: "P6.R.2 实测 37KB,3 关键词;绿色制造"
+  - name: "农业农村部-生态农业"
+    url: "https://www.moa.gov.cn/"
+    type: "html"
+    region: "national"
+    category: "政府-农业农村部"
+    enabled: true
+    check_interval_hours: 24
+    note: "P6.R.2 实测 108KB,3 关键词;生态农业"
+  - name: "国家林草局-碳汇"
+    url: "https://www.forestry.gov.cn/"
+    type: "html"
+    region: "national"
+    category: "政府-林草局"
+    enabled: true
+    check_interval_hours: 24
+    note: "P6.R.2 实测 83KB,3 关键词;森林碳汇权威"
+
 # 已知不可用源(2026-06 实测,留作历史记录,避免重试浪费)
 # 注:2026-06-10 升级到大陆 IP 后,以上政府站全部恢复可用
 disabled_sources:
