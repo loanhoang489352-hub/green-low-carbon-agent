@@ -2,7 +2,34 @@
 
 绿色低碳智能体的版本演进记录。规范遵循 [Keep a Changelog](https://keepachangelog.com/)。
 
-## [Unreleased] — P5 工程化
+## [Unreleased] — P6 上线 + 质量收口
+
+### P6.P.2(2026-06-12)— Web e2e 18/18 PASS + user_profiles.db 锁修复
+
+- **A. JS 语法错误**(`web/index.html`):
+  整段 `.auth-btn` CSS 被人误塞进 `<script>` 块(无 `type="text/css"`),
+  导致 `renderGuestStatus` 和 `showAuthModal` 之前就抛 `Unexpected token '.'`,
+  两个函数从未注册到 window。**修法**:CSS 移到第 2 个 `<style>` 块
+- **B. user_profiles.db 锁永久泄漏**(`src/user_profile/user_profile.py`):
+  `update_conversation_count` 等写函数在 `get_profile` 抛异常时,外层
+  `conn` 不关闭 → busy_timeout=5000 等满仍 500。**修法**:
+  14 处写函数切到 `db/connection.py:get_connection()` 池
+  (per-thread 60s TTL + 自动 busy_timeout + WAL,净减 27 行)
+- **C. i18n placeholder 未生效**(`web/index.html`):
+  `#message-input` 加 `data-i18n-placeholder="ui.chat_placeholder"`,
+  让英文切换真正改 placeholder(i18n.js 早就支持但没人用)
+- **D. 测试 5 处错**(`tests/test_p6p2_web_e2e_ext.py`):
+  - `#register-username` 实际是 `#reg-username` / `#reg-password`
+  - 登录表单是 `showAuthModal()` 动态注入,测试要等按钮+点开
+  - `/api/auth/logout` 读 body.session_id 不是 Authorization header
+  - fixture 加 `RATE_LIMIT_MAX=10000` 避免 module 内累积 60/60s 触发 429
+- **E. KB-v8 拓源清理**:
+  删 `0245_*.md`(cnr.cn 抓取坏导致文件名 + 内容双重 mojibake),
+  财经主题已有 0244 中新网 + 0246 央视网覆盖
+- 验收:`pytest tests/test_p6p2_web_e2e_ext.py -v` → **18/18 PASS**(73 秒)
+- 提交:`4054e47` P6.P.2 修复 / `1942146` 删乱码 / `d356895` 切连接池
+
+## [P5 工程化] — Released 2026-06
 
 ### P5-H(2026-06-10)— 知识库合并 + ChromaDB 持久化
 
