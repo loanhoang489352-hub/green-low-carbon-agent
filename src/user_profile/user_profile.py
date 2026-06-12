@@ -125,6 +125,8 @@ class UserProfileManager:
     def _init_database(self):
         """初始化数据库"""
         conn = sqlite3.connect(str(self.db_path))
+        conn.execute("PRAGMA busy_timeout=5000")
+        conn.execute("PRAGMA journal_mode=WAL")
         cursor = conn.cursor()
 
         cursor.execute("""
@@ -138,8 +140,10 @@ class UserProfileManager:
             )
         """)
 
-        conn.commit()
-        conn.close()
+        try:
+            conn.commit()
+        finally:
+            conn.close()
 
     def _get_default_profile(self, user_id: str) -> Dict[str, Any]:
         """获取默认画像"""
@@ -203,27 +207,32 @@ class UserProfileManager:
     def create_profile(self, user_id: str, profile_data: Dict[str, Any] = None):
         """创建新用户画像"""
         conn = sqlite3.connect(str(self.db_path))
+        # P6.P.2 fix: 写连接也设 busy_timeout(并发请求不会立刻 SQLITE_BUSY)
+        conn.execute("PRAGMA busy_timeout=5000")
+        conn.execute("PRAGMA journal_mode=WAL")
         cursor = conn.cursor()
 
-        now = datetime.now().isoformat()
-        profile = profile_data if profile_data else self._get_default_profile(user_id)
-        profile["user_id"] = user_id
-        profile["created_at"] = now
-        profile["updated_at"] = now
+        try:
+            now = datetime.now().isoformat()
+            profile = profile_data if profile_data else self._get_default_profile(user_id)
+            profile["user_id"] = user_id
+            profile["created_at"] = now
+            profile["updated_at"] = now
 
-        # P4-C.1: 默认 profile 含空图谱结构(由 get_profile 懒加载完整节点)
-        if "graph" not in profile:
-            from user_profile.profile_graph import UserProfileGraph
-            profile["graph"] = UserProfileGraph(user_id).to_dict()
+            # P4-C.1: 默认 profile 含空图谱结构(由 get_profile 懒加载完整节点)
+            if "graph" not in profile:
+                from user_profile.profile_graph import UserProfileGraph
+                profile["graph"] = UserProfileGraph(user_id).to_dict()
 
-        cursor.execute("""
-            INSERT OR REPLACE INTO user_profiles
-            (user_id, profile_data, created_at, updated_at)
-            VALUES (?, ?, ?, ?)
-        """, (user_id, json.dumps(profile, ensure_ascii=False), now, now))
+            cursor.execute("""
+                INSERT OR REPLACE INTO user_profiles
+                (user_id, profile_data, created_at, updated_at)
+                VALUES (?, ?, ?, ?)
+            """, (user_id, json.dumps(profile, ensure_ascii=False), now, now))
 
-        conn.commit()
-        conn.close()
+            conn.commit()
+        finally:
+            conn.close()
 
         if user_id in self._profile_cache:
             del self._profile_cache[user_id]
@@ -234,11 +243,15 @@ class UserProfileManager:
             return self._profile_cache[user_id]
 
         conn = sqlite3.connect(str(self.db_path))
+        conn.execute("PRAGMA busy_timeout=5000")
+        conn.execute("PRAGMA journal_mode=WAL")
         cursor = conn.cursor()
 
-        cursor.execute("SELECT profile_data FROM user_profiles WHERE user_id = ?", (user_id,))
-        row = cursor.fetchone()
-        conn.close()
+        try:
+            cursor.execute("SELECT profile_data FROM user_profiles WHERE user_id = ?", (user_id,))
+            row = cursor.fetchone()
+        finally:
+            conn.close()
 
         if row is None:
             self.create_profile(user_id)
@@ -267,6 +280,8 @@ class UserProfileManager:
         profile["updated_at"] = datetime.now().isoformat()
 
         conn = sqlite3.connect(str(self.db_path))
+        conn.execute("PRAGMA busy_timeout=5000")
+        conn.execute("PRAGMA journal_mode=WAL")
         cursor = conn.cursor()
 
         cursor.execute("""
@@ -276,8 +291,10 @@ class UserProfileManager:
         """, (json.dumps(profile, ensure_ascii=False), profile["updated_at"], user_id))
 
         success = cursor.rowcount > 0
-        conn.commit()
-        conn.close()
+        try:
+            conn.commit()
+        finally:
+            conn.close()
 
         if user_id in self._profile_cache:
             del self._profile_cache[user_id]
@@ -300,6 +317,8 @@ class UserProfileManager:
         profile["updated_at"] = datetime.now().isoformat()
 
         conn = sqlite3.connect(str(self.db_path))
+        conn.execute("PRAGMA busy_timeout=5000")
+        conn.execute("PRAGMA journal_mode=WAL")
         cursor = conn.cursor()
 
         cursor.execute("""
@@ -309,8 +328,10 @@ class UserProfileManager:
         """, (json.dumps(profile, ensure_ascii=False), profile["updated_at"], user_id))
 
         success = cursor.rowcount > 0
-        conn.commit()
-        conn.close()
+        try:
+            conn.commit()
+        finally:
+            conn.close()
 
         if user_id in self._profile_cache:
             del self._profile_cache[user_id]
@@ -349,6 +370,8 @@ class UserProfileManager:
         profile["graph"] = self._sync_profile_to_graph(profile, eco_updates)
 
         conn = sqlite3.connect(str(self.db_path))
+        conn.execute("PRAGMA busy_timeout=5000")
+        conn.execute("PRAGMA journal_mode=WAL")
         cursor = conn.cursor()
 
         cursor.execute("""
@@ -358,8 +381,10 @@ class UserProfileManager:
         """, (json.dumps(profile, ensure_ascii=False), profile["updated_at"], user_id))
 
         success = cursor.rowcount > 0
-        conn.commit()
-        conn.close()
+        try:
+            conn.commit()
+        finally:
+            conn.close()
 
         if user_id in self._profile_cache:
             del self._profile_cache[user_id]
@@ -422,6 +447,8 @@ class UserProfileManager:
         profile["updated_at"] = datetime.now().isoformat()
 
         conn = sqlite3.connect(str(self.db_path))
+        conn.execute("PRAGMA busy_timeout=5000")
+        conn.execute("PRAGMA journal_mode=WAL")
         cursor = conn.cursor()
 
         cursor.execute("""
@@ -431,8 +458,10 @@ class UserProfileManager:
         """, (json.dumps(profile, ensure_ascii=False), profile["updated_at"], user_id))
 
         success = cursor.rowcount > 0
-        conn.commit()
-        conn.close()
+        try:
+            conn.commit()
+        finally:
+            conn.close()
 
         if user_id in self._profile_cache:
             del self._profile_cache[user_id]
@@ -485,6 +514,8 @@ class UserProfileManager:
         profile["updated_at"] = datetime.now().isoformat()
 
         conn = sqlite3.connect(str(self.db_path))
+        conn.execute("PRAGMA busy_timeout=5000")
+        conn.execute("PRAGMA journal_mode=WAL")
         cursor = conn.cursor()
 
         cursor.execute("""
@@ -494,8 +525,10 @@ class UserProfileManager:
         """, (json.dumps(profile, ensure_ascii=False), profile["updated_at"], user_id))
 
         success = cursor.rowcount > 0
-        conn.commit()
-        conn.close()
+        try:
+            conn.commit()
+        finally:
+            conn.close()
 
         if user_id in self._profile_cache:
             del self._profile_cache[user_id]
@@ -541,6 +574,8 @@ class UserProfileManager:
         profile["updated_at"] = datetime.now().isoformat()
 
         conn = sqlite3.connect(str(self.db_path))
+        conn.execute("PRAGMA busy_timeout=5000")
+        conn.execute("PRAGMA journal_mode=WAL")
         cursor = conn.cursor()
 
         cursor.execute("""
@@ -550,8 +585,10 @@ class UserProfileManager:
         """, (json.dumps(profile, ensure_ascii=False), profile["updated_at"], profile["last_interaction"], user_id))
 
         success = cursor.rowcount > 0
-        conn.commit()
-        conn.close()
+        try:
+            conn.commit()
+        finally:
+            conn.close()
 
         if user_id in self._profile_cache:
             del self._profile_cache[user_id]
@@ -561,28 +598,32 @@ class UserProfileManager:
     def update_conversation_count(self, user_id: str):
         """更新对话计数"""
         conn = sqlite3.connect(str(self.db_path))
+        # P6.P.2 fix: 写连接也设 busy_timeout + try/finally(避免 get_profile 失败时锁泄漏)
+        conn.execute("PRAGMA busy_timeout=5000")
+        conn.execute("PRAGMA journal_mode=WAL")
         cursor = conn.cursor()
+        try:
+            cursor.execute("""
+                UPDATE user_profiles
+                SET conversation_count = conversation_count + 1,
+                    updated_at = ?
+                WHERE user_id = ?
+            """, (datetime.now().isoformat(), user_id))
 
-        cursor.execute("""
-            UPDATE user_profiles
-            SET conversation_count = conversation_count + 1,
-                updated_at = ?
-            WHERE user_id = ?
-        """, (datetime.now().isoformat(), user_id))
+            profile = self.get_profile(user_id)
+            stats = profile.get("statistics", {})
+            stats["total_conversations"] = stats.get("total_conversations", 0) + 1
+            profile["statistics"] = stats
 
-        profile = self.get_profile(user_id)
-        stats = profile.get("statistics", {})
-        stats["total_conversations"] = stats.get("total_conversations", 0) + 1
-        profile["statistics"] = stats
+            cursor.execute("""
+                UPDATE user_profiles
+                SET profile_data = ?
+                WHERE user_id = ?
+            """, (json.dumps(profile, ensure_ascii=False), user_id))
 
-        cursor.execute("""
-            UPDATE user_profiles
-            SET profile_data = ?
-            WHERE user_id = ?
-        """, (json.dumps(profile, ensure_ascii=False), user_id))
-
-        conn.commit()
-        conn.close()
+            conn.commit()
+        finally:
+            conn.close()
 
         if user_id in self._profile_cache:
             del self._profile_cache[user_id]
@@ -889,6 +930,8 @@ class UserProfileManager:
         profile["updated_at"] = datetime.now().isoformat()
 
         conn = sqlite3.connect(str(self.db_path))
+        conn.execute("PRAGMA busy_timeout=5000")
+        conn.execute("PRAGMA journal_mode=WAL")
         cursor = conn.cursor()
 
         cursor.execute("""
@@ -898,8 +941,10 @@ class UserProfileManager:
         """, (json.dumps(profile, ensure_ascii=False), profile["updated_at"], user_id))
 
         success = cursor.rowcount > 0
-        conn.commit()
-        conn.close()
+        try:
+            conn.commit()
+        finally:
+            conn.close()
 
         if user_id in self._profile_cache:
             del self._profile_cache[user_id]
@@ -913,24 +958,32 @@ class UserProfileManager:
     def get_all_profiles(self) -> List[Dict]:
         """获取所有用户画像"""
         conn = sqlite3.connect(str(self.db_path))
+        conn.execute("PRAGMA busy_timeout=5000")
+        conn.execute("PRAGMA journal_mode=WAL")
         cursor = conn.cursor()
 
-        cursor.execute("SELECT user_id FROM user_profiles")
-        rows = cursor.fetchall()
-        conn.close()
+        try:
+            cursor.execute("SELECT user_id FROM user_profiles")
+            rows = cursor.fetchall()
+        finally:
+            conn.close()
 
         return [self.get_profile(row[0]) for row in rows]
 
     def delete_profile(self, user_id: str) -> bool:
         """删除用户画像"""
         conn = sqlite3.connect(str(self.db_path))
+        conn.execute("PRAGMA busy_timeout=5000")
+        conn.execute("PRAGMA journal_mode=WAL")
         cursor = conn.cursor()
 
         cursor.execute("DELETE FROM user_profiles WHERE user_id = ?", (user_id,))
 
         success = cursor.rowcount > 0
-        conn.commit()
-        conn.close()
+        try:
+            conn.commit()
+        finally:
+            conn.close()
 
         if user_id in self._profile_cache:
             del self._profile_cache[user_id]
@@ -940,15 +993,18 @@ class UserProfileManager:
     def get_stats(self) -> Dict[str, Any]:
         """获取统计信息"""
         conn = sqlite3.connect(str(self.db_path))
+        conn.execute("PRAGMA busy_timeout=5000")
+        conn.execute("PRAGMA journal_mode=WAL")
         cursor = conn.cursor()
 
-        cursor.execute("SELECT COUNT(*) FROM user_profiles")
-        total_users = cursor.fetchone()[0]
+        try:
+            cursor.execute("SELECT COUNT(*) FROM user_profiles")
+            total_users = cursor.fetchone()[0]
 
-        cursor.execute("SELECT SUM(conversation_count) FROM user_profiles")
-        total_conversations = cursor.fetchone()[0] or 0
-
-        conn.close()
+            cursor.execute("SELECT SUM(conversation_count) FROM user_profiles")
+            total_conversations = cursor.fetchone()[0] or 0
+        finally:
+            conn.close()
 
         return {
             "total_users": total_users,

@@ -1727,6 +1727,47 @@
         .btn-back:hover {
             background: #e5e7eb;
         }
+
+        /* 账号按钮样式 (P6.P.2 fix: 原本误塞进 <script>,导致 JS 语法错误) */
+        .auth-btn {
+            padding: 7px 16px;
+            border-radius: 20px;
+            font-size: 13px;
+            cursor: pointer;
+            border: none;
+            transition: all 0.2s;
+            display: inline-flex;
+            align-items: center;
+            gap: 4px;
+            font-family: inherit;
+            white-space: nowrap;
+        }
+        .auth-btn-primary {
+            background: linear-gradient(135deg, #667eea, #764ba2);
+            color: white;
+        }
+        .auth-btn-primary:hover {
+            transform: scale(1.05);
+            box-shadow: 0 2px 12px rgba(102, 126, 234, 0.4);
+        }
+        .auth-btn-outline {
+            background: transparent;
+            color: white;
+            border: 1px solid rgba(255,255,255,0.6);
+        }
+        .auth-btn-outline:hover {
+            background: rgba(255,255,255,0.15);
+            border-color: rgba(255,255,255,0.8);
+        }
+        .auth-username {
+            font-size: 13px;
+            color: rgba(255,255,255,0.95);
+            font-weight: 500;
+            max-width: 100px;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
     </style>
 
         <div class="container">
@@ -1785,6 +1826,7 @@
                         <textarea
                             class="input-box"
                             id="message-input"
+                            data-i18n-placeholder="ui.chat_placeholder"
                             placeholder="输入你的问题..."
                             rows="1"
                             onkeydown="handleKeyDown(event)"
@@ -2670,46 +2712,9 @@
             `;
         }
 
-        /* 账号按钮样式 */
-        .auth-btn {
-            padding: 7px 16px;
-            border-radius: 20px;
-            font-size: 13px;
-            cursor: pointer;
-            border: none;
-            transition: all 0.2s;
-            display: inline-flex;
-            align-items: center;
-            gap: 4px;
-            font-family: inherit;
-            white-space: nowrap;
-        }
-        .auth-btn-primary {
-            background: linear-gradient(135deg, #667eea, #764ba2);
-            color: white;
-        }
-        .auth-btn-primary:hover {
-            transform: scale(1.05);
-            box-shadow: 0 2px 12px rgba(102, 126, 234, 0.4);
-        }
-        .auth-btn-outline {
-            background: transparent;
-            color: white;
-            border: 1px solid rgba(255,255,255,0.6);
-        }
-        .auth-btn-outline:hover {
-            background: rgba(255,255,255,0.15);
-            border-color: rgba(255,255,255,0.8);
-        }
-        .auth-username {
-            font-size: 13px;
-            color: rgba(255,255,255,0.95);
-            font-weight: 500;
-            max-width: 100px;
-            overflow: hidden;
-            text-overflow: ellipsis;
-            white-space: nowrap;
-        }
+        // P6.P.2 fix: 原本此处误塞了 .auth-btn 等 CSS,导致整个 <script> 解析失败,
+        // 进而 showAuthModal/renderGuestStatus 等函数都未注册到 window。
+        // CSS 已移到第 2 个 <style> 块(line ~1729)。
 
         // 显示登录注册模态框
         function showAuthModal(tab = 'login') {
