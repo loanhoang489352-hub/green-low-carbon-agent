@@ -792,29 +792,56 @@ class GreenAgent:
 
         TravelPlanningTool = _get_module('tools')
 
-        # 1) 提取 origin / destination(P6.S.3 改进:更鲁棒,覆盖更多句式)
-        #    优先匹配: 从X到Y / 从X去Y / X到Y / X去Y / 去Y / 到Y
+        # 1) 提取 origin / destination(P6.S.3 + S.4 改进)
         import re as _re
+
+        # P6.S.4: 时间/代词/动词白名单,避免被误判为 origin
+        NON_LOC_WORDS = {
+            "我", "你", "他", "她", "我们", "我明天", "你明天",
+            "今天", "明天", "后天", "大后天", "今天要", "明天要", "我明天要", "你明天要",
+            "现在", "之后", "再", "马上", "等下", "等一会儿",
+            "请", "麻烦", "想", "要", "想从", "要去", "要带", "准备",
+            "我等", "我马上", "我先", "我现", "我准", "下午", "上午", "晚上"
+        }
+        NON_LOC_SUBSTR = ["要", "想", "准备", "马上", "等", "坐", "去", "我", "你"]
+
+        def _is_valid_origin(s: str) -> bool:
+            """检查 s 是不是个有效的 location 词(过滤时间/代词/动词)"""
+            if not s or len(s) < 2:
+                return False
+            if s in NON_LOC_WORDS:
+                return False
+            if any(s.startswith(w) for w in NON_LOC_WORDS if len(w) >= 2):
+                return False
+            if any(v in s for v in NON_LOC_SUBSTR):
+                return False
+            return True
+
         origin = None
         destination = None
 
         # 模式 1: "从A到B" 或 "从A去B" — 都有明确出发地
-        m = _re.search(r'从\s*([^到去,,,?？\s]+)\s*[到去]\s*([^,,,?？\s]+)', message)
+        m = _re.search(r'从\s*([^到去,,,?？\s]{2,15})\s*[到去]\s*([^,,,?？\s]{2,15})', message)
         if m:
-            origin = m.group(1).strip()
-            destination = m.group(2).strip()
-        else:
-            # 模式 2: "A到B" 或 "A去B" (无"从"),A 需 ≥3 字(排除"明天/现在/今天"等时间词)
-            m = _re.search(r'([^到去,,,?？\s]{3,15})\s*[到去]\s*([^,,,?？\s]{2,15})', message)
-            if m:
-                origin = m.group(1).strip()
+            cand_o = m.group(1).strip()
+            if _is_valid_origin(cand_o):
+                origin = cand_o
                 destination = m.group(2).strip()
-            else:
-                # 模式 3: "去A" / "到A" — 只有目的地,出发地默认"当前位置"
-                m = _re.search(r'(?:去|到)\s*([^,,,?？\s]{2,15})', message)
-                if m:
-                    origin = "当前位置"
-                    destination = m.group(1).strip()
+
+        # 模式 2: "A到B" 或 "A去B" (无"从")
+        if not origin:
+            for m in _re.finditer(r'([^到去,,,?？\s]{3,15})\s*[到去]\s*([^,,,?？\s]{2,15})', message):
+                if _is_valid_origin(m.group(1).strip()):
+                    origin = m.group(1).strip()
+                    destination = m.group(2).strip()
+                    break
+
+        # 模式 3: "去A" / "到A" — 只有目的地,出发地默认"当前位置"
+        if not origin and not destination:
+            m = _re.search(r'(?:去|到)\s*([^,,,?？\s]{2,15})', message)
+            if m:
+                origin = "当前位置"
+                destination = m.group(1).strip()
 
         # 清理 destination 尾部的修饰词(长的先匹配,避免 "最环保" 被 "怎么走" 漏掉)
         if destination:
