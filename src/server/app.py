@@ -373,6 +373,9 @@ def init_app():
     # P6.S.15: 注册所有 tools + skills
     _register_all_tools_and_skills()
 
+    # P6.S.16: 启动 MCP 客户端连接(异步后台线程)
+    _start_mcp_registry()
+
     _register_event_subscribers()
     _start_scheduler_safe()
 
@@ -449,6 +452,49 @@ def _register_all_tools_and_skills() -> None:
     except Exception as e:
         import logging
         logging.getLogger(__name__).warning("[P6.S.15] tools/skills 注册失败(非致命): %s", e)
+
+
+def _start_mcp_registry() -> None:
+    """P6.S.16: 启动 MCP 客户端注册表(后台线程)
+
+    读 config/mcp_servers.yaml,连接所有启用的 MCP server,
+    把它们的 tool 注册到本地 ToolRegistry(零依赖,纯 stdlib)。
+
+    失败不阻塞主流程(可降级为无 MCP 模式运行)。
+    """
+    try:
+        from mcp import get_mcp_registry
+        reg = get_mcp_registry()
+        # 从 src/server/app.py 找 project_root(回退到 cwd 父目录)
+        import os
+        from pathlib import Path
+        # app.py 在 src/server/app.py,project_root 是 src 的父目录
+        here = Path(__file__).resolve()
+        project_root = here.parent.parent.parent  # src/server -> src -> project_root
+        # 尝试多个可能位置
+        for candidate in [
+            project_root / "config" / "mcp_servers.yaml",
+            project_root / "mcp_servers.yaml",
+            Path("config") / "mcp_servers.yaml",
+            Path("mcp_servers.yaml"),
+        ]:
+            if candidate.exists():
+                reg.connect_all_blocking(str(candidate))
+                import logging
+                logging.getLogger(__name__).info(
+                    "[P6.S.16] MCP registry 启动: config=%s", candidate,
+                )
+                return
+        # 没找到 config 文件,降级
+        import logging
+        logging.getLogger(__name__).info(
+            "[P6.S.16] 未找到 config/mcp_servers.yaml, MCP 集成降级(无外部 server)",
+        )
+    except Exception as e:
+        import logging
+        logging.getLogger(__name__).warning(
+            "[P6.S.16] MCP registry 启动失败(非致命): %s", e,
+        )
 
 
 def _register_event_subscribers() -> None:

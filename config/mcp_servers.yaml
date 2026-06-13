@@ -1,0 +1,36 @@
+# MCP (Model Context Protocol) Server 配置
+# 启动时,MCP 客户端会连接所有 enabled 的 server,发现其 tool,
+# 自动注册到本地 ToolRegistry(供 chat_enhanced / Skills 调用)
+#
+# 协议: JSON-RPC 2.0 over stdio(每行一个 JSON)
+# 添加新 MCP server: 复制下面一条,改 name/command/args
+
+mcp_servers:
+
+  # === 内置: mock MCP server(测试用,返回固定数据) ===
+  - name: mock_server
+    description: 内置 mock MCP server,提供 echo/weather/carbon 3 个测试 tool
+    enabled: true
+    command: python
+    args:
+      - scripts/mcp_mock_server.py
+    connect_timeout_s: 10.0
+    request_timeout_s: 30.0
+
+  # === 示例: 高德地图 MCP(若安装了对应 server,启用) ===
+  # - name: amap_mcp
+  #   description: 高德地图 MCP — 提供地理编码/路线规划
+  #   enabled: false  # 默认禁用,装好 server 后改 true
+  #   command: python
+  #   args:
+  #     - path/to/amap_mcp_server.py
+  #   env:
+  #     GAODE_API_KEY: your_key_here
+
+  # === 示例: 政策查询 MCP(可挂政策数据库) ===
+  # - name: policy_db
+  #   description: 政策数据库 MCP — 提供低碳政策查询
+  #   enabled: false
+  #   command: node
+  #   args:
+  #     - path/to/policy_mcp.js

@@ -172,6 +172,20 @@ def register_system_routes(registry) -> None:
         except Exception as e:
             handler.send_json({"error": str(e)}, status=500)
 
+    def mcp_status(handler):
+        """P6.S.16: 列出所有 MCP server 状态 + 它们提供的 tool
+
+        响应:
+        - servers: [{name, status, command, tools_count, error}, ...]
+        - tools: [{key, server, name, description}, ...]
+        """
+        try:
+            from mcp import get_mcp_registry
+            reg = get_mcp_registry()
+            handler.send_json(reg.status())
+        except Exception as e:
+            handler.send_json({"error": str(e), "servers": [], "tools": []}, status=200)
+
     def policy_latest(handler):
         updater = handler.policy_updater
         # P6.S.8: 解析 ?limit=N 查询参数(前端传 20,避免硬编码 10 截断)
@@ -199,5 +213,6 @@ def register_system_routes(registry) -> None:
     registry.add_route("GET", "/api/rag/stats", rag_stats, auth_required=False, description="RAG 状态")
     registry.add_route("GET", "/api/rag/status", rag_status, auth_required=False, description="RAG 异步重建进度(P5-H.C)")
     registry.add_route("GET", "/api/tools-skills", tools_skills_status, auth_required=False, description="P6.S.15: 已注册 tools + skills 列表")
+    registry.add_route("GET", "/api/mcp/status", mcp_status, auth_required=False, description="P6.S.16: MCP server 状态 + tool 列表")
     registry.add_route("GET", "/api/policy/latest", policy_latest, auth_required=False, description="最新政策")
     registry.add_route("GET", "/api/policy/summary", policy_summary, auth_required=False, description="政策摘要")

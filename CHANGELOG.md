@@ -353,7 +353,7 @@
 - 敏感端点(`/api/feedback`)保持 `auth_required=True`(防退步)
 - 9 个新测试(`tests/test_p6s14_chat_anon_auth.py`)
 
-### P6.S.15 深度优化出行规划 + Tool/Skill 审计(本次)
+### P6.S.15 深度优化出行规划 + Tool/Skill 审计
 **问题**: 出行规划过于简单,tool/skill 从未注册,Registry 一直是空的
 
 **审计发现**:
@@ -369,32 +369,65 @@
   - 启动时注册 4 个 tool(TravelPlanning/KnowledgeRetrieval/CarbonFootprint/ReportExport)
   - 注册 3 个 skill(LowCarbonTravel/PolicyQuery/ProfileUpdate)
   - 日志: `[P6.S.15] tools/skills 注册完成: 4 tools, 3 skills`
-- `src/agent/core.py` `_handle_travel_planning` 深度优化:
-  - 评分 0-1 → 0-10(`5.8/10` 直观显示)
-  - 显示评分明细 `[碳:0.62 费:0.0 时:0.36 天:1.0]`
-  - 显示碳减排对比 `⬇️ -碳1.04kg`(对比自驾)
-  - 显示评分权重 `📊 评分权重:碳排 0.4 · 费用 0.2 · 时长 0.2 · 天气 0.2`
-  - 显示具体线路名(`公交地铁1号线八通线(苹果园--环球度假区) → 步行147米`)
-  - 短途(<5km)自动加步行选项
-  - 推荐理由细化(碳排最低/性价比高/用时最短/天气适宜)
-- `src/server/routers/system.py` `tools_skills_status`:
-  - 新增 `GET /api/tools-skills` 端点
-  - 返回所有已注册 tools + skills 详情
+- `src/agent/core.py` `_handle_travel_planning` 深度优化
+- `src/server/routers/system.py` `tools_skills_status` + `GET /api/tools-skills`
 - 10 个新测试(`tests/test_p6s15_tools_skills.py`)
 
-**端到端验证(出行规划 v2)**:
-```
-🚲 北京西单 → 国贸 多因素低碳出行方案:
+### P6.S.16 MCP 集成(本次)
+**目标**: 让 agent 能连接外部 MCP server,发现并使用其 tool
 
-1. 公交+地铁(公交地铁1号线八通线(苹果园--环球度假区) → 步行147米)
-   — 8km, 约 30 分钟, 碳排 0.64 kg, ¥4  ⬇️ -碳1.04kg
-   [碳:0.62 费:0.0 时:0.36 天:1.0]
-...
-🌟 推荐:公交+地铁 (综合评分 5.8/10)
-理由: 天气适宜
-🌤️ 天气:多云, 22.4°C, 骑行适宜度 ✅
-📊 评分权重:碳排 0.4 · 费用 0.2 · 时长 0.2 · 天气 0.2
+**架构**:
+- 协议: JSON-RPC 2.0 over stdio(标准 MCP,无 SDK 依赖)
+- 通信: 同步 I/O + 后台 read 线程(避免 asyncio + Windows pipe 兼容问题)
+
+**新增模块**:
+- `src/mcp/__init__.py` — MCP 包入口
+- `src/mcp/client.py` — `MCPClient`(同步 connect / call_tool / list_tools)
+- `src/mcp/adapter.py` — `MCPToolAdapter`(把远端 MCP tool 包装成 `BaseTool`)
+- `src/mcp/server.py` — `MCPServer`(把本地 tools 暴露为 MCP server)
+- `src/mcp/registry.py` — `MCPRegistry`(启动时连接所有 server,注册 tool)
+
+**新增文件**:
+- `config/mcp_servers.yaml` — MCP server 配置(1 个 mock_server 启用)
+- `scripts/mcp_mock_server.py` — 同步 MCP server,提供 mock_echo/weather/carbon 3 个 tool
+
+**集成点**:
+- `src/server/app.py` `_start_mcp_registry()`: 启动后台线程连接 MCP
+- `src/server/routers/system.py` `mcp_status` + `GET /api/mcp/status` 调试端点
+
+**端到端验证**:
 ```
+GET /api/mcp/status
+{
+  "servers_count": 1,
+  "tools_count": 3,
+  "servers": [{"name": "mock_server", "status": "connected", "tools_count": 3}],
+  "tools": [
+    {"key": "mock_server::mock_echo", "name": "mock_echo"},
+    {"key": "mock_server::mock_weather", ...},
+    {"key": "mock_server::mock_carbon", ...},
+  ]
+}
+
+GET /api/tools-skills
+{
+  "tools": [
+    {"name": "mcp_mock_server_mock_echo", "category": "mcp_mock_server"},
+    {"name": "mcp_mock_server_mock_weather", ...},
+    {"name": "mcp_mock_server_mock_carbon", ...},
+  ]
+}
+```
+
+**安全设计**:
+- 只从 `config/mcp_servers.yaml` 读(server 命令硬编码)
+- `enabled: false` 需手动改 YAML 才能启用新 server
+- 默认只启用内置 mock server(本地脚本,无网络)
+- 任何要加的外部 MCP server 都需要 PR 修改 YAML
+
+**8 个新测试** (`tests/test_p6s16_mcp_integration.py`):
+- 模块 import / Client 同步接口 / Adapter 包装 / Server 暴露 / Registry 配置
+- HTTP 端到端: `/api/mcp/status` + `/api/tools-skills` 验证 MCP tool 注入本地 Registry
 **问题**: 问"你是什么模型"会返 0.04 相似度的无关内容
 - ChromaDB 用 `1/(1+d²)` 倒数映射,无关查询 score 也 ≥ 0
 - `min_similarity=0.0` 预过滤失效
