@@ -179,10 +179,13 @@ class GreenAgent:
                 persist_directory=str(project_root / "data" / "vector_db"),
                 collection_name="green_agent_knowledge",
                 default_top_k=5,
-                # P4-G: MiniLM 距离归一化后普遍 0.05-0.15,0.3 会漏检全部结果
-                min_similarity=0.0,
+                # P6.S.9: 0.0 → 0.25(预过滤更严,真正兜底靠 post_filter_threshold=0.5)
+                min_similarity=0.25,
                 hybrid_search=True,
-                semantic_weight=0.6
+                semantic_weight=0.6,
+                # P6.S.9: 后置 score>=0.5 过滤 + top-20→rerank→top-5
+                post_filter_threshold=0.5,
+                initial_fetch_multiplier=4,
             )
 
             self.rag_engine = RAGEngine(config)

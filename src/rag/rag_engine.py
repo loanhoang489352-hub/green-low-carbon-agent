@@ -47,9 +47,14 @@ class RAGConfig:
     persist_directory: str = "./data/vector_db"
     collection_name: str = "knowledge_base"
     default_top_k: int = 5
-    min_similarity: float = 0.0  # 句子级 MiniLM 距离大, 0.3 阈值会漏检
+    # P6.S.9: 0.0 → 0.25 预过滤更严,真正兜底靠 retrieve() 内的 POST_FILTER_THRESHOLD
+    min_similarity: float = 0.25
     hybrid_search: bool = True  # 是否启用混合搜索
     semantic_weight: float = 0.6  # 语义权重
+    # P6.S.9: 后置兜底阈值 — ChromaDB 用 1/(1+d²) 倒数映射,无关查询 score ~0.04
+    post_filter_threshold: float = 0.5
+    # P6.S.9: 初始候选倍数 (top_k=5 → 5*4=20 候选 → rerank → top_k=5)
+    initial_fetch_multiplier: int = 4
 
 
 class RAGEngine:
@@ -324,6 +329,12 @@ class RAGEngine:
         """
         检索相关文档
 
+        P6.S.9: 二段式召回
+        1. 初始: 取 top_k * multiplier 候选(默认 20) → 保留高分候选
+        2. 后置: 严格 score >= post_filter_threshold(默认 0.5)兜底
+        3. rerank: 若 retriever 配了 reranker,精排
+        4. 截断: 返回 top_k
+
         Args:
             query: 查询文本
             top_k: 返回数量
@@ -337,13 +348,38 @@ class RAGEngine:
 
         start_time = time.time()
         top_k = top_k or self.config.default_top_k
+        initial_top_k = top_k * self.config.initial_fetch_multiplier
 
+        # 第一阶段: 初筛(放宽,召回率高)
         results = self._retriever.retrieve(
             query=query,
-            top_k=top_k,
+            top_k=initial_top_k,
             filter_metadata=filter_metadata,
-            min_score=self.config.min_similarity
+            min_score=self.config.min_similarity,
         )
+
+        # 第二阶段: rerank 精排(若 retriever 配了 reranker)
+        if results and getattr(self._retriever, "reranker", None):
+            try:
+                results = self._retriever.reranker.rerank(query, results)
+            except Exception:
+                # rerank 失败回退到原序
+                pass
+
+        # 第三阶段: 后置兜底 — 严格分数阈值过滤
+        threshold = self.config.post_filter_threshold
+        before_count = len(results)
+        results = [r for r in results if r.score >= threshold]
+        dropped = before_count - len(results)
+        if dropped:
+            import logging
+            logging.getLogger(__name__).debug(
+                "[RAG] post_filter dropped=%d/%d (threshold=%.2f, query='%s')",
+                dropped, before_count, threshold, query[:50],
+            )
+
+        # 第四阶段: 截断到 top_k
+        results = results[:top_k]
 
         # 更新统计
         self.stats['total_queries'] += 1

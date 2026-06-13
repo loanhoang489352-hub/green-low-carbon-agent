@@ -218,7 +218,7 @@
 - `src/llm/__init__.py` `get_llm_client` 修双重 print 重复行
 - `agent.bat` 加 pause + 改 goto 标签流(避免窗口闪关)
 
-### P6.S.8 policy limit 解析 + 前端 guest gate 放宽(本次)
+### P6.S.8 policy limit 解析 + 前端 guest gate 放宽
 - `src/server/routers/system.py` `policy_latest` 加 `?limit=N` 解析
   (默认 10,上限 50,非法值容错回退)
 - `web/index.html` `loadProfile` 改 API-first 策略:
@@ -227,6 +227,24 @@
   - 200 但空 context → 骨架(新用户友好)
   - 200 + 真实 data → 渲染画像
 - 7 个测试全过(`tests/test_p6s8_policy_limit.py`)
+
+### P6.S.9 RAG 检索质量改造(本次)
+**问题**: 问"你是什么模型"会返 0.04 相似度的无关内容
+- ChromaDB 用 `1/(1+d²)` 倒数映射,无关查询 score 也 ≥ 0
+- `min_similarity=0.0` 预过滤失效
+- RAG 总是无条件调,不区分意图
+
+**修复**:
+- `RAGConfig`: 新增 `post_filter_threshold=0.5` + `initial_fetch_multiplier=4`
+  (`min_similarity` 0.0 → 0.25 预过滤更严)
+- `RAGEngine.retrieve()` 二段式召回:
+  1. 初筛 `top_k*4=20` 候选
+  2. rerank(若 retriever 配了)
+  3. 后置 `score >= 0.5` 过滤(兜底)
+  4. 截断到 `top_k`
+- `core.py` `_init_rag_engine` 同步新配置
+- 8 个新测试(`tests/test_p6s9_rag_quality.py`)+
+  26 个回归测试(P4-E / P5-G / P5-H RAG)全过
 
 ## [2.1.0] — 2026-06-11 — P6 路线图(plan 之外 13 方向全完成)
 
