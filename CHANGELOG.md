@@ -334,7 +334,7 @@
 - `LLM_MOCK=false` + 真 key:返回 DeepSeek 真实中文响应
 - 都不再回退到规则模板(用户截图的 bug 消除)
 
-### P6.S.14 修 chat 端点 auth 导致浏览器 401 — Bug 5 真根(本次)
+### P6.S.14 修 chat 端点 auth 导致浏览器 401 — Bug 5 真根
 **问题**: LLM 后端 Python 路径已修(P6.S.13),但浏览器仍看不到真实 LLM 响应
 - HTTP 端到端 benchmark:`POST /api/chat/enhanced` 无 Bearer token 返 **401 UNAUTHORIZED**
 - 浏览器 onboarding 后 userId 已生成但没 login session → 没 token → 401
@@ -353,13 +353,47 @@
 - 敏感端点(`/api/feedback`)保持 `auth_required=True`(防退步)
 - 9 个新测试(`tests/test_p6s14_chat_anon_auth.py`)
 
-**端到端验证**:
+### P6.S.15 深度优化出行规划 + Tool/Skill 审计(本次)
+**问题**: 出行规划过于简单,tool/skill 从未注册,Registry 一直是空的
+
+**审计发现**:
+- `register_tool` 函数定义但**从未被调用过** → `ToolRegistry._tools={}`
+- `LowCarbonTravelSkill` 定义了但**从未注册** → 死代码
+- `WeatherTool / CarbonCalcTool / PublicTransitTool` 同样从未注册
+- 出行规划只有 3 种交通方式(公交+地铁/骑行/自驾),缺步行
+- 评分显示 `0.577/10` 误导用户(实际是 0-1 归一化)
+- 响应缺深度:无具体线路名/碳减排对比/评分明细
+
+**修复**:
+- `src/server/app.py` `_register_all_tools_and_skills()`:
+  - 启动时注册 4 个 tool(TravelPlanning/KnowledgeRetrieval/CarbonFootprint/ReportExport)
+  - 注册 3 个 skill(LowCarbonTravel/PolicyQuery/ProfileUpdate)
+  - 日志: `[P6.S.15] tools/skills 注册完成: 4 tools, 3 skills`
+- `src/agent/core.py` `_handle_travel_planning` 深度优化:
+  - 评分 0-1 → 0-10(`5.8/10` 直观显示)
+  - 显示评分明细 `[碳:0.62 费:0.0 时:0.36 天:1.0]`
+  - 显示碳减排对比 `⬇️ -碳1.04kg`(对比自驾)
+  - 显示评分权重 `📊 评分权重:碳排 0.4 · 费用 0.2 · 时长 0.2 · 天气 0.2`
+  - 显示具体线路名(`公交地铁1号线八通线(苹果园--环球度假区) → 步行147米`)
+  - 短途(<5km)自动加步行选项
+  - 推荐理由细化(碳排最低/性价比高/用时最短/天气适宜)
+- `src/server/routers/system.py` `tools_skills_status`:
+  - 新增 `GET /api/tools-skills` 端点
+  - 返回所有已注册 tools + skills 详情
+- 10 个新测试(`tests/test_p6s15_tools_skills.py`)
+
+**端到端验证(出行规划 v2)**:
 ```
-POST /api/chat/enhanced (无 token) → 200 OK
-  intent: advice_request
-  message: 1319 字符真实 LLM 响应
-  knowledge_refs: 5 个
-  recommendations: 2 个
+🚲 北京西单 → 国贸 多因素低碳出行方案:
+
+1. 公交+地铁(公交地铁1号线八通线(苹果园--环球度假区) → 步行147米)
+   — 8km, 约 30 分钟, 碳排 0.64 kg, ¥4  ⬇️ -碳1.04kg
+   [碳:0.62 费:0.0 时:0.36 天:1.0]
+...
+🌟 推荐:公交+地铁 (综合评分 5.8/10)
+理由: 天气适宜
+🌤️ 天气:多云, 22.4°C, 骑行适宜度 ✅
+📊 评分权重:碳排 0.4 · 费用 0.2 · 时长 0.2 · 天气 0.2
 ```
 **问题**: 问"你是什么模型"会返 0.04 相似度的无关内容
 - ChromaDB 用 `1/(1+d²)` 倒数映射,无关查询 score 也 ≥ 0

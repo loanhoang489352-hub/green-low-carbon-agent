@@ -130,6 +130,48 @@ def register_system_routes(registry) -> None:
         except Exception as e:
             handler.send_json({"state": "error", "message": str(e)}, status=500)
 
+    def tools_skills_status(handler):
+        """P6.S.15: 列出所有已注册的 tools + skills(用于调试和验证)
+
+        响应:
+        - tools: [{name, description, category, tags}, ...]
+        - skills: [{name, description, category, tools: [...]}, ...]
+        """
+        try:
+            from agent.tools import get_registry as get_tool_registry
+            from agent.skills import get_skill_executor
+            tool_reg = get_tool_registry()
+            tools_list = []
+            for name in tool_reg.list_all():
+                meta = tool_reg.get_metadata(name)
+                tools_list.append({
+                    "name": name,
+                    "description": meta.description if meta else "",
+                    "category": meta.category if meta else "",
+                    "tags": meta.tags if meta else [],
+                })
+            skill_exec = get_skill_executor()
+            skills_list = []
+            for name in skill_exec.list_all():
+                skill = skill_exec.get(name)  # P6.S.15: SkillExecutor.get() not get_skill
+                if skill:
+                    skills_list.append({
+                        "name": name,
+                        "description": getattr(skill, "description", ""),
+                        "category": getattr(skill, "category", ""),
+                        "tools": [t.name for t in skill.tools],
+                    })
+                else:
+                    skills_list.append({"name": name})
+            handler.send_json({
+                "tools_count": len(tools_list),
+                "skills_count": len(skills_list),
+                "tools": tools_list,
+                "skills": skills_list,
+            })
+        except Exception as e:
+            handler.send_json({"error": str(e)}, status=500)
+
     def policy_latest(handler):
         updater = handler.policy_updater
         # P6.S.8: 解析 ?limit=N 查询参数(前端传 20,避免硬编码 10 截断)
@@ -156,5 +198,6 @@ def register_system_routes(registry) -> None:
     registry.add_route("GET", "/api/knowledge/stats", knowledge_stats, auth_required=False, description="知识库统计")
     registry.add_route("GET", "/api/rag/stats", rag_stats, auth_required=False, description="RAG 状态")
     registry.add_route("GET", "/api/rag/status", rag_status, auth_required=False, description="RAG 异步重建进度(P5-H.C)")
+    registry.add_route("GET", "/api/tools-skills", tools_skills_status, auth_required=False, description="P6.S.15: 已注册 tools + skills 列表")
     registry.add_route("GET", "/api/policy/latest", policy_latest, auth_required=False, description="最新政策")
     registry.add_route("GET", "/api/policy/summary", policy_summary, auth_required=False, description="政策摘要")

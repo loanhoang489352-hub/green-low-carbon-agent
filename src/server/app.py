@@ -360,6 +360,7 @@ def init_app():
     2. 注册 RAG 知识更新订阅(KNOWLEDGE_UPDATED → RAG 重建)
     3. 启动 APScheduler 后台调度
     4. 初始化所有 SQLite Schema(幂等)
+    5. P6.S.15: 注册所有 tools + skills(之前从未注册,Registry 是空的)
     """
     from paths import ensure_data_dirs
     from db_schema import init_all_schemas
@@ -369,10 +370,85 @@ def init_app():
     registry = get_registry()
     register_all_routes(registry)
 
+    # P6.S.15: 注册所有 tools + skills
+    _register_all_tools_and_skills()
+
     _register_event_subscribers()
     _start_scheduler_safe()
 
     return create_handler()
+
+
+def _register_all_tools_and_skills() -> None:
+    """P6.S.15: 把所有 Tool 和 Skill 注册到全局 Registry
+
+    之前 builtin.py 里的 LowCarbonTravelSkill / WeatherTool / CarbonCalcTool /
+    PublicTransitTool / PolicyQueryTool / ProfileUpdateTool 都定义了但
+    从未注册到 ToolRegistry,导致 Registry 始终空。SkillExecutor 也找不到
+    任何 skill。
+
+    启动时一次注册,以后所有代码可通过 get_registry() / get_skill_executor() 访问。
+    """
+    try:
+        from agent.tools import get_registry as get_tool_registry
+        from agent.tools.extended import (
+            TravelPlanningTool,
+            KnowledgeRetrievalTool,
+            CarbonFootprintTool,
+            ReportExportTool,
+        )
+        from agent.tools.registry import ToolMetadata
+
+        tool_reg = get_tool_registry()
+        # 注册到全局 tool registry(失败不阻塞启动)
+        for ToolCls, category, tags in [
+            (TravelPlanningTool, "travel", ["navigation", "carbon", "weather"]),
+            (KnowledgeRetrievalTool, "knowledge", ["rag", "search"]),
+            (CarbonFootprintTool, "carbon", ["calculation", "footprint"]),
+            (ReportExportTool, "report", ["export", "pdf"]),
+        ]:
+            try:
+                tool_inst = ToolCls()
+                meta = ToolMetadata(
+                    name=tool_inst.name,
+                    description=tool_inst.description,
+                    category=category,
+                    tags=tags,
+                    version="1.0",
+                )
+                tool_reg.register(tool_inst, meta, overwrite=True)
+            except Exception as e:
+                import logging
+                logging.getLogger(__name__).warning(
+                    "[P6.S.15] tool 注册失败 %s: %s", ToolCls.__name__, e,
+                )
+
+        # 注册 Skills
+        from agent.skills import get_skill_executor
+        from agent.skills.builtin import (
+            LowCarbonTravelSkill,
+            PolicyQuerySkill,
+            ProfileUpdateSkill,
+        )
+        skill_exec = get_skill_executor()
+        for SkillCls in [LowCarbonTravelSkill, PolicyQuerySkill, ProfileUpdateSkill]:
+            try:
+                skill_exec.register(SkillCls())
+            except Exception as e:
+                import logging
+                logging.getLogger(__name__).warning(
+                    "[P6.S.15] skill 注册失败 %s: %s", SkillCls.__name__, e,
+                )
+
+        import logging
+        logging.getLogger(__name__).info(
+            "[P6.S.15] tools/skills 注册完成: %d tools, %d skills",
+            len(tool_reg.list_all()),
+            len(skill_exec.list_all()),
+        )
+    except Exception as e:
+        import logging
+        logging.getLogger(__name__).warning("[P6.S.15] tools/skills 注册失败(非致命): %s", e)
 
 
 def _register_event_subscribers() -> None:

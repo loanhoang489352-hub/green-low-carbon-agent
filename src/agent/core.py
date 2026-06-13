@@ -975,23 +975,87 @@ class GreenAgent:
         routes = data.get("routes", [])
         weather = data.get("weather", {})
         recommended = data.get("recommended", {})
+        weights = data.get("weights", {})
+
+        # P6.S.15: 给短途(<3km)补一个步行选项
+        try:
+            distance_km = min(
+                (r.get("distance_km") or 99) for r in routes
+            ) if routes else 0
+        except Exception:
+            distance_km = 0
+        if 0 < distance_km <= 5 and not any(r.get("type") == "步行" for r in routes):
+            # 步行 5km/h 估算
+            walking_min = int(distance_km * 12)  # 5km/h = 12 min/km
+            routes.append({
+                "type": "步行",
+                "line": "全程步行",
+                "distance_km": distance_km,
+                "duration_min": walking_min,
+                "carbon_kg": 0.0,
+                "cost_yuan": 0,
+            })
 
         # 格式化路线(注意:实际 key 是 'type' 不是 'mode')
         route_lines = []
         for i, r in enumerate(routes[:5], 1):
+            # P6.S.15: 显示具体线路名(如"地铁1号线 → 公交52路")
+            line_detail = r.get("line", "")
+            if line_detail and line_detail != r.get("type", ""):
+                line_str = f"({line_detail})"
+            else:
+                line_str = ""
+            # P6.S.15: 显示评分明细(碳/费用/时长/天气)
+            breakdown = r.get("score_breakdown", {})
+            score_info = ""
+            if breakdown:
+                score_info = (
+                    f" [碳:{breakdown.get('carbon', '?')} "
+                    f"费:{breakdown.get('cost', '?')} "
+                    f"时:{breakdown.get('duration', '?')} "
+                    f"天:{breakdown.get('weather', '?')}]"
+                )
+
+            # P6.S.15: 显示碳减排对比(对比自驾)
+            carbon_savings = ""
+            if r.get("type") != "自驾" and r.get("carbon_kg") is not None:
+                # 找到自驾那条
+                driving = next((x for x in routes if x.get("type") == "自驾"), None)
+                if driving:
+                    saved = (driving.get("carbon_kg") or 0) - (r.get("carbon_kg") or 0)
+                    if saved > 0.01:
+                        carbon_savings = f"  ⬇️ -碳{saved:.2f}kg"
+
             route_lines.append(
-                f"{i}. **{r.get('type', r.get('mode', '?'))}** — {r.get('distance_km', '?')}km, "
-                f"约 {r.get('duration_min', '?')} 分钟, 碳排 {r.get('carbon_kg', '?')} kg, "
-                f"¥{r.get('cost_yuan', '?')}"
+                f"{i}. **{r.get('type', r.get('mode', '?'))}**{line_str} — "
+                f"{r.get('distance_km', '?')}km, 约 {r.get('duration_min', '?')} 分钟, "
+                f"碳排 {r.get('carbon_kg', '?')} kg, ¥{r.get('cost_yuan', '?')}"
+                f"{carbon_savings}{score_info}"
             )
         route_text = "\n".join(route_lines) if route_lines else "(暂无路线数据)"
 
-        # 推荐路线(注意:实际 key 是 'type' 不是 'mode')
+        # P6.S.15: 评分修正(实际是 0-1,要显示成 0-10 直观)
         rec_text = ""
         if recommended:
+            score_raw = recommended.get('score', 0)
+            score_10 = round(float(score_raw) * 10, 1)  # 0.577 → 5.8
+            # 构造详细理由
+            bd = recommended.get('score_breakdown', {})
+            reason_parts = []
+            if bd.get('carbon', 0) > 0.7:
+                reason_parts.append("碳排最低")
+            if bd.get('cost', 0) > 0.7:
+                reason_parts.append("性价比高")
+            if bd.get('duration', 0) > 0.7:
+                reason_parts.append("用时最短")
+            if bd.get('weather', 0) > 0.7:
+                reason_parts.append("天气适宜")
+            reason = "、".join(reason_parts) if reason_parts else "综合最优"
+            if recommended.get('weather_note'):
+                reason += f" ({recommended['weather_note']})"
             rec_text = (f"\n\n🌟 **推荐:{recommended.get('type', recommended.get('mode', '?'))}** "
-                        f"(综合评分 {recommended.get('score', '?')}/10)\n"
-                        f"理由: {recommended.get('reason', '碳排最优')}")
+                        f"(综合评分 {score_10}/10)\n"
+                        f"理由: {reason}")
 
         # 天气(注意:实际 key 是 'temp_c' 不是 'temp')
         weather_text = ""
@@ -999,14 +1063,26 @@ class GreenAgent:
             w = weather
             weather_text = (f"\n\n🌤️ 天气:{w.get('description', '?')}, "
                             f"温度 {w.get('temp_c', w.get('temp', '?'))}°C, "
-                            f"骑行适宜度 {'✅' if w.get('cycling_ok', True) else '⚠️ 不建议'}")
+                            f"骑行适宜度 {'✅' if w.get('cycling_ok', True) else '⚠️ 不建议'}"
+                            + (f" {w.get('note', '')}" if w.get('note') else ""))
+
+        # P6.S.15: 多因素评分权重提示
+        weight_text = ""
+        if weights:
+            weight_text = (
+                f"\n\n📊 评分权重:碳排 {weights.get('carbon', '?')} · "
+                f"费用 {weights.get('cost', '?')} · "
+                f"时长 {weights.get('duration', '?')} · "
+                f"天气 {weights.get('weather', '?')}"
+            )
 
         message_text = (
-            f"🚲 **{origin} → {destination}** 低碳出行方案:\n\n"
+            f"🚲 **{origin} → {destination}** 多因素低碳出行方案:\n\n"
             f"{route_text}"
             f"{rec_text}"
-            f"{weather_text}\n\n"
-            f"💡 优先选 **碳排最低** 的方式,环保又健康!"
+            f"{weather_text}"
+            f"{weight_text}\n\n"
+            f"💡 综合考虑 **碳排 + 费用 + 时长 + 天气** 4 维因素,推荐最优方案"
         )
 
         # 5) 持久化(记忆 + 对话)
