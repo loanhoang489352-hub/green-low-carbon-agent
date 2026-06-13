@@ -280,6 +280,33 @@
   - 状态变化时 invalidate query cache,避免 mock 响应被锁
 - 9 个新测试(`tests/test_p6s11_llm_debug.py`)+
   59 个 LLM 回归测试(P5-A / P6-G / P6-I)全过
+
+### P6.S.12 修 P6.S.3 出行规划关键词过激(本次)
+**问题**: P6.S.3 加的 TRAVEL_KEYWORDS 过广,误伤其他意图
+- "碳排放"/"碳排"是低碳主题,不应触发 travel
+- "去/到/出发"是常用动词,单独出现就触发 travel
+- "公司/家/学校"是通用位置词,非出行信号
+- "有什么低碳出行建议吗"被知识类关键词盖过 ADVICE_REQUEST
+
+**修复**:
+- `src/agent/intent.py` `TRAVEL_KEYWORDS` 拆为:
+  - `STRONG_TRAVEL`(11 个,单命中即覆盖):明确出行模式(怎么去/公交路线/查地图)
+  - `WEAK_TRAVEL`(20+ 个,需 ≥2 才覆盖):交通方式 + 方向词
+  - 删除:"碳排放/碳排/公司/家/学校/去"等通用词
+- 新增 ADVICE_REQUEST 优先级提升:
+  - 显式信号("建议/推荐/有什么好/怎么办/如何做/帮我/帮忙/怎么选/想买/想换")
+  - 单命中即覆盖(类似 travel 的 override)
+- KNOWLEDGE_QUERY 移除"什么"(过泛,任何问句都含),
+  保留"怎么/如何/哪些/为什么/多少/区别"
+- 新增兴趣表达("感兴趣/想了解/想知道/想学习")归 knowledge_query
+- 10 个新测试(`tests/test_p6s12_intent_refine.py`)
+
+**结果**:
+- `tests/test_intent.py`:4 fail → 1 fail(仅 `test_unknown_intent` 用 `IntentType.OTHER`,枚举无此值,是测试 bug)
+- `tests/test_p4g_e2e.py`:仍 4 fail,但根因是测试用空 profile 用户
+  期望 recs,但推荐引擎对空画像返空(非本次意图问题)
+- `tests/test_agent.py`:5 fail 全部是测试代码本身的
+  (test_increment_stat / test_add_sample_policies 等)
 **问题**: 问"你是什么模型"会返 0.04 相似度的无关内容
 - ChromaDB 用 `1/(1+d²)` 倒数映射,无关查询 score 也 ≥ 0
 - `min_similarity=0.0` 预过滤失效

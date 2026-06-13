@@ -40,8 +40,11 @@ class IntentRecognizer:
         IntentType.KNOWLEDGE_QUERY: [
             "什么是", "什么叫", "请问", "解释", "碳足迹", "碳中和", "碳达峰",
             "温室气体", "减排", "低碳", "环保", "再生能源", "再生能源",
-            "怎么", "如何", "哪些", "什么", "为什么", "多少", "区别",
-            "介绍一下", "能说说", "科普", "知识", "概念", "定义"
+            # P6.S.12: 移除 "什么"(太泛),保留"怎么"作为问句信号
+            "怎么", "如何", "哪些", "为什么", "多少", "区别",
+            "介绍一下", "能说说", "科普", "知识", "概念", "定义",
+            # P6.S.12: 兴趣表达(用户对某话题感兴趣,等价为咨询型)
+            "感兴趣", "想了解", "想知道", "想学习"
         ],
         IntentType.ADVICE_REQUEST: [
             "建议", "怎么办", "有什么好", "推荐", "怎么选", "如何做",
@@ -90,26 +93,37 @@ class IntentRecognizer:
         "政策相关": ["补贴", "政策", "碳市场", "碳积分", "奖励", "优惠", "减税"]
     }
 
-    # P6.S.3: 出行规划意图关键词(高多样性,保证命中率)
-    TRAVEL_KEYWORDS = [
-        # 直接规划
+    # P6.S.3 + P6.S.12: 出行规划意图关键词(收紧,避免误伤 advice/knowledge/action_report)
+    # 拆分三层:
+    #   STRONG_TRAVEL: 单命中即覆盖其他意图(明确出行模式)
+    #   WEAK_TRAVEL:   需 ≥2 同时命中才覆盖(交通方式/方向词)
+    #   已删除:      通用位置词("公司"/"家"/"学校")、通用"去/到/出发"、
+    #               "碳排放/碳排"等低碳主题词(只"低碳出行/绿色出行"留)
+    STRONG_TRAVEL = [
+        # 明确规划
         "出行计划", "出行规划", "规划出行", "行程规划", "路线规划",
+        # 明确"怎么去"型
         "怎么去", "怎么走", "怎么到", "如何去", "如何走", "如何到",
-        "去", "到", "出发", "去往", "前往", "去到", "到达",
-        # 路线
-        "路线", "路径", "导航", "地图", "路况",
-        # 交通方式
+        # 交通方式 + 路线
+        "公交路线", "地铁路线", "驾车路线", "骑行路线",
+        # 查工具
+        "查路线", "查地图", "查导航", "查路况",
+    ]
+    WEAK_TRAVEL = [
+        # 方向标记(单字泛,需 ≥2 组合才有意义)
+        "从", "到", "出发", "前往", "到达", "去往",
+        # 路线工具
+        "路线", "导航", "地图", "路况",
+        # 交通方式(单字弱,需多词组合)
         "公交", "地铁", "打车", "网约车", "出租车", "驾车", "开车", "骑车", "骑行",
         "自行车", "步行", "走路", "拼车", "顺风车",
+        # 出行相关
+        "低碳出行", "环保出行", "绿色出行", "最环保", "最绿色", "最节能",
         # 时间
         "几点出发", "多久能到", "几小时", "多长时间", "路上要多久", "路上花多久",
-        # 碳排
-        "碳排放", "碳排", "低碳出行", "环保出行", "绿色出行", "最环保", "最绿色", "最节能",
-        # 地名/位置(常见)
-        "公司", "家", "学校", "机场", "火车站", "地铁站", "商场", "餐厅", "医院",
-        # 模糊表达
-        "出去", "去玩", "出门", "去办事", "去上班", "去上学"
     ]
+    # 兼容旧代码
+    TRAVEL_KEYWORDS = STRONG_TRAVEL + WEAK_TRAVEL
     
     # 低碳领域关键词
     LOW_CARBON_KEYWORDS = [
@@ -173,12 +187,25 @@ class IntentRecognizer:
             if score > 0:
                 scores[intent_type] = score / len(patterns)
 
-        # P6.S.3: 出行规划优先级提升 — 任何 TRAVEL_KEYWORDS 命中即优先
-        travel_hits = sum(1 for kw in self.TRAVEL_KEYWORDS if kw in text)
-        if travel_hits > 0:
-            # 若已匹配到其他意图且 travel 命中 ≥ 1, 覆盖为 TRAVEL_PLANNING
-            # 这样"明天去西单怎么走"会被识别为 travel,而不是 advice
-            scores[IntentType.TRAVEL_PLANNING] = scores.get(IntentType.TRAVEL_PLANNING, 0) + 0.3 + travel_hits * 0.1
+        # P6.S.3 + P6.S.12: 出行规划优先级提升
+        # 单 STRONG_TRAVEL 命中即覆盖;WEAK_TRAVEL 需 ≥2 才覆盖
+        # 避免"我应该怎么减少碳排放"被"碳排放"误识别为 travel
+        strong_hits = sum(1 for kw in self.STRONG_TRAVEL if kw in text)
+        weak_hits = sum(1 for kw in self.WEAK_TRAVEL if kw in text)
+        if strong_hits > 0 or weak_hits >= 2:
+            travel_hits = strong_hits + weak_hits
+            scores[IntentType.TRAVEL_PLANNING] = (
+                scores.get(IntentType.TRAVEL_PLANNING, 0) + 0.3 + travel_hits * 0.1
+            )
+
+        # P6.S.12: 建议请求优先级提升 — "建议/推荐/有什么好" 命中即覆盖
+        # 避免"有什么低碳出行建议吗"被"什么/低碳/出行"散点命中 knowledge_query
+        advice_signals = ["建议", "推荐", "有什么好", "怎么办", "如何做", "帮我", "帮忙", "怎么选", "想买", "想换"]
+        advice_hits = sum(1 for s in advice_signals if s in text)
+        if advice_hits > 0:
+            scores[IntentType.ADVICE_REQUEST] = (
+                scores.get(IntentType.ADVICE_REQUEST, 0) + 0.3 + advice_hits * 0.1
+            )
 
         if not scores:
             return IntentType.UNKNOWN, 0.5
