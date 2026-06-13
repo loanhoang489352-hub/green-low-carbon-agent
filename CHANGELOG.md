@@ -210,13 +210,23 @@
 
 ## [2.1.1] — 2026-06-13 — 修复 Web UI 截图 4 Bug (P6.S.7 → S.11)
 
-### P6.S.7 修 policy/profile 路由 + 修 LLM 重复 print(本次)
+### P6.S.7 修 policy/profile 路由 + 修 LLM 重复 print
 - `src/server/routers/profile.py` (line 51-55):4 个 profile/personalization/stats 路由
   `auth_required=True → False`(前端 `loadProfile` 没传 token)
 - `src/server/routers/system.py` `policy_latest` (line 132-136):改直返数组
   (前端 `loadPolicies` 期望 `policies.length` 直接迭代)
 - `src/llm/__init__.py` `get_llm_client` 修双重 print 重复行
 - `agent.bat` 加 pause + 改 goto 标签流(避免窗口闪关)
+
+### P6.S.8 policy limit 解析 + 前端 guest gate 放宽(本次)
+- `src/server/routers/system.py` `policy_latest` 加 `?limit=N` 解析
+  (默认 10,上限 50,非法值容错回退)
+- `web/index.html` `loadProfile` 改 API-first 策略:
+  - 没 userId → 引导"请先开始对话"
+  - 401/403 → 后端拒绝,显示注册引导(原硬编码)
+  - 200 但空 context → 骨架(新用户友好)
+  - 200 + 真实 data → 渲染画像
+- 7 个测试全过(`tests/test_p6s8_policy_limit.py`)
 
 ## [2.1.0] — 2026-06-11 — P6 路线图(plan 之外 13 方向全完成)
 

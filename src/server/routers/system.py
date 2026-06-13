@@ -4,6 +4,7 @@ P5-E: /api/health 真探活,新增 /api/ready
 """
 import os
 from pathlib import Path
+from urllib.parse import urlparse, parse_qs
 
 
 def register_system_routes(registry) -> None:
@@ -131,7 +132,13 @@ def register_system_routes(registry) -> None:
 
     def policy_latest(handler):
         updater = handler.policy_updater
-        policies = updater.get_latest_policies(limit=10)
+        # P6.S.8: 解析 ?limit=N 查询参数(前端传 20,避免硬编码 10 截断)
+        try:
+            limit = int(parse_qs(urlparse(handler.path).query).get("limit", ["10"])[0])
+        except (ValueError, TypeError):
+            limit = 10
+        limit = max(1, min(limit, 50))  # 上限 50,防恶意大值
+        policies = updater.get_latest_policies(limit=limit)
         # P6.S.7: 直返数组(前端 loadPolicies 期望数组)
         handler.send_json(policies)
 

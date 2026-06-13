@@ -3358,46 +3358,106 @@
             }
         }
 
+        // P6.S.8: 画像渲染辅助函数(API-first 策略下需要 3 种状态)
+        function renderProfileGuestGate() {
+            const container = document.getElementById('profile-container');
+            console.log('[Profile] 后端拒绝(401/403),显示注册引导');
+            container.innerHTML = `
+                <div class="profile-card">
+                    <h3>👤 用户画像</h3>
+                    <p style="color: #6b7280; text-align: center; padding: 20px;">
+                        完成注册后即可查看完整画像<br><br>
+                        <button class="quick-btn" onclick="showOnboardingModal()">
+                            立即注册
+                        </button>
+                    </p>
+                </div>
+            `;
+        }
+
+        function renderProfileSkeleton() {
+            const container = document.getElementById('profile-container');
+            console.log('[Profile] API 通了但 context 为空,显示骨架');
+            container.innerHTML = `
+                <div class="profile-card">
+                    <h3>👤 用户画像(初始化中)</h3>
+                    <div class="profile-item">
+                        <span class="profile-label">环保认知</span>
+                        <span class="profile-badge">🌱 入门</span>
+                    </div>
+                    <div class="profile-item">
+                        <span class="profile-label">行为阶段</span>
+                        <span class="profile-badge">意向</span>
+                    </div>
+                    <div class="profile-item">
+                        <span class="profile-label">沟通风格</span>
+                        <span class="profile-value">平衡</span>
+                    </div>
+                    <div class="profile-item">
+                        <span class="profile-label">基本信息</span>
+                        <span class="profile-value">新用户</span>
+                    </div>
+                    <p style="color: #9ca3af; font-size: 14px; margin-top: 12px;">
+                        💡 继续对话,我会学习你的偏好并自动更新画像
+                    </p>
+                </div>
+                <div class="profile-card">
+                    <h3>📊 交互统计</h3>
+                    <div class="profile-item">
+                        <span class="profile-label">对话轮次</span>
+                        <span class="profile-value">0</span>
+                    </div>
+                    <div class="profile-item">
+                        <span class="profile-label">建议采纳率</span>
+                        <span class="profile-value">--</span>
+                    </div>
+                </div>
+            `;
+        }
+
+        function renderProfileEmpty(msg) {
+            const container = document.getElementById('profile-container');
+            container.innerHTML = `
+                <div class="profile-card">
+                    <h3>👤 用户画像</h3>
+                    <p style="color: #6b7280; text-align: center; padding: 20px;">${msg}</p>
+                </div>
+            `;
+        }
+
         // 加载用户画像
         async function loadProfile() {
             const container = document.getElementById('profile-container');
             console.log('[Profile] 加载画像, isRegistered:', isRegistered, 'userId:', userId);
 
-            // 检查是否登录 - 只有真正的注册用户才能看画像
-            const isGuestUser = !isRegistered || !userId || 
-                userId.startsWith('anonymous_') || 
-                userId.startsWith('guest_') ||
-                userId.startsWith('temp_');
-            
-            if (isGuestUser) {
-                console.log('[Profile] 访客用户，显示提示');
-                container.innerHTML = `
-                    <div class="profile-card">
-                        <h3>👤 用户画像</h3>
-                        <p style="color: #6b7280; text-align: center; padding: 20px;">
-                            完成注册后即可查看完整画像<br><br>
-                            <button class="quick-btn" onclick="showOnboardingModal()">
-                                立即注册
-                            </button>
-                        </p>
-                    </div>
-                `;
-                return;
+            // P6.S.8: API-first — 软化 guest gate
+            // 1. 没 userId → 真正空状态,显示引导
+            if (!userId) {
+                return renderProfileEmpty('请先开始一次对话');
             }
 
-            console.log('[Profile] 正式用户，加载画像数据, userId:', userId);
+            console.log('[Profile] 调用 API, userId:', userId);
 
             try {
                 const response = await fetch(`/api/personalization/${userId}`);
                 console.log('[Profile] API响应状态:', response.status);
-                
+
+                // 401/403 → 后端明确拒绝,显示注册引导
+                if (response.status === 401 || response.status === 403) {
+                    return renderProfileGuestGate();
+                }
                 if (!response.ok) {
                     throw new Error(`HTTP ${response.status}`);
                 }
-                
+
                 const data = await response.json();
                 console.log('[Profile] 获取到数据:', JSON.stringify(data));
                 const ctx = data.context || {};
+
+                // API 通了但空 context → 新用户,显示骨架
+                if (!ctx || Object.keys(ctx).length === 0) {
+                    return renderProfileSkeleton();
+                }
 
                 const knowledgeLevel = ctx.knowledge_level || 'intermediate';
                 const behaviorStage = ctx.behavior_stage || '意向';
@@ -3491,7 +3551,7 @@
                 `;
 
             } catch (error) {
-                container.innerHTML = '<p style="text-align: center; color: #ef4444;">加载失败</p>';
+                renderProfileEmpty('加载失败,请稍后重试');
                 console.error('Error loading profile:', error);
             }
         }
