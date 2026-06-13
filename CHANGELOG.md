@@ -301,7 +301,7 @@
 - 新增兴趣表达("感兴趣/想了解/想知道/想学习")归 knowledge_query
 - 10 个新测试(`tests/test_p6s12_intent_refine.py`)
 
-### P6.S.13 修 LLM 大脑未启动 — 截图 1.png 暴露 Bug 5(本次)
+### P6.S.13 修 LLM 大脑未启动 — 截图 1.png 暴露 Bug 5
 **问题**: 用户截图显示所有回复都是 bullet 列表(规则模板),真实 LLM/MockLLMClient 都没被调到
 
 **根因**:
@@ -333,6 +333,34 @@
 - `LLM_MOCK=true` + P6.S.13 修复后:返回 MockLLMClient 的"推荐你尝试以下低碳行动..."
 - `LLM_MOCK=false` + 真 key:返回 DeepSeek 真实中文响应
 - 都不再回退到规则模板(用户截图的 bug 消除)
+
+### P6.S.14 修 chat 端点 auth 导致浏览器 401 — Bug 5 真根(本次)
+**问题**: LLM 后端 Python 路径已修(P6.S.13),但浏览器仍看不到真实 LLM 响应
+- HTTP 端到端 benchmark:`POST /api/chat/enhanced` 无 Bearer token 返 **401 UNAUTHORIZED**
+- 浏览器 onboarding 后 userId 已生成但没 login session → 没 token → 401
+- 前端 catch 错误后显示降级内容(用户截图的 bullet 列表可能是某种降级)
+
+**根因**:
+- P5-D 把 `/api/chat` `/api/chat/enhanced` `/api/conversation/*` `/api/recommendations` 全设了 `auth_required=True`
+- 浏览器匿名 user 没 Bearer token → 401
+- 真正的"个人"是用 body 里的 `user_id` 标识,不应强制要求 login session
+
+**修复**:
+- `src/server/routers/chat.py`:
+  - chat/conversation/recommendations 全部 `auth_required=False`
+  - 用 body 里的 `user_id` 当身份(原本就是这逻辑)
+  - 仍支持 Bearer token(有则用 login user,无则用 body user_id,向后兼容)
+- 敏感端点(`/api/feedback`)保持 `auth_required=True`(防退步)
+- 9 个新测试(`tests/test_p6s14_chat_anon_auth.py`)
+
+**端到端验证**:
+```
+POST /api/chat/enhanced (无 token) → 200 OK
+  intent: advice_request
+  message: 1319 字符真实 LLM 响应
+  knowledge_refs: 5 个
+  recommendations: 2 个
+```
 **问题**: 问"你是什么模型"会返 0.04 相似度的无关内容
 - ChromaDB 用 `1/(1+d²)` 倒数映射,无关查询 score 也 ≥ 0
 - `min_similarity=0.0` 预过滤失效

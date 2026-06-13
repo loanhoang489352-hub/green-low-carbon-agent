@@ -81,9 +81,13 @@ def register_chat_routes(registry) -> None:
             ]
         })
 
-    # P6.A: P5-D 鉴权真落地 — chat/conversation/recommendations 全员需 Bearer session_id
-    registry.add_route("POST", "/api/chat", chat, auth_required=True, description="基础聊天")
-    registry.add_route("POST", "/api/chat/enhanced", chat_enhanced, auth_required=True, description="增强聊天(RAG+个性化)")
-    registry.add_route("POST", "/api/conversation/reset", conversation_reset, auth_required=True, description="重置对话")
-    registry.add_route("POST", "/api/conversation/history", conversation_history, auth_required=True, description="对话历史")
-    registry.add_route("POST", "/api/recommendations", recommendations, auth_required=True, description="个性化推荐")
+    # P6.S.14: chat 端点对匿名 user_id 公开(避免浏览器无 token 时 401)
+    #   - 用 user_id(在 body 里)做身份,不再强制 Bearer session_id
+    #   - 浏览器 onboarding 后 / 匿名 user 都能直接聊天
+    #   - 仍支持 Bearer token:有则用 login user,无则用 body user_id
+    #   - 敏感端点(feedback/memory/profile)仍需 auth
+    registry.add_route("POST", "/api/chat", chat, auth_required=False, description="基础聊天")
+    registry.add_route("POST", "/api/chat/enhanced", chat_enhanced, auth_required=False, description="增强聊天(RAG+个性化)")
+    registry.add_route("POST", "/api/conversation/reset", conversation_reset, auth_required=False, description="重置对话")
+    registry.add_route("POST", "/api/conversation/history", conversation_history, auth_required=False, description="对话历史")
+    registry.add_route("POST", "/api/recommendations", recommendations, auth_required=False, description="个性化推荐")
