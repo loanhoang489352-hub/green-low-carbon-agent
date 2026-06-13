@@ -121,6 +121,19 @@ class AgentNodes:
         message = state["message"]
         intent_type = state.get("intent_type", "")
 
+        # P6.S.10: 意图门控 — 出行/寒暄/反馈等意图跳过 RAG
+        NO_RAG_INTENTS = {
+            "travel_planning", "greeting", "question", "unknown",
+            "feedback", "action_report",
+            "suggestion_accept", "suggestion_reject",
+        }
+        if intent_type in NO_RAG_INTENTS:
+            return {
+                "rag_context": "",
+                "rag_results": [],
+                "knowledge_refs": []
+            }
+
         # P4-F.1: 基于用户画像构造软过滤信号(region + interests)
         personalization = self._build_personalization_hints(state)
 

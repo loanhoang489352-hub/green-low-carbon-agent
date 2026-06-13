@@ -47,14 +47,20 @@ class RAGConfig:
     persist_directory: str = "./data/vector_db"
     collection_name: str = "knowledge_base"
     default_top_k: int = 5
-    # P6.S.9: 0.0 → 0.25 预过滤更严,真正兜底靠 retrieve() 内的 POST_FILTER_THRESHOLD
-    min_similarity: float = 0.25
+    # P6.S.9: 预过滤。HybridRetriever 综合分 = semantic*0.6 + bm25*0.4,
+    # 真实相关文档常在 0.01-0.04 区间(MiniLM + ChromaDB 1/(1+d²)),
+    # 0.05 预过滤基本不挡召回,主要靠 post_filter + 相对阈值
+    min_similarity: float = 0.05
     hybrid_search: bool = True  # 是否启用混合搜索
     semantic_weight: float = 0.6  # 语义权重
-    # P6.S.9: 后置兜底阈值 — ChromaDB 用 1/(1+d²) 倒数映射,无关查询 score ~0.04
-    post_filter_threshold: float = 0.5
+    # P6.S.9: 后置兜底 — 绝对下界(很低的最小值,主要靠相对阈值过滤)
+    # 真实召回分常在 0.01-0.04,设 0.005 仅挡掉完全不相关;
+    # 真要过滤"0.04 噪声"靠 max_score * 0.3 相对阈值
+    post_filter_threshold: float = 0.005
     # P6.S.9: 初始候选倍数 (top_k=5 → 5*4=20 候选 → rerank → top_k=5)
     initial_fetch_multiplier: int = 4
+    # P6.S.9: 相对下界 — 仅保留 max_score * 此比例 以上的文档
+    relative_threshold_ratio: float = 0.3
 
 
 class RAGEngine:
@@ -366,16 +372,28 @@ class RAGEngine:
                 # rerank 失败回退到原序
                 pass
 
-        # 第三阶段: 后置兜底 — 严格分数阈值过滤
-        threshold = self.config.post_filter_threshold
+        # 第三阶段: 后置兜底过滤
+        # P6.S.9: 用绝对下界 + 相对下界组合(适应不同评分尺度)
+        #   - 绝对下界 (post_filter_threshold): 0.005,仅挡完全不相关
+        #   - 相对下界: max_score * 0.3,砍掉与最相关文档差距太大的
+        # 注: MiniLM + ChromaDB 1/(1+d²) 真实召回分常在 0.01-0.04,
+        #     单纯 0.5/0.1 绝对阈值会砍光真实召回,所以两者取大
+        abs_threshold = self.config.post_filter_threshold
         before_count = len(results)
-        results = [r for r in results if r.score >= threshold]
+        if results:
+            max_score = max(r.score for r in results)
+            # 关键:abs_threshold 应是绝对下界(很低的最小值),不是主要过滤
+            # max(0.005, max*0.3) → 真实召回 max=0.02 → 阈值 0.006 → 5 个全过
+            rel_threshold = max(abs_threshold, max_score * 0.3)
+        else:
+            rel_threshold = abs_threshold
+        results = [r for r in results if r.score >= rel_threshold]
         dropped = before_count - len(results)
         if dropped:
             import logging
             logging.getLogger(__name__).debug(
-                "[RAG] post_filter dropped=%d/%d (threshold=%.2f, query='%s')",
-                dropped, before_count, threshold, query[:50],
+                "[RAG] post_filter dropped=%d/%d (abs=%.4f rel=%.4f query='%s')",
+                dropped, before_count, abs_threshold, rel_threshold, query[:50],
             )
 
         # 第四阶段: 截断到 top_k

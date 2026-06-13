@@ -50,14 +50,14 @@ class MockReranker:
         return sorted(results, key=lambda r: r.score, reverse=True)
 
 
-def _make_engine_with_mock(mock_retriever, post_filter_threshold=0.5, initial_fetch_multiplier=4):
+def _make_engine_with_mock(mock_retriever, post_filter_threshold=0.1, initial_fetch_multiplier=4):
     """构造一个挂上 mock retriever 的 RAGEngine"""
     from rag.rag_engine import RAGEngine, RAGConfig
 
     engine = RAGEngine.__new__(RAGEngine)
     engine.config = RAGConfig(
         enabled=True,
-        min_similarity=0.25,
+        min_similarity=0.05,
         post_filter_threshold=post_filter_threshold,
         initial_fetch_multiplier=initial_fetch_multiplier,
         default_top_k=5,
@@ -72,19 +72,19 @@ def _make_engine_with_mock(mock_retriever, post_filter_threshold=0.5, initial_fe
 
 
 def test_post_filter_drops_low_score():
-    """score < 0.5 的无关结果应被过滤掉"""
+    """score < 0.1 的无关结果应被过滤掉"""
     retriever = MockRetriever([
         FakeResult(id="1", content="碳中和定义", score=0.85),
         FakeResult(id="2", content="不相关文档", score=0.04),  # 0.04 噪声
         FakeResult(id="3", content="低碳生活", score=0.72),
-        FakeResult(id="4", content="更不相关", score=0.12),
+        FakeResult(id="4", content="更不相关", score=0.08),  # 也过滤
     ])
-    engine = _make_engine_with_mock(retriever, post_filter_threshold=0.5)
+    engine = _make_engine_with_mock(retriever, post_filter_threshold=0.1)
 
     results = engine.retrieve("碳中和", top_k=5)
 
-    assert len(results) == 2, f"应只剩 2 个 ≥0.5, 实际 {len(results)}"
-    assert all(r.score >= 0.5 for r in results)
+    assert len(results) == 2, f"应只剩 2 个 ≥0.1, 实际 {len(results)}"
+    assert all(r.score >= 0.1 for r in results)
     assert {r.id for r in results} == {"1", "3"}
     print("✅ test_post_filter_drops_low_score PASSED")
 
@@ -92,11 +92,11 @@ def test_post_filter_drops_low_score():
 def test_unrelated_query_returns_empty():
     """完全无关的 query 应被过滤为空"""
     retriever = MockRetriever([
-        FakeResult(id="1", content="碳中和", score=0.30),
-        FakeResult(id="2", content="低碳", score=0.25),
-        FakeResult(id="3", content="出行", score=0.20),
+        FakeResult(id="1", content="碳中和", score=0.08),  # 临界, 应被过滤
+        FakeResult(id="2", content="低碳", score=0.07),
+        FakeResult(id="3", content="出行", score=0.06),
     ])
-    engine = _make_engine_with_mock(retriever, post_filter_threshold=0.5)
+    engine = _make_engine_with_mock(retriever, post_filter_threshold=0.1)
 
     results = engine.retrieve("你是什么模型", top_k=5)
 
@@ -116,10 +116,10 @@ def test_initial_fetch_multiplier_4():
 
 def test_top_k_truncation():
     """20 个候选通过过滤后应截断到 top_k=5"""
-    # 20 个全部 ≥0.5 → 应只返 5 个
+    # 20 个全部 ≥0.1 → 应只返 5 个
     candidates = [FakeResult(id=f"r{i}", content=f"result {i}", score=0.9 - i*0.01) for i in range(20)]
     retriever = MockRetriever(candidates)
-    engine = _make_engine_with_mock(retriever, post_filter_threshold=0.5)
+    engine = _make_engine_with_mock(retriever, post_filter_threshold=0.1)
 
     results = engine.retrieve("test", top_k=5)
     assert len(results) == 5, f"应截断到 5, 实际 {len(results)}"
@@ -146,18 +146,19 @@ def test_rag_config_defaults_changed():
     from rag.rag_engine import RAGConfig
 
     cfg = RAGConfig()
-    assert cfg.min_similarity == 0.25, f"min_similarity 应 0.25, 实际 {cfg.min_similarity}"
-    assert cfg.post_filter_threshold == 0.5, f"post_filter_threshold 应 0.5, 实际 {cfg.post_filter_threshold}"
+    assert cfg.min_similarity == 0.05, f"min_similarity 应 0.05, 实际 {cfg.min_similarity}"
+    assert cfg.post_filter_threshold == 0.005, f"post_filter_threshold 应 0.005, 实际 {cfg.post_filter_threshold}"
     assert cfg.initial_fetch_multiplier == 4, f"initial_fetch_multiplier 应 4, 实际 {cfg.initial_fetch_multiplier}"
     print("✅ test_rag_config_defaults_changed PASSED")
 
 
 def test_all_filtered_below_threshold():
     """所有候选都低于阈值 → 返空列表(不是 5 个低分)"""
+    # 全部 < 0.005 绝对下界,且 max*0.3 也 < 0.005
     retriever = MockRetriever([
-        FakeResult(id=f"r{i}", content=f"content {i}", score=0.05 + i*0.01) for i in range(10)
+        FakeResult(id=f"r{i}", content=f"content {i}", score=0.0001) for i in range(10)
     ])
-    engine = _make_engine_with_mock(retriever, post_filter_threshold=0.5)
+    engine = _make_engine_with_mock(retriever, post_filter_threshold=0.005)
 
     results = engine.retrieve("test", top_k=5)
     assert results == [], f"应返空, 实际 {results}"
@@ -169,9 +170,9 @@ def test_core_init_rag_uses_p6s9_config():
     # 读 core.py 源码确认
     core_path = Path(__file__).resolve().parent.parent / "src" / "agent" / "core.py"
     src = core_path.read_text(encoding="utf-8")
-    assert "post_filter_threshold=0.5" in src, "core.py 应配 post_filter_threshold=0.5"
+    assert "post_filter_threshold=0.005" in src, "core.py 应配 post_filter_threshold=0.005"
     assert "initial_fetch_multiplier=4" in src, "core.py 应配 initial_fetch_multiplier=4"
-    assert "min_similarity=0.25" in src, "core.py 应配 min_similarity=0.25"
+    assert "min_similarity=0.05" in src, "core.py 应配 min_similarity=0.05"
     print("✅ test_core_init_rag_uses_p6s9_config PASSED")
 
 

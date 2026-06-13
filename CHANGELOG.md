@@ -228,19 +228,55 @@
   - 200 + 真实 data → 渲染画像
 - 7 个测试全过(`tests/test_p6s8_policy_limit.py`)
 
-### P6.S.9 RAG 检索质量改造(本次)
+### P6.S.9 RAG 检索质量改造
 **问题**: 问"你是什么模型"会返 0.04 相似度的无关内容
 - ChromaDB 用 `1/(1+d²)` 倒数映射,无关查询 score 也 ≥ 0
 - `min_similarity=0.0` 预过滤失效
 - RAG 总是无条件调,不区分意图
 
 **修复**:
-- `RAGConfig`: 新增 `post_filter_threshold=0.5` + `initial_fetch_multiplier=4`
-  (`min_similarity` 0.0 → 0.25 预过滤更严)
+- `RAGConfig`: 新增 `post_filter_threshold=0.005` + `initial_fetch_multiplier=4`
+  (`min_similarity` 0.0 → 0.05 预过滤)
 - `RAGEngine.retrieve()` 二段式召回:
   1. 初筛 `top_k*4=20` 候选
   2. rerank(若 retriever 配了)
-  3. 后置 `score >= 0.5` 过滤(兜底)
+  3. 后置 score 过滤: `max(0.005, max_score * 0.3)` 兜底
+     (注: 单纯绝对阈值在当前 MiniLM + ChromaDB 评分尺度下会砍光真实召回;
+     真实相关分常在 0.01-0.04 区间,所以用相对阈值为主)
+  4. 截断到 `top_k`
+- `core.py` `_init_rag_engine` 同步新配置
+- 8 个新测试(`tests/test_p6s9_rag_quality.py`)+
+  26 个回归测试(P4-E / P5-G / P5-H RAG)全过
+
+### P6.S.10 出行规划意图前置 + 工具直达(本次)
+**问题**: 出行规划 query 仍走 RAG 流程
+- `chat_enhanced()` 在 RAG 之前不识别意图
+- RAG 总是无条件,无意图分流
+
+**修复**:
+- `core.py` `chat_enhanced()`:
+  - **意图前置** — `intent_result = self.intent_recognizer.recognize(message)` 移到
+    `user_profile` 加载后,`onboarding gate` 前
+  - **TRAVEL_PLANNING 早返** — 直接调 `_handle_travel_planning`,返
+    `EnhancedAgentResponse`,`knowledge_refs=[]`(对齐 `chat()` line 992-996 行为)
+  - **NO_RAG_INTENTS 集合** — `GREETING/QUESTION/UNKNOWN/FEEDBACK/ACTION_REPORT/
+    SUGGESTION_ACCEPT/SUGGESTION_REJECT` 跳过 RAG
+- `graph/nodes.py` `retrieve_knowledge` 节点加同样意图守卫(防 LangGraph 路径复发)
+- 6 个新测试(`tests/test_p6s10_intent_rag_bypass.py`)
+**问题**: 问"你是什么模型"会返 0.04 相似度的无关内容
+- ChromaDB 用 `1/(1+d²)` 倒数映射,无关查询 score 也 ≥ 0
+- `min_similarity=0.0` 预过滤失效
+- RAG 总是无条件调,不区分意图
+
+**修复**:
+- `RAGConfig`: 新增 `post_filter_threshold=0.005` + `initial_fetch_multiplier=4`
+  (`min_similarity` 0.0 → 0.05 预过滤)
+- `RAGEngine.retrieve()` 二段式召回:
+  1. 初筛 `top_k*4=20` 候选
+  2. rerank(若 retriever 配了)
+  3. 后置 score 过滤: `max(0.005, max_score * 0.3)` 兜底
+     (注: 单纯绝对阈值在当前 MiniLM + ChromaDB 评分尺度下会砍光真实召回;
+     真实相关分常在 0.01-0.04 区间,所以用相对阈值为主)
   4. 截断到 `top_k`
 - `core.py` `_init_rag_engine` 同步新配置
 - 8 个新测试(`tests/test_p6s9_rag_quality.py`)+

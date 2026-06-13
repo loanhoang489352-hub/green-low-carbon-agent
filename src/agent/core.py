@@ -179,12 +179,12 @@ class GreenAgent:
                 persist_directory=str(project_root / "data" / "vector_db"),
                 collection_name="green_agent_knowledge",
                 default_top_k=5,
-                # P6.S.9: 0.0 → 0.25(预过滤更严,真正兜底靠 post_filter_threshold=0.5)
-                min_similarity=0.25,
+                # P6.S.9: 预过滤(滤掉明显噪声) + 后置 score>=0.005 兜底
+                # 真实召回分常在 0.01-0.04, 0.005 仅挡完全不相关
+                min_similarity=0.05,
                 hybrid_search=True,
                 semantic_weight=0.6,
-                # P6.S.9: 后置 score>=0.5 过滤 + top-20→rerank→top-5
-                post_filter_threshold=0.5,
+                post_filter_threshold=0.005,
                 initial_fetch_multiplier=4,
             )
 
@@ -429,6 +429,28 @@ class GreenAgent:
 
         user_profile = self.profile_manager.get_profile(user_id)
 
+        # P6.S.10: 意图前置 — 让 RAG 知道本次要不要查
+        intent_result = self.intent_recognizer.recognize(message)
+
+        # P6.S.10: 出行规划早返 — 直接走工具路径(对齐 chat() line 992-996 行为)
+        # 不进 RAG,避免 LLM 拿到无关"出行"知识文档后瞎答
+        if intent_result.intent == IntentType.TRAVEL_PLANNING:
+            travel_resp = self._handle_travel_planning(
+                user_id, message, conversation_id, intent_result,
+            )
+            return EnhancedAgentResponse(
+                message=travel_resp.message,
+                conversation_id=travel_resp.conversation_id,
+                intent="travel_planning",
+                suggestions=travel_resp.suggestions or [],
+                knowledge_refs=[],
+                timestamp=travel_resp.timestamp,
+                rag_context="",
+                personalization_info={},
+                recommendations=[],
+                profile_updates={},
+            )
+
         # 检查是否配置了任何 API Key
         api_providers = [
             ("API_KEY", ""),
@@ -452,10 +474,22 @@ class GreenAgent:
                 timestamp=get_current_datetime()
             )
 
+        # P6.S.10: 意图门控 — 非知识/咨询类意图跳过 RAG
+        NO_RAG_INTENTS = {
+            IntentType.GREETING,
+            IntentType.QUESTION,
+            IntentType.UNKNOWN,
+            IntentType.FEEDBACK,
+            IntentType.ACTION_REPORT,
+            IntentType.SUGGESTION_ACCEPT,
+            IntentType.SUGGESTION_REJECT,
+        }
+        skip_rag = intent_result.intent in NO_RAG_INTENTS
+
         rag_context = ""
         knowledge_refs = []
         rag_results = []
-        if self.rag_enabled and self.rag_engine:
+        if not skip_rag and self.rag_enabled and self.rag_engine:
             rag_results = self.rag_engine.retrieve(message, top_k=5)
         if rag_results:
             context_parts = []
@@ -463,8 +497,6 @@ class GreenAgent:
                 context_parts.append(f"[来源 {i}]: {r.get_summary()}")
                 knowledge_refs.append(f"{r.metadata.get('source', '')} (相似度: {r.score:.2f})")
             rag_context = "\n\n".join(context_parts)
-
-        intent_result = self.intent_recognizer.recognize(message)
 
         message_analysis = self.dynamic_updater.analyze_message(
             user_id, message,
