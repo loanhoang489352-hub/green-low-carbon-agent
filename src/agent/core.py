@@ -584,6 +584,24 @@ class GreenAgent:
             intent_type=intent_result.suggested_response_type
         )
 
+        # P6.S.11: LLM_MOCK 状态变化时清缓存,避免 mock 响应被锁住
+        try:
+            import logging
+            prev = getattr(self, "_last_llm_mock_state", None)
+            cur = os.getenv("LLM_MOCK", "auto").strip().lower() in ("true", "1", "yes", "on")
+            if prev is not None and prev != cur:
+                from agent.cache import get_query_cache
+                cleared = get_query_cache().invalidate(user_id)
+                if cleared > 0:
+                    logging.getLogger(__name__).info(
+                        "[GreenAgent] LLM_MOCK 状态变更 (%s→%s),清 user=%s 缓存 cleared=%d",
+                        prev, cur, user_id, cleared,
+                    )
+            self._last_llm_mock_state = cur
+        except Exception as e:
+            import logging
+            logging.getLogger(__name__).debug("[GreenAgent] LLM_MOCK 状态检测异常(非致命): %s", e)
+
         # P6.C: Query Cache — 命中时复用 message + suggestions,跳过 LLM 调用
         cached_response = None
         try:

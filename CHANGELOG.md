@@ -248,7 +248,7 @@
 - 8 个新测试(`tests/test_p6s9_rag_quality.py`)+
   26 个回归测试(P4-E / P5-G / P5-H RAG)全过
 
-### P6.S.10 出行规划意图前置 + 工具直达(本次)
+### P6.S.10 出行规划意图前置 + 工具直达
 **问题**: 出行规划 query 仍走 RAG 流程
 - `chat_enhanced()` 在 RAG 之前不识别意图
 - RAG 总是无条件,无意图分流
@@ -263,6 +263,23 @@
     SUGGESTION_ACCEPT/SUGGESTION_REJECT` 跳过 RAG
 - `graph/nodes.py` `retrieve_knowledge` 节点加同样意图守卫(防 LangGraph 路径复发)
 - 6 个新测试(`tests/test_p6s10_intent_rag_bypass.py`)
+
+### P6.S.11 LLM 自然化(本次)
+**问题**: LLM 在 mock 模式返字面量,机械
+- `MockLLMClient._create_response` 返 `[Mock模式] 收到了: {user_input[:100]}...`
+- 无 LLM 路径日志,用户分不清是 mock 还是真 LLM
+- query cache 可能锁住 mock 响应,切真 key 后还返 mock 字串
+
+**修复**:
+- `src/llm/__init__.py` `MockLLMClient._create_response` 改意图感知:
+  - 检 system_prompt 含"低碳"时,走 `_intent_aware_template`
+  - 模板识别 5 类 query:模型身份/碳中和/政策/寒暄/出行 → 自然中文回复
+  - 无 system_prompt 或非低碳主题仍返字面量(向后兼容)
+- `core.py` `chat_enhanced` 加 LLM_MOCK 状态变更检测:
+  - 实例属性 `_last_llm_mock_state` 跟踪上次状态
+  - 状态变化时 invalidate query cache,避免 mock 响应被锁
+- 9 个新测试(`tests/test_p6s11_llm_debug.py`)+
+  59 个 LLM 回归测试(P5-A / P6-G / P6-I)全过
 **问题**: 问"你是什么模型"会返 0.04 相似度的无关内容
 - ChromaDB 用 `1/(1+d²)` 倒数映射,无关查询 score 也 ≥ 0
 - `min_similarity=0.0` 预过滤失效

@@ -258,13 +258,44 @@ class MockLLMClient(LLMClient):
         return self._create_response(last_message)
     
     def _create_response(self, user_input: str, system_prompt: str = None) -> LLMResponse:
-        """创建 Mock 响应"""
+        """创建 Mock 响应(P6.S.11: 意图感知,避免机械字串)"""
+        # P6.S.11: 当 system_prompt 含"低碳"主题时,返意图感知的自然回复,
+        # 而不是字面量 "[Mock模式] 收到了: ..."(给开发/演示更友好体验)
+        if system_prompt and "低碳" in system_prompt:
+            reply = self._intent_aware_template(user_input)
+        else:
+            reply = f"[Mock模式] 收到了: {user_input[:100]}..."
         return LLMResponse(
-            content=f"[Mock模式] 收到了: {user_input[:100]}...",
+            content=reply,
             model="mock",
             usage={"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0},
             finish_reason="stop"
         )
+
+    def _intent_aware_template(self, text: str) -> str:
+        """P6.S.11: 根据用户输入返回自然的中文回复(无 LLM key 时用)"""
+        text = (text or "").strip()
+        if not text:
+            return "你好!我是绿宝,请告诉我你想了解什么?"
+        if any(k in text for k in ["模型", "model", "你是", "你是什么", "GPT", "哪个 AI"]):
+            return ("我是绿宝(测试模式),一个绿色低碳智能助手。"
+                    "完整功能需要在 .env 中配置真实 API key。"
+                    "已配置后,我可以根据你的兴趣和地区给出更精准的低碳建议。")
+        if any(k in text for k in ["碳中和", "碳达峰", "碳足迹", "低碳", "碳排放"]):
+            return (f"关于「{text[:30]}」,绿色低碳的核心是减少温室气体排放。\n"
+                    f"建议你从日常用电、公共交通、垃圾分类等小事入手,"
+                    f"每周一个小行动,坚持 3 个月就能看到明显变化。"
+                    f"需要我推荐具体的低碳行动吗?")
+        if any(k in text for k in ["政策", "补贴", "奖励", "法规"]):
+            return (f"关于「{text[:30]}」,最近各地都在推出低碳补贴政策,"
+                    f"建议查看「政策」标签页获取最新信息。")
+        if any(k in text for k in ["你好", "hi", "hello", "嗨"]):
+            return "你好!我是绿宝,你的绿色低碳助手。今天想聊什么?低碳生活 / 碳中和 / 政策补贴 都可以问我~"
+        if any(k in text for k in ["从", "怎么走", "路线", "去", "到"]) and any(k in text for k in ["公里", "km", "路", "公司", "家", "地铁"]):
+            return "我来帮你规划低碳出行路线!目前测试模式,完整功能需在 .env 中配置真实 API key。"
+        return (f"我是绿宝(测试模式),我理解你说的是「{text[:50]}」。"
+                f"请在 .env 中配置 API key 以获得完整 AI 回复,"
+                f"或在「政策」/「画像」标签页探索现有数据。")
 
 
 def create_llm_client(
