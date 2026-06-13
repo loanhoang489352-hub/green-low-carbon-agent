@@ -428,9 +428,22 @@ _llm_client: Optional[LLMClient] = None
 
 
 def get_llm_client() -> LLMClient:
-    """获取全局 LLM 客户端"""
+    """获取全局 LLM 客户端
+
+    P6.S.5 智能 fallback:
+    1. LLM_MOCK=true → 强制 MockLLMClient(跳真实 API)
+    2. 配置的 provider 没 API key → 自动 MockLLMClient(避免 401)
+    3. 否则用真实 API 客户端
+    """
     global _llm_client
     if _llm_client is None:
+        # P6.S.5: LLM_MOCK=true 强制 mock
+        if os.getenv("LLM_MOCK", "auto").strip().lower() in ("true", "1", "yes", "on"):
+            from llm.client import MockLLMClient
+            _llm_client = MockLLMClient()
+            print("[LLM] LLM_MOCK=true → 强制 MockLLMClient(跳过真实 API)")
+            return _llm_client
+
         provider = os.getenv("API_PROVIDER", "openai")
         model = os.getenv("API_MODEL", "gpt-4o-mini")
         temperature = float(os.getenv("LLM_TEMPERATURE", "0.7"))
@@ -445,6 +458,13 @@ def get_llm_client() -> LLMClient:
             "deepseek": os.getenv("DEEPSEEK_API_KEY") or os.getenv("API_KEY"),
         }
         api_key = provider_key_map.get(provider) or os.getenv("API_KEY")
+
+        # P6.S.5: 关键 — 没 API key 自动降级 MockLLMClient,避免 401
+        if not api_key or api_key.startswith("__SET_ME__") or api_key in ("sk-your-api-key-here", "your-api-key"):
+            from llm.client import MockLLMClient
+            print(f"[LLM] provider={provider} 没有效 API key → 自动 MockLLMClient")
+            _llm_client = MockLLMClient()
+            return _llm_client
 
         print(f"[LLM] 初始化客户端: provider={provider}, model={model}, has_key=({'是' if api_key else '否'})")
 

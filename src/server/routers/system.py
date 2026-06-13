@@ -132,7 +132,8 @@ def register_system_routes(registry) -> None:
     def policy_latest(handler):
         updater = handler.policy_updater
         policies = updater.get_latest_policies(limit=10)
-        handler.send_json({"policies": policies})
+        # P6.S.7: 直返数组(前端 loadPolicies 期望数组)
+        handler.send_json(policies)
 
     def policy_summary(handler):
         updater = handler.policy_updater

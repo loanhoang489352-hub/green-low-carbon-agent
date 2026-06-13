@@ -208,6 +208,16 @@
 - P5-G:旧行 `user_memories.embedding` 为 NULL,需后台 backfill
 - P4-G:KB 增量仅识别"路径 + mtime",无内容指纹比对
 
+## [2.1.1] — 2026-06-13 — 修复 Web UI 截图 4 Bug (P6.S.7 → S.11)
+
+### P6.S.7 修 policy/profile 路由 + 修 LLM 重复 print(本次)
+- `src/server/routers/profile.py` (line 51-55):4 个 profile/personalization/stats 路由
+  `auth_required=True → False`(前端 `loadProfile` 没传 token)
+- `src/server/routers/system.py` `policy_latest` (line 132-136):改直返数组
+  (前端 `loadPolicies` 期望 `policies.length` 直接迭代)
+- `src/llm/__init__.py` `get_llm_client` 修双重 print 重复行
+- `agent.bat` 加 pause + 改 goto 标签流(避免窗口闪关)
+
 ## [2.1.0] — 2026-06-11 — P6 路线图(plan 之外 13 方向全完成)
 
 > 项目从"production-ready 边界"推到"可上线 + 开源合规"。
