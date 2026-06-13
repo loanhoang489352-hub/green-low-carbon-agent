@@ -81,6 +81,77 @@ def register_chat_routes(registry) -> None:
             ]
         })
 
+    def agent_react(handler, data):
+        """P6.S.17: ReAct 测试端点 — 让 LLM 自主选 tool,跑多步循环
+
+        请求:
+        {
+            "message": "从北京西单到国贸怎么走",
+            "tool_names": ["travel_planning", "weather_query"]  # 可选,默认全部
+            "max_steps": 3  # 可选,默认 3
+        }
+        响应:
+        {
+            "content": str, "steps": int, "tool_calls": [{name, arguments, success, elapsed_ms}],
+            "success": bool
+        }
+        """
+        message = data.get("message", "")
+        if not message:
+            raise APIError("BAD_REQUEST", "message required")
+        tool_names = data.get("tool_names")  # None = 全部
+        max_steps = int(data.get("max_steps", 3))
+        from agent.tool_dispatcher import run_react_loop
+        from llm import get_llm_client
+        from observability.trace import new_trace_id
+        from agent.intent import IntentRecognizer
+        from agent.response import ResponseContext
+        import logging
+        log = logging.getLogger(__name__)
+        llm = get_llm_client()
+        ir = IntentRecognizer()
+        intent = ir.recognize(message).intent.value
+        # 构造基础 messages(system + user)
+        from llm import build_chat_prompt
+        try:
+            from user_profile.user_profile import UserProfileManager
+            upm = UserProfileManager()
+            profile = upm.get_profile(data.get("user_id", "anonymous"))
+        except Exception:
+            profile = {}
+        try:
+            ctx = ResponseContext(
+                user_profile=profile, conversation_history=[],
+                retrieved_knowledge=[], recent_memories=[],
+                intent_type=intent,
+            )
+            from agent.response import ResponseGenerator
+            rg = ResponseGenerator(use_llm=True)
+            rg._get_llm_client()  # 初始化 _build_prompt
+            messages = rg._build_prompt(
+                user_message=message, user_profile=profile, rag_context="",
+                conversation_history=[],
+            )
+        except Exception as e:
+            log.warning("[ReAct] prompt build fallback: %s", e)
+            messages = [
+                {"role": "system", "content": "你是绿宝,绿色低碳助手。"},
+                {"role": "user", "content": message},
+            ]
+        # 加 system hint 提示有 tool 可用
+        messages.insert(0, {
+            "role": "system",
+            "content": (
+                "你有一个工具调用系统。优先用工具查真实数据,基于工具结果回答。"
+                "若没有合适工具,直接回答。"
+            ),
+        })
+        result = run_react_loop(
+            messages, llm, tool_names=tool_names,
+            max_steps=max_steps, trace_id=new_trace_id(),
+        )
+        handler.send_json(result)
+
     # P6.S.14: chat 端点对匿名 user_id 公开(避免浏览器无 token 时 401)
     #   - 用 user_id(在 body 里)做身份,不再强制 Bearer session_id
     #   - 浏览器 onboarding 后 / 匿名 user 都能直接聊天
@@ -91,3 +162,4 @@ def register_chat_routes(registry) -> None:
     registry.add_route("POST", "/api/conversation/reset", conversation_reset, auth_required=False, description="重置对话")
     registry.add_route("POST", "/api/conversation/history", conversation_history, auth_required=False, description="对话历史")
     registry.add_route("POST", "/api/recommendations", recommendations, auth_required=False, description="个性化推荐")
+    registry.add_route("POST", "/api/agent/react", agent_react, auth_required=False, description="P6.S.17: ReAct 测试 — LLM 自主选 tool")

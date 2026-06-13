@@ -8,7 +8,7 @@ import json
 import sys
 from pathlib import Path
 from typing import Optional, List, Dict, Any
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 # P5-F: 模块级 logger
 try:
@@ -104,10 +104,12 @@ class LLMResponse:
     - content: 文本内容
     - model: 实际使用的模型
     - usage: token 用量 {prompt_tokens, completion_tokens, total_tokens}
-    - finish_reason: 完成原因 (stop/length/error)
+    - finish_reason: 完成原因 (stop/length/error/tool_calls)
     - latency_ms: 调用耗时(P5-A 新增,P5-B trace_id 联动)
     - request_id: 链路追踪 ID(P5-A 新增,P5-B 自动注入)
     - error: 错误信息(成功时为空,P5-C 错误处理使用)
+    - tool_calls: P6.S.17 tool-use 字段,LLM 返的工具调用列表
+      每个元素: {"id": str, "name": str, "arguments": str (JSON)}
     """
     content: str
     model: str
@@ -116,6 +118,7 @@ class LLMResponse:
     latency_ms: Optional[float] = None
     request_id: Optional[str] = None
     error: Optional[str] = None
+    tool_calls: List[Dict[str, Any]] = field(default_factory=list)
 
 
 class LLMClient:

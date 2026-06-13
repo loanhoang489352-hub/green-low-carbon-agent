@@ -208,22 +208,28 @@ class LLMClient:
         - max_retries=0 (禁用 SDK 内置重试,由外层 _with_retry 统一管)
         - 3 次重试 + 1s→2s→4s 指数退避
         - LLMResponse.error 字段填充 error 分类
+        P6.S.17: 支持 tools= 参数(OpenAI function calling 协议)
         """
         provider = _provider_name(type(self).__name__)
         start = time.time()
         timeout_s = _llm_timeout()
         max_retries = _llm_max_retries()
+        # P6.S.17: tools 透传给 SDK(OpenAI function calling 格式)
+        tools_param = kwargs.get("tools")
+        tool_choice = kwargs.get("tool_choice", "auto")
 
         def _do_call():
-            return self._client.chat.completions.create(
-                model=self.model,
-                messages=messages,
-                temperature=kwargs.get("temperature", self.temperature),
-                max_tokens=kwargs.get("max_tokens", self.max_tokens),
-                timeout=timeout_s,
-                # OpenAI 2.x SDK 已不支持 max_retries 关键字参数,
-                # 重试由外层 _with_retry 统一管
-            )
+            create_kwargs = {
+                "model": self.model,
+                "messages": messages,
+                "temperature": kwargs.get("temperature", self.temperature),
+                "max_tokens": kwargs.get("max_tokens", self.max_tokens),
+                "timeout": timeout_s,
+            }
+            if tools_param:
+                create_kwargs["tools"] = tools_param
+                create_kwargs["tool_choice"] = tool_choice
+            return self._client.chat.completions.create(**create_kwargs)
 
         try:
             response = _with_retry(_do_call, max_retries=max_retries, base_delay=1.0, label=error_label)
@@ -258,6 +264,8 @@ class LLMClient:
                 finish_reason=response.choices[0].finish_reason or "stop",
                 latency_ms=latency_ms,
                 request_id=trace_id,
+                # P6.S.17: 解析 OpenAI tool_calls
+                tool_calls=_parse_openai_tool_calls(response.choices[0].message),
             )
         except Exception as e:
             latency_ms = round((time.time() - start) * 1000, 2)
@@ -1696,8 +1704,86 @@ def _build_profile_context(profile: Dict[str, Any]) -> str:
     style_map = {"professional": "专业详细", "simple": "简单易懂", "balanced": "适中"}
     style = style_map.get(comm, comm) if isinstance(comm, str) else "适中"
     parts.append(f"沟通偏好: {style}风格")
-    
+
     return "\n".join(parts) if parts else ""
+
+
+# ========== P6.S.17: tool calling 支持 ==========
+
+def _parse_openai_tool_calls(message) -> List[Dict[str, Any]]:
+    """从 OpenAI ChatCompletionMessage 提取 tool_calls(标准化格式)"""
+    raw = getattr(message, "tool_calls", None) or []
+    out: List[Dict[str, Any]] = []
+    for tc in raw:
+        fn = getattr(tc, "function", None)
+        if not fn:
+            continue
+        out.append({
+            "id": getattr(tc, "id", "") or "",
+            "name": getattr(fn, "name", "") or "",
+            "arguments": getattr(fn, "arguments", "") or "",
+        })
+    return out
+
+
+def registry_tools_to_openai_format(tool_names: Optional[List[str]] = None) -> List[Dict[str, Any]]:
+    """
+    P6.S.17: 把 ToolRegistry 的 tool 转成 OpenAI function calling 格式
+    让 LLM 知道有哪些工具可用 + JSON schema
+
+    用法:
+        tools = registry_tools_to_openai_format()  # 全部
+        tools = registry_tools_to_openai_format(["travel_planning"])  # 选
+        resp = llm.chat(messages, tools=tools, tool_choice="auto")
+    """
+    try:
+        from agent.tools import get_registry
+        reg = get_registry()
+    except Exception:
+        return []
+    names = tool_names or reg.list_all()
+    out: List[Dict[str, Any]] = []
+    for name in names:
+        inst = reg.get(name)
+        if not inst:
+            continue
+        meta = reg.get_metadata(name)
+        desc = (meta.description if meta else None) or getattr(inst, "description", "")
+        try:
+            params = inst.parameters
+        except Exception:
+            params = []
+        properties: Dict[str, Any] = {}
+        required: List[str] = []
+        for p in params or []:
+            pname = p.get("name")
+            if not pname:
+                continue
+            ptype = p.get("type", "string")
+            js_type = {
+                "string": "string", "int": "integer", "integer": "integer",
+                "float": "number", "number": "number", "bool": "boolean",
+                "boolean": "boolean", "list": "array", "array": "array",
+                "dict": "object", "object": "object",
+            }.get(ptype, "string")
+            properties[pname] = {
+                "type": js_type,
+                "description": p.get("description", ""),
+            }
+            if p.get("required"):
+                required.append(pname)
+        schema = {"type": "object", "properties": properties}
+        if required:
+            schema["required"] = required
+        out.append({
+            "type": "function",
+            "function": {
+                "name": name,
+                "description": (desc or f"Tool: {name}")[:1024],
+                "parameters": schema,
+            },
+        })
+    return out
 
 
 if __name__ == "__main__":

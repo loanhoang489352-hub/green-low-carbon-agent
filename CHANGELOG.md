@@ -373,61 +373,66 @@
 - `src/server/routers/system.py` `tools_skills_status` + `GET /api/tools-skills`
 - 10 个新测试(`tests/test_p6s15_tools_skills.py`)
 
-### P6.S.16 MCP 集成(本次)
+### P6.S.16 MCP 集成
 **目标**: 让 agent 能连接外部 MCP server,发现并使用其 tool
 
 **架构**:
 - 协议: JSON-RPC 2.0 over stdio(标准 MCP,无 SDK 依赖)
-- 通信: 同步 I/O + 后台 read 线程(避免 asyncio + Windows pipe 兼容问题)
+- 通信: 同步 I/O + 后台 read 线程
 
-**新增模块**:
-- `src/mcp/__init__.py` — MCP 包入口
-- `src/mcp/client.py` — `MCPClient`(同步 connect / call_tool / list_tools)
-- `src/mcp/adapter.py` — `MCPToolAdapter`(把远端 MCP tool 包装成 `BaseTool`)
-- `src/mcp/server.py` — `MCPServer`(把本地 tools 暴露为 MCP server)
-- `src/mcp/registry.py` — `MCPRegistry`(启动时连接所有 server,注册 tool)
+**新增模块**: `src/mcp/{client,adapter,server,registry}.py`
+**新增文件**: `config/mcp_servers.yaml`, `scripts/mcp_mock_server.py`
+**集成点**: `app.py _start_mcp_registry()`, `routers/system.py /api/mcp/status`
+**8 个新测试** (`tests/test_p6s16_mcp_integration.py`)
 
-**新增文件**:
-- `config/mcp_servers.yaml` — MCP server 配置(1 个 mock_server 启用)
-- `scripts/mcp_mock_server.py` — 同步 MCP server,提供 mock_echo/weather/carbon 3 个 tool
+### P6.S.17 LLM 自主 tool-use(ReAct)— 真正变成 agent(本次)
+**问题**: 之前的 agent 是"高级模板系统",LLM 完全不知道 tool 存在,所有调度硬编码
+- 工具 schema 在 `extended.py` / `builtin.py` 已规范,但 `build_chat_prompt` 没 tools= 字段
+- 9 个工具 + 3 个 skill + 3 个 MCP tool 全部被 Python 硬编码 if-else 调度
 
-**集成点**:
-- `src/server/app.py` `_start_mcp_registry()`: 启动后台线程连接 MCP
-- `src/server/routers/system.py` `mcp_status` + `GET /api/mcp/status` 调试端点
+**修复**:
+- `src/llm/__init__.py` `LLMResponse` 加 `tool_calls: List[Dict]` 字段
+- `src/llm/client.py`:
+  - `_call_openai_sdk` 支持 `tools=` / `tool_choice=` 参数(OpenAI function calling 协议)
+  - `_parse_openai_tool_calls` 解析 OpenAI 响应
+  - `registry_tools_to_openai_format(tool_names)` 把 ToolRegistry 转 JSON schema
+- `src/agent/tool_dispatcher.py` (新):
+  - `dispatch_tool_call(name, args_json)`: 执行单个 tool_call
+  - `run_react_loop(messages, llm, tool_names, max_steps=3)`: ReAct 循环
+- `src/server/routers/chat.py` 新增 `POST /api/agent/react` 调试端点
 
-**端到端验证**:
+**端到端验证**(实测,LLM 自主选 tool):
 ```
-GET /api/mcp/status
-{
-  "servers_count": 1,
-  "tools_count": 3,
-  "servers": [{"name": "mock_server", "status": "connected", "tools_count": 3}],
-  "tools": [
-    {"key": "mock_server::mock_echo", "name": "mock_echo"},
-    {"key": "mock_server::mock_weather", ...},
-    {"key": "mock_server::mock_carbon", ...},
-  ]
-}
-
-GET /api/tools-skills
-{
-  "tools": [
-    {"name": "mcp_mock_server_mock_echo", "category": "mcp_mock_server"},
-    {"name": "mcp_mock_server_mock_weather", ...},
-    {"name": "mcp_mock_server_mock_carbon", ...},
-  ]
-}
+POST /api/agent/react
+  message: "从北京西单到国贸"
+  → LLM 选 tool: ["travel_planning"]
+  → tool 返回 8km/30min/0.64kg CO₂ 等真实数据
+  → LLM 格式化: 推荐公交1路(2元最省)+ 备选地铁1号线 + 自驾对比
+  → 总步数: 1(stop)
 ```
 
-**安全设计**:
-- 只从 `config/mcp_servers.yaml` 读(server 命令硬编码)
-- `enabled: false` 需手动改 YAML 才能启用新 server
-- 默认只启用内置 mock server(本地脚本,无网络)
-- 任何要加的外部 MCP server 都需要 PR 修改 YAML
+**对比 P6.S.16 之前**:
+- 之前: Python 硬编码调 TravelPlanningTool
+- 现在: LLM 看到 tool schema,自己决定调哪个,自己组织答案
+- 任何用户问(只要有合适的 tool)都能由 LLM 自主组合
 
-**8 个新测试** (`tests/test_p6s16_mcp_integration.py`):
-- 模块 import / Client 同步接口 / Adapter 包装 / Server 暴露 / Registry 配置
-- HTTP 端到端: `/api/mcp/status` + `/api/tools-skills` 验证 MCP tool 注入本地 Registry
+**9 个新测试** (`tests/test_p6s17_react_agent.py`):
+- LLMResponse 字段 / 解析器 / 工具转 OpenAI 格式
+- dispatch 错误处理 / ReAct 退化 / ReAct 停止
+- HTTP 端到端 / 真 LLM tool 自主选择
+
+## 架构评审结论(P6.S.17)
+
+**问题**(深度审计后):
+1. ✗ LLM 不知 tool 存在 → ✅ P6.S.17 修
+2. ✗ Planner 模块僵尸代码 → ⏳ 待 P6.S.18
+3. ✗ LLM `__init__.py` 与 `client.py` 重复 → ⏳ 待 P6.S.18
+4. ⚠️ Skill 模块未集成到主流程 → ⏳ 待 P6.S.18
+5. ⚠️ LLM memory 摘要缺失 → ⏳ 待 P6.S.19
+6. ✗ 无 streaming response → ⏳ 待 P6.S.20
+7. ⚠️ Observability 无暴露 endpoint → ⏳ 待 P6.S.20
+
+**P6.S.17 已把"最大功能 gap"(LLM 自主 tool-use)消除**,agent 从"高级模板"升级为"真 LLM 驱动的 agent"。
 **问题**: 问"你是什么模型"会返 0.04 相似度的无关内容
 - ChromaDB 用 `1/(1+d²)` 倒数映射,无关查询 score 也 ≥ 0
 - `min_similarity=0.0` 预过滤失效
