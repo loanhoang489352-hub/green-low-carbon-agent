@@ -281,7 +281,7 @@
 - 9 个新测试(`tests/test_p6s11_llm_debug.py`)+
   59 个 LLM 回归测试(P5-A / P6-G / P6-I)全过
 
-### P6.S.12 修 P6.S.3 出行规划关键词过激(本次)
+### P6.S.12 修 P6.S.3 出行规划关键词过激
 **问题**: P6.S.3 加的 TRAVEL_KEYWORDS 过广,误伤其他意图
 - "碳排放"/"碳排"是低碳主题,不应触发 travel
 - "去/到/出发"是常用动词,单独出现就触发 travel
@@ -301,12 +301,38 @@
 - 新增兴趣表达("感兴趣/想了解/想知道/想学习")归 knowledge_query
 - 10 个新测试(`tests/test_p6s12_intent_refine.py`)
 
+### P6.S.13 修 LLM 大脑未启动 — 截图 1.png 暴露 Bug 5(本次)
+**问题**: 用户截图显示所有回复都是 bullet 列表(规则模板),真实 LLM/MockLLMClient 都没被调到
+
+**根因**:
+- `src/agent/response.py` `generate_with_llm` 在 P6.S.5 加了 LLM_MOCK 短路分支:
+  ```python
+  if LLM_MOCK=true:
+      from llm.client import MockLLMClient
+      llm = MockLLMClient()  # 直接 import,跳过 _get_llm_client()
+  else:
+      llm = self._get_llm_client()  # 内部设置 self._build_prompt
+  ```
+- `_build_prompt` 只在 `_get_llm_client()` 内部赋值
+- LLM_MOCK 分支跳过了 `_get_llm_client()`,导致 `self._build_prompt` 未设置
+- 后续 `self._build_prompt(**kwargs)` 抛 AttributeError
+- 被 except 静默吞掉,回退到 `self.generate_response()` 规则模板
+- 用户看到的 bullet 列表 = 规则模板的输出,不是 LLM/Mock 输出
+
+**修复**:
+- `src/agent/response.py` `generate_with_llm`:
+  - 在调 `_build_prompt` 前显式保证设置(用 `hasattr` 检查,缺则补)
+  - 改 print 异常为 logging.warning(便于 debug,不静默吞)
+- `agent.bat`:
+  - 移除 `set LLM_MOCK=true` 硬编码
+  - 改为:从 `.env` 读(用户已配 `DEEPSEEK_API_KEY` 真 key)
+  - 仅当 .env 不存在/没 LLM_MOCK 行时,默认走 mock(向后兼容)
+- 5 个新测试(`tests/test_p6s13_llm_brain_wiring.py`)
+
 **结果**:
-- `tests/test_intent.py`:4 fail → 1 fail(仅 `test_unknown_intent` 用 `IntentType.OTHER`,枚举无此值,是测试 bug)
-- `tests/test_p4g_e2e.py`:仍 4 fail,但根因是测试用空 profile 用户
-  期望 recs,但推荐引擎对空画像返空(非本次意图问题)
-- `tests/test_agent.py`:5 fail 全部是测试代码本身的
-  (test_increment_stat / test_add_sample_policies 等)
+- `LLM_MOCK=true` + P6.S.13 修复后:返回 MockLLMClient 的"推荐你尝试以下低碳行动..."
+- `LLM_MOCK=false` + 真 key:返回 DeepSeek 真实中文响应
+- 都不再回退到规则模板(用户截图的 bug 消除)
 **问题**: 问"你是什么模型"会返 0.04 相似度的无关内容
 - ChromaDB 用 `1/(1+d²)` 倒数映射,无关查询 score 也 ≥ 0
 - `min_similarity=0.0` 预过滤失效

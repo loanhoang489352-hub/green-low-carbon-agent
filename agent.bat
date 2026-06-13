@@ -3,11 +3,20 @@ REM P6.S.2 fix: chcp 65001 MUST be the first line before any non-ASCII content
 chcp 65001 >nul 2>&1
 cd /d "%~dp0"
 
-REM P6.S.2: default to LLM_MOCK + HF_HUB_OFFLINE
-REM   - avoids 401 when .env keys are placeholders
-REM   - avoids slow huggingface.co download from CN IP
-REM   - comment out these 3 lines to use real LLM keys
-set LLM_MOCK=true
+REM P6.S.13: 让 .env 决定 LLM_MOCK(用户的 .env 已配 DEEPSEEK_API_KEY 真 key)
+REM   - 默认:从 .env 读取 LLM_MOCK(.env 里 LLM_MOCK=false → 走真 LLM)
+REM   - 强制 mock:把下面 set LLM_MOCK=true 取消注释
+REM   - HF_HUB_OFFLINE / TRANSFORMERS_OFFLINE 保留(避免 CN IP 拉 huggingface.co 慢)
+if defined LLM_MOCK goto :skip_mock
+REM 仅在 .env 没设 LLM_MOCK 时,默认走 mock(向后兼容,无 key 也能跑)
+if not exist .env (
+    set LLM_MOCK=true
+) else (
+    REM 检查 .env 里 LLM_MOCK 行
+    findstr /B /C:"LLM_MOCK" .env >nul
+    if errorlevel 1 set LLM_MOCK=true
+)
+:skip_mock
 set HF_HUB_OFFLINE=1
 set TRANSFORMERS_OFFLINE=1
 
@@ -23,7 +32,7 @@ echo [INFO] Web server mode (default, port 8000)
 echo [HINT] agent.bat cli       CLI mode
 echo [HINT] agent.bat doctor    Run diagnostics
 echo [HINT] agent.bat help      Show all options
-echo [NOTE] LLM_MOCK=true (set real keys: edit top of this file)
+echo [NOTE] LLM_MOCK default from .env (override: set in shell or edit this file)
 echo.
 python -X utf8 src\main.py
 echo.

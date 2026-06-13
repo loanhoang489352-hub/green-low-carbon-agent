@@ -173,6 +173,12 @@ class ResponseGenerator:
 
         P6.S.5: LLM_MOCK=true 时强制走 MockLLMClient(意图感知 mock),
         不调真实 API(避免 401 错误)
+
+        P6.S.13 (Bug 5 修复): LLM_MOCK=true 路径之前直接 import MockLLMClient
+        跳过了 _get_llm_client(),导致 self._build_prompt 未初始化。后续
+        self._build_prompt(**kwargs) 抛 AttributeError,被 except 静默吞掉,
+        回退到 rule-based 模板(用户看到的 bullet 列表)。修复:不论走哪条
+        分支,都保证 _build_prompt 已设置。
         """
         # P6.S.5: LLM_MOCK 强制路径(优先于工厂)
         if os.getenv("LLM_MOCK", "auto").strip().lower() in ("true", "1", "yes", "on"):
@@ -182,6 +188,20 @@ class ResponseGenerator:
             llm = self._get_llm_client()
 
         if not llm:
+            return self.generate_response(user_input, context)["message"]
+
+        # P6.S.13: 关键修复 — LLM_MOCK 分支之前未走 _get_llm_client(),
+        # 导致 self._build_prompt 未被设置(在 _get_llm_client 内部才赋值)。
+        # 此处补救:若没设过,显式 import + 设置。
+        if not hasattr(self, "_build_prompt"):
+            try:
+                from llm import build_chat_prompt
+                self._build_prompt = build_chat_prompt
+            except ImportError as e:
+                import logging
+                logging.getLogger(__name__).warning(
+                    "[ResponseGenerator] build_chat_prompt 导入失败,回退模板: %s", e,
+                )
                 return self.generate_response(user_input, context)["message"]
 
         try:
@@ -198,7 +218,12 @@ class ResponseGenerator:
             response = llm.chat(messages)
             if hasattr(response, 'content'):
                 return response.content if hasattr(response, 'content') else str(response)
+            return str(response)
         except Exception as e:
+            import logging
+            logging.getLogger(__name__).warning(
+                "[ResponseGenerator] LLM调用失败,回退到模板: %s", e,
+            )
             return self.generate_response(user_input, context)["message"]
 
     def generate_response(
