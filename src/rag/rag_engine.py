@@ -187,6 +187,10 @@ class RAGEngine:
         existing_count = self._vector_store.count()
         if existing_count > 0 and not force_reload:
             print(f"[KB] 知识库已有 {existing_count} 条索引，跳过加载")
+            # P6.S.21: 即使 ChromaDB 已有索引,也要填充 BM25 索引(原代码会跳过)
+            # 否则 hybrid_search 实际退化为纯语义,无法区分相关/无关
+            if self._retriever and isinstance(self._retriever, HybridRetriever):
+                self._populate_bm25_only(base_path)
             return existing_count
 
         print(f"[KB] 开始加载知识库: {base_path}")
@@ -504,6 +508,36 @@ class RAGEngine:
         except Exception as e:
             print(f"[ERR] 添加文档失败: {e}")
             return False
+
+    def _populate_bm25_only(self, base_path: "Path") -> int:
+        """P6.S.21: 仅填充 BM25 索引(跳过 embedding 生成,快)
+
+        ChromaDB 已有索引时调用此方法,避免 hybrid_search 退化为纯语义
+        """
+        from rag.retriever import HybridRetriever
+        base_path = Path(base_path)
+        documents = []
+        for md_file in base_path.rglob("*.md"):
+            try:
+                with open(md_file, 'r', encoding='utf-8') as f:
+                    content = f.read()
+                metadata = self._parse_metadata(content)
+                metadata['source'] = str(md_file.relative_to(base_path))
+                metadata['category'] = md_file.parent.name if len(md_file.parts) > 1 else 'root'
+                chunks = self._chunk_document(content, metadata)
+                for chunk in chunks:
+                    self._bm25_documents.append({
+                        'id': chunk['id'],
+                        'content': chunk['content'],
+                        'metadata': chunk['metadata'],
+                    })
+                    documents.append(chunk)
+            except Exception as e:
+                _logger.debug("[P6.S.21] BM25 populate skip %s: %s", md_file, e)
+        if self._retriever and isinstance(self._retriever, HybridRetriever):
+            self._retriever.update_bm25_documents(self._bm25_documents)
+        print(f"[KB] BM25 索引填充: {len(documents)} 个 chunks")
+        return len(documents)
 
     def rebuild_index(self, knowledge_base_path: str) -> int:
         """重建索引(同步)"""

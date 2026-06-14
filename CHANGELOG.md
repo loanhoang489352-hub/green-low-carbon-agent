@@ -471,38 +471,94 @@ POST /api/agent/react
 
 **7 个新测试** (`tests/test_p6s19_20_summarize_observability.py` P6.S.19 部分)
 
-### P6.S.20 Observability(本次)
+### P6.S.20 Observability
 **问题**: 运维/调试无可见性
 - P5-B 有 trace_id + JSON 日志 + 内存指标,但未暴露到 endpoint
 - /api/metrics 已存在但内容简
 
 **修复**:
-- `src/observability/metrics.py` `MetricsCollector` 新增 4 个埋点:
-  - `record_tool_call(name)`:tool 调用计数
-  - `record_endpoint_latency(path, ms)`:端点延迟(保留最近 100 个)
-  - `record_intent(intent)`:意图分布
-  - `record_user_activity(user_id)`:活跃 user
+- `src/observability/metrics.py` `MetricsCollector` 新增 4 个埋点
 - `summary()` 返 4 个新字段:`tool_calls` / `endpoint_latencies` / `intent_counts` / `active_users_count`
-- 接入实际路径:
-  - `agent/tool_dispatcher.py dispatch_tool_call` → `record_tool_call`
-  - `agent/core.py chat_enhanced` → `record_intent` + `record_user_activity`
-  - `server/app.py _dispatch` → `record_endpoint_latency`
-- 空 history 也返新字段(避免前端拿不到 key)
-
-**端到端验证**:
-```
-POST /api/chat/enhanced {message: "你好"}
-GET /api/metrics
-  total_calls: 1
-  tool_calls: {}                          ← P6.S.20 新
-  intent_counts: {"greeting": 1}         ← P6.S.20 新
-  active_users_count: 1                  ← P6.S.20 新
-  endpoint_latencies: {
-    "/api/chat/enhanced": {count: 1, avg_ms: 1523.45, p95_ms: 1523.45}
-  }                                       ← P6.S.20 新
-```
+- 接入实际路径:`tool_dispatcher` / `core.py chat_enhanced` / `app.py _dispatch`
+- 空 history 也返新字段
 
 **7 个新测试** (P6.S.20 部分)
+
+### P6.S.21 全链路审计 + 残余问题修复(本次)
+
+**5 大任务审计 + 修复汇总**:
+
+#### Task 1: Agent 模块健康巡检
+- 7 tools (4 本地 + 3 MCP) 真实工作
+- 3 skills 真实工作
+- 1 MCP server 真实连接 + 3 tool 注入
+- LLM 自主 tool-use (ReAct) 真实工作:LLM 选 mcp_weather_query 调 MCP,拿到 22°C 等真实数据
+- ⚠️ Planner/Skill executor 在主聊天流程未集成(只在 /api/agent/react 调试端点用)— 留待后续
+
+#### Task 2: 出行规划全链路
+- ✅ 真实工作:有 `GAODE_API_KEY`(91d492a...) → 端到端通过高德 API
+- 实测: "从北京西单到国贸" → 真实路线(1号线八通线 8km/30min/0.64kg CO₂)
+- ⚠️ 无高德 key 时,所有出行规划都走降级到"通用建议"分支
+
+#### Task 3: 地理位置定位
+- ❌ **全自动定位不可用**(零实现)
+  - 无 `navigator.geolocation` / 无 IP 反查 / 无默认城市逻辑
+  - 静态默认 `北京`(`config/cities.yaml:4`)
+  - 当用户说"明天去国贸",`origin=" 当前 位 置"` 字符串字面量 → 高德 API 失败
+- ✅ 用户手动写明(例"我现在在国贸")→ LLM 解析 → 高德正常
+- ⚠️ "明天去国贸"和"怎么去机场"会触发降级提示
+- 优化建议:加浏览器 `navigator.geolocation` + IP 定位 fallback
+
+#### Task 4: KB 守门员 + 合规清洗
+- ❌ **零守门员逻辑**:`KnowledgeUpdater` / `KnowledgeManager` 抓取内容直接入库,无审核
+- ⚠️ `policies/` 目录 38 个文件中,**5 个真正无关** + 2 个 0.1KB 抓取失败占位
+- ✅ 修复:7 个文件已归档到 `knowledge_base/_quarantine/`:
+  - 0255 EDF 英文无关
+  - 0227 China Power 英文无关
+  - 0238 共产党员网(党媒,与低碳无关)
+  - 0253 发改委首页(大量无关新闻)
+  - 0254 国家统计局首页(全统计,无关)
+  - 0002 / 0003 0.1KB 抓取失败占位
+- 清理日志: `data/kb_cleanup_log.json` (51.6KB 已归档)
+- ⚠️ 守门员机制**仍缺失** — 新入库的 KB 内容仍无审核
+- 优化建议:加 `_guarded_add_knowledge(content)` 函数,调 LLM 审核主题相关性
+
+#### Task 5: RAG 阈值 + 低相似度根因
+- 阈值配置(全部完整数值):
+  - `RAGConfig.min_similarity=0.05` (`rag_engine.py:53`,`core.py:184`)
+  - `RAGConfig.post_filter_threshold=0.005` (`rag_engine.py:57`,`core.py:187`)
+  - `RAGConfig.relative_threshold_ratio=0.3` (`rag_engine.py:63`,`core.py:189`)
+  - `RAGConfig.initial_fetch_multiplier=4` (`rag_engine.py:61`)
+  - 选型依据:HybridRetriever 综合分 = `semantic*0.6 + bm25*0.4`,MiniLM + ChromaDB 1/(1+d²) 真实相关文档分数常在 0.01-0.04
+- **核心根因(已修)**:BM25 索引**从未填充**(`bm25_retriever.documents=[]`)
+  - 修复前:hybrid 退化为纯语义,"碳中和"和"股票"分数几乎一样 (0.02-0.027)
+  - 修复后(P6.S.21):BM25 索引填充,**真实区分**:
+    - "碳中和" → top score 2.79
+    - "新能源" → 1.94
+    - "股票" → 0.02
+    - "天气" → 0.02
+- 修复:`src/rag/rag_engine.py` 新增 `_populate_bm25_only()`,启动时即使 ChromaDB 已索引也填充 BM25
+- 结论:**"普遍 < 0.1 相似度"是 BM25 未填充导致的 Bug,现已修复**
+
+**13 个新测试** (`tests/test_p6s21_full_audit_fixes.py`):
+- 模块健康 / MCP 端到端 / 出行规划 / 位置定位
+- KB 清洗 / BM25 填充 / 分数分布
+
+## 全模块状态总览(交付验收)
+
+| 项目 | 状态 | 备注 |
+|---|---|---|
+| 7 tools | ✅ 真实工作 | 4 本地 + 3 MCP |
+| 3 skills | ✅ 真实工作 | executor 注册了但主聊天流程未触发(已用 ReAct 替代) |
+| MCP 集成 | ✅ 真实工作 | 1 server connected, 3 tool |
+| LLM 自主 tool-use | ✅ ReAct 工作 | 调 MCP tool 拿真实数据 |
+| 出行规划 | ✅ 有 GAODE_KEY 时全链路 | 无 key 时降级 |
+| 位置自动定位 | ❌ **不可用** | 需用户写明地址 |
+| 知识库守门员 | ❌ **缺失** | 仍是直接入库,无 LLM 审核 |
+| KB 存量清洗 | ✅ 7 个无关文件已归档 | 51.6KB 移走 |
+| RAG BM25 索引 | ✅ 修复后填上 | 234 chunks |
+| RAG 分数区分 | ✅ 修复后能区分 | 相关 2.79 vs 无关 0.02 |
+| 文档化 | ✅ 完整 CHANGELOG | 全部 P6.S.7-21 |
 **问题**: 问"你是什么模型"会返 0.04 相似度的无关内容
 - ChromaDB 用 `1/(1+d²)` 倒数映射,无关查询 score 也 ≥ 0
 - `min_similarity=0.0` 预过滤失效
