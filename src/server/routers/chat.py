@@ -1,6 +1,7 @@
 """
 聊天路由 (P5-E: 改用 APIError 异常体系,异常不再泄栈)
 """
+import json
 
 
 def register_chat_routes(registry) -> None:
@@ -82,24 +83,11 @@ def register_chat_routes(registry) -> None:
         })
 
     def agent_react(handler, data):
-        """P6.S.17: ReAct 测试端点 — 让 LLM 自主选 tool,跑多步循环
-
-        请求:
-        {
-            "message": "从北京西单到国贸怎么走",
-            "tool_names": ["travel_planning", "weather_query"]  # 可选,默认全部
-            "max_steps": 3  # 可选,默认 3
-        }
-        响应:
-        {
-            "content": str, "steps": int, "tool_calls": [{name, arguments, success, elapsed_ms}],
-            "success": bool
-        }
-        """
+        """P6.S.17: ReAct 测试端点 — 让 LLM 自主选 tool,跑多步循环"""
         message = data.get("message", "")
         if not message:
             raise APIError("BAD_REQUEST", "message required")
-        tool_names = data.get("tool_names")  # None = 全部
+        tool_names = data.get("tool_names")
         max_steps = int(data.get("max_steps", 3))
         from agent.tool_dispatcher import run_react_loop
         from llm import get_llm_client
@@ -111,7 +99,6 @@ def register_chat_routes(registry) -> None:
         llm = get_llm_client()
         ir = IntentRecognizer()
         intent = ir.recognize(message).intent.value
-        # 构造基础 messages(system + user)
         from llm import build_chat_prompt
         try:
             from user_profile.user_profile import UserProfileManager
@@ -127,7 +114,7 @@ def register_chat_routes(registry) -> None:
             )
             from agent.response import ResponseGenerator
             rg = ResponseGenerator(use_llm=True)
-            rg._get_llm_client()  # 初始化 _build_prompt
+            rg._get_llm_client()
             messages = rg._build_prompt(
                 user_message=message, user_profile=profile, rag_context="",
                 conversation_history=[],
@@ -138,7 +125,6 @@ def register_chat_routes(registry) -> None:
                 {"role": "system", "content": "你是绿宝,绿色低碳助手。"},
                 {"role": "user", "content": message},
             ]
-        # 加 system hint 提示有 tool 可用
         messages.insert(0, {
             "role": "system",
             "content": (
@@ -152,6 +138,67 @@ def register_chat_routes(registry) -> None:
         )
         handler.send_json(result)
 
+    def chat_stream_sse(handler, data):
+        """P6.S.18: SSE 流式 chat 端点 — 实时推送 LLM 输出
+        用 EventSource 消费,前端可边收边渲染
+        """
+        message = data.get("message", "")
+        if not message:
+            raise APIError("BAD_REQUEST", "message required")
+        user_id = data.get("user_id", "anonymous")
+        conversation_id = data.get("conversation_id")
+        # 用 chunked transfer + SSE 格式
+        handler.send_response(200)
+        handler.send_header("Content-Type", "text/event-stream; charset=utf-8")
+        handler.send_header("Cache-Control", "no-cache")
+        handler.send_header("X-Accel-Buffering", "no")
+        handler.end_headers()
+
+        def emit(event: str, payload: str):
+            """SSE 单条 event"""
+            try:
+                line = f"event: {event}\ndata: {payload}\n\n"
+                handler.wfile.write(line.encode("utf-8"))
+                handler.wfile.flush()
+            except Exception:
+                pass
+
+        try:
+            emit("start", json.dumps({"user_id": user_id}))
+            # 用 LangGraphAgent.chat_stream 走 LangGraph 路径
+            from agent.langgraph_agent import LangGraphAgent
+            if not hasattr(handler, "_stream_agent"):
+                from agent.langgraph_agent import LangGraphAgent as _LGA
+                try:
+                    handler._stream_agent = _LGA(use_langgraph=True, langgraph_mode="default")
+                except Exception:
+                    handler._stream_agent = None
+            agent = handler._stream_agent
+            if agent:
+                for event in agent.chat_stream(user_id, message, conversation_id):
+                    emit("progress", json.dumps(event, ensure_ascii=False, default=str))
+            else:
+                # 降级: 走普通 chat 然后一次性 emit
+                from src.main import get_agent
+                base_agent = get_agent()
+                if base_agent.use_langgraph and base_agent.langgraph_agent:
+                    for event in base_agent.langgraph_agent.chat_stream(
+                        user_id, message, conversation_id
+                    ):
+                        emit("progress", json.dumps(event, ensure_ascii=False, default=str))
+                else:
+                    result = base_agent.chat_enhanced(user_id, message, conversation_id)
+                    emit("done", json.dumps({
+                        "content": result.message,
+                        "intent": result.intent,
+                        "knowledge_refs": result.knowledge_refs,
+                    }, ensure_ascii=False, default=str))
+                    emit("end", "{}")
+                    return
+            emit("end", "{}")
+        except Exception as e:
+            emit("error", json.dumps({"error": str(e)[:200]}))
+
     # P6.S.14: chat 端点对匿名 user_id 公开(避免浏览器无 token 时 401)
     #   - 用 user_id(在 body 里)做身份,不再强制 Bearer session_id
     #   - 浏览器 onboarding 后 / 匿名 user 都能直接聊天
@@ -163,3 +210,4 @@ def register_chat_routes(registry) -> None:
     registry.add_route("POST", "/api/conversation/history", conversation_history, auth_required=False, description="对话历史")
     registry.add_route("POST", "/api/recommendations", recommendations, auth_required=False, description="个性化推荐")
     registry.add_route("POST", "/api/agent/react", agent_react, auth_required=False, description="P6.S.17: ReAct 测试 — LLM 自主选 tool")
+    registry.add_route("POST", "/api/chat/stream", chat_stream_sse, auth_required=False, description="P6.S.18: SSE 流式 chat")

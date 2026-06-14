@@ -528,8 +528,10 @@ class GreenAgent:
         try:
             recalled = self._recall_memories(message, user_id, limit=5)
             if recalled:
+                # P6.S.18 fix: 之前只塞 60 字符标签,LLM 看不到内容
+                # 改成 200 字符 + importance 标注(让 LLM 真正"记得"用户)
                 recent_memories = [
-                    f"[{m.get('type', 'memory')}] {m.get('content', '')[:60]}"
+                    f"[{m.get('type', 'memory')} | 重要度:{m.get('importance', 0.5):.2f}] {m.get('content', '')[:200]}"
                     for m in recalled
                 ]
         except Exception as e:
@@ -1227,10 +1229,14 @@ class GreenAgent:
         return results
 
     def _get_recent_memories(self, user_id: str) -> List[str]:
-        """获取用户最近的记忆(限到 50 字符,用于 prompt 注入)"""
+        """获取用户最近的记忆(P6.S.18: 100 字符,含类型 + 重要度)"""
         memories = []
         long_term_memories = self.long_term_memory.get_recent_memories(user_id, limit=3)
-        memories.extend([m.get("content", "")[:50] for m in long_term_memories])
+        for m in long_term_memories:
+            content = m.get("content", "")
+            memories.append(
+                f"[{m.get('type', 'memory')} | 重要度:{m.get('importance', 0.5):.2f}] {content[:100]}"
+            )
         return memories
 
     def _recall_memories(self, query: str, user_id: str, limit: int = 5) -> List[Dict[str, Any]]:

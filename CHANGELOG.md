@@ -433,6 +433,39 @@ POST /api/agent/react
 7. ⚠️ Observability 无暴露 endpoint → ⏳ 待 P6.S.20
 
 **P6.S.17 已把"最大功能 gap"(LLM 自主 tool-use)消除**,agent 从"高级模板"升级为"真 LLM 驱动的 agent"。
+
+### P6.S.18 残余 bug 修复(本次)
+**审计 + 修复的实际 bug**:
+
+1. **记忆截断 bug**(高严重):
+   - `_recall_memories` 召回结果只塞 60 字符 → LLM 看不到内容细节
+   - `_get_recent_memories` 只塞 50 字符
+   - 修复:60→200 字符 + 100 字符,加 `[type | 重要度:X.XX]` 标注
+
+2. **onboarding 401 死锁**(高严重):
+   - `/api/onboarding/{status,start,answer}` 要求 `auth_required=True`
+   - 但用户在登录前需走完 onboarding → 401 死锁
+   - 修复:onboarding 全程 `auth_required=False`
+   - `/api/user/update` 同改
+
+3. **SSE 流式端点缺失**:
+   - `langgraph_agent.py chat_stream` 是 generator 但无 HTTP 入口
+   - 用户等 30s 无进度反馈
+   - 修复:`POST /api/chat/stream` SSE 端点,EventSource 消费
+   - 端到端测试: 返 start/done/end 3 个 event,Content-Type: text/event-stream
+
+4. **json import 漏**(修 SSE 时发现)
+
+**未做(留给后续 P6.S.19)**:
+- Planner/Skills 模块集成到主流程(从硬编码 if-else 迁移)
+- LLM `__init__.py` 与 `client.py` 重复类清理
+- LLM memory 摘要路径(短→长时调 LLM 摘要)
+
+**9 个新测试** (`tests/test_p6s18_residual_bugs.py`):
+- 记忆内容不再截断(200 字符) / 重要度标注
+- onboarding 全程公开(status/start/answer + user.update)
+- /api/metrics 存在
+- /api/chat/stream SSE 端到端
 **问题**: 问"你是什么模型"会返 0.04 相似度的无关内容
 - ChromaDB 用 `1/(1+d²)` 倒数映射,无关查询 score 也 ≥ 0
 - `min_similarity=0.0` 预过滤失效
