@@ -208,11 +208,22 @@ class RoutedRequestHandler(BaseHTTPRequestHandler):
             self.current_user = identity
 
         # P5-E: 业务异常走 APIError,未知异常兜底 INTERNAL
+        # P6.S.20: 端点延迟埋点(从 dispatch 开始到完成)
+        import time
+        _t0 = time.time()
         try:
             if method == "GET":
                 route.handler(self)
             else:
                 route.handler(self, data)
+            # P6.S.20: 记端点延迟
+            try:
+                from observability.metrics import get_metrics_collector
+                get_metrics_collector().record_endpoint_latency(
+                    path, round((time.time() - _t0) * 1000, 2),
+                )
+            except Exception:
+                pass
             # P5-I.B: 成功后审计(仅敏感端点)
             if _is_audit_endpoint(path, method):
                 try:

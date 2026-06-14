@@ -32,6 +32,12 @@ def dispatch_tool_call(name: str, arguments_json: str) -> Dict[str, Any]:
     Returns:
         {"success": bool, "output": Any, "error": str?}
     """
+    # P6.S.20: 记录 tool 调用到 metrics
+    try:
+        from observability.metrics import get_metrics_collector
+        get_metrics_collector().record_tool_call(name)
+    except Exception:
+        pass
     try:
         from agent.tools import get_registry
         reg = get_registry()

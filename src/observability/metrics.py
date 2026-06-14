@@ -31,11 +31,16 @@ class CallRecord:
 
 
 class MetricsCollector:
-    """LLM 调用指标聚合器 (单例)"""
+    """LLM 调用指标聚合器 (单例) — P6.S.20 加 tool call + endpoint latency"""
 
     def __init__(self, max_history: int = MAX_HISTORY):
         self._lock = threading.RLock()
         self._history: deque = deque(maxlen=max_history)
+        # P6.S.20: 工具调用计数 + 端点延迟
+        self._tool_calls: Dict[str, int] = {}  # tool_name -> count
+        self._endpoint_latencies: Dict[str, List[float]] = {}  # path -> recent ms
+        self._intent_counts: Dict[str, int] = {}  # intent -> count
+        self._active_users: set = set()  # 当前活跃 user_id
 
     def record(
         self,
@@ -61,6 +66,29 @@ class MetricsCollector:
                 error=error,
             ))
 
+    def record_tool_call(self, tool_name: str) -> None:
+        """P6.S.20: 记录 tool 调用"""
+        with self._lock:
+            self._tool_calls[tool_name] = self._tool_calls.get(tool_name, 0) + 1
+
+    def record_endpoint_latency(self, path: str, latency_ms: float) -> None:
+        """P6.S.20: 记录端点延迟(保留最近 100 个)"""
+        with self._lock:
+            arr = self._endpoint_latencies.setdefault(path, [])
+            arr.append(latency_ms)
+            if len(arr) > 100:
+                del arr[0]
+
+    def record_intent(self, intent: str) -> None:
+        """P6.S.20: 记录意图分布"""
+        with self._lock:
+            self._intent_counts[intent] = self._intent_counts.get(intent, 0) + 1
+
+    def record_user_activity(self, user_id: str) -> None:
+        """P6.S.20: 记录活跃 user(无锁版,O(1))"""
+        if user_id:
+            self._active_users.add(user_id)
+
     def _percentile(self, values: List[float], p: float) -> float:
         """简单百分位(线性插值),values 必须已排序"""
         if not values:
@@ -80,6 +108,7 @@ class MetricsCollector:
             history = list(self._history)
 
         if not history:
+            # P6.S.20: 即使无 LLM 调用,也返 tool_calls / endpoint_latencies 等 P6.S.20 新字段
             return {
                 "total_calls": 0,
                 "success_calls": 0,
@@ -93,6 +122,18 @@ class MetricsCollector:
                 "total_completion_tokens": 0,
                 "total_tokens": 0,
                 "by_provider": {},
+                "tool_calls": dict(self._tool_calls),
+                "tool_calls_total": sum(self._tool_calls.values()),
+                "endpoint_latencies": {
+                    p: {
+                        "count": len(arr),
+                        "avg_ms": round(sum(arr) / len(arr), 2) if arr else 0,
+                        "p95_ms": round(self._percentile(sorted(arr), 0.95), 2) if arr else 0,
+                    }
+                    for p, arr in self._endpoint_latencies.items()
+                },
+                "intent_counts": dict(self._intent_counts),
+                "active_users_count": len(self._active_users),
             }
 
         total = len(history)
@@ -145,6 +186,19 @@ class MetricsCollector:
             "total_tokens": total_tokens,
             "by_provider": by_provider,
             "history_size": total,
+            # P6.S.20 新增:tool call / endpoint latency / intent 分布
+            "tool_calls": dict(self._tool_calls),
+            "tool_calls_total": sum(self._tool_calls.values()),
+            "endpoint_latencies": {
+                p: {
+                    "count": len(arr),
+                    "avg_ms": round(sum(arr) / len(arr), 2) if arr else 0,
+                    "p95_ms": round(self._percentile(sorted(arr), 0.95), 2) if arr else 0,
+                }
+                for p, arr in self._endpoint_latencies.items()
+            },
+            "intent_counts": dict(self._intent_counts),
+            "active_users_count": len(self._active_users),
         }
 
     def reset(self) -> None:

@@ -432,6 +432,15 @@ class GreenAgent:
         # P6.S.10: 意图前置 — 让 RAG 知道本次要不要查
         intent_result = self.intent_recognizer.recognize(message)
 
+        # P6.S.20: 记录意图分布 + 活跃 user
+        try:
+            from observability.metrics import get_metrics_collector
+            get_metrics_collector().record_intent(intent_result.intent.value)
+            if user_id and user_id != "anonymous":
+                get_metrics_collector().record_user_activity(user_id)
+        except Exception:
+            pass
+
         # P6.S.10: 出行规划早返 — 直接走工具路径(对齐 chat() line 992-996 行为)
         # 不进 RAG,避免 LLM 拿到无关"出行"知识文档后瞎答
         if intent_result.intent == IntentType.TRAVEL_PLANNING:

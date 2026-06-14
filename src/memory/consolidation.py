@@ -148,10 +148,12 @@ class MemoryConsolidator:
         return self.strategy.should_consolidate(state)
 
     def consolidate(self, user_id: str, conversation_id: str) -> int:
-        """P4-H: 三段整合 短→工作→长
+        """P4-H + P6.S.19: 三段整合 短→工作→长
 
         1) 短期→工作:把当前会话的"焦点"写入 working memory(高 importance)
         2) 短期→长期:经策略筛选的高重要性消息直接晋升长期
+        3) P6.S.19: 调 LLM 摘要中等重要性消息(importance 0.4-0.6),生成 1 条 summary
+           存入长期(避免 LTM 只是 raw 切片,丢失上下文)
         """
         if not self.should_consolidate(conversation_id):
             return 0
@@ -160,16 +162,75 @@ class MemoryConsolidator:
         # 1) 短期 → 工作(P4-H: 把当前会话焦点写到 workspace)
         try:
             self._promote_to_working(user_id, conversation_id, messages)
-        except Exception:
-            pass
+        except Exception as e:
+            import logging
+            logging.getLogger(__name__).debug("[consolidation] working promote: %s", e)
         # 2) 短期 → 长期(原逻辑)
         if not memories_to_save:
-            return 0
-        self.long_term.consolidate_short_term(user_id, memories_to_save)
+            saved = 0
+        else:
+            self.long_term.consolidate_short_term(user_id, memories_to_save)
+            saved = len(memories_to_save)
+        # 3) P6.S.19: LLM 摘要中等重要性消息
+        try:
+            saved += self._summarize_medium_memories(user_id, conversation_id, messages)
+        except Exception as e:
+            import logging
+            logging.getLogger(__name__).debug("[consolidation] summarize: %s", e)
         metadata = self._get_or_create_metadata(conversation_id)
         metadata["last_consolidated"] = datetime.now().isoformat()
-        metadata["consolidated_count"] = metadata.get("consolidated_count", 0) + len(memories_to_save)
-        return len(memories_to_save)
+        metadata["consolidated_count"] = metadata.get("consolidated_count", 0) + saved
+        return saved
+
+    def _summarize_medium_memories(
+        self, user_id: str, conversation_id: str, messages: List[Dict[str, Any]],
+    ) -> int:
+        """P6.S.19: 调 LLM 摘要中等 importance 消息,生成 1 条 summary 存 LTM
+
+        解决"长期记忆只是 raw 切片,丢失上下文"的 bug
+        只摘要 importance 0.4-0.6 的中等消息(高 importance 已直接存,低 importance 丢弃)
+        """
+        # 过滤中等 importance 消息
+        medium = []
+        for m in messages:
+            importance = m.get("importance", 0.5) if isinstance(m, dict) else 0.5
+            content = m.get("content", "") if isinstance(m, dict) else str(m)
+            if 0.4 <= importance <= 0.6 and content and len(content) > 20:
+                medium.append(content)
+        if len(medium) < 3:
+            return 0  # 太少不摘要,避免浪费 LLM
+        try:
+            from llm import get_llm_client
+            llm = get_llm_client()
+        except Exception:
+            return 0
+        if not llm or not hasattr(llm, "chat"):
+            return 0
+        # 调 LLM 摘要
+        joined = "\n".join(f"- {c[:200]}" for c in medium[:10])
+        prompt = (
+            "请用 100 字以内中文总结以下用户对话要点(客观、保留关键信息):\n"
+            f"{joined}\n\n摘要:"
+        )
+        try:
+            resp = llm.chat([
+                {"role": "system", "content": "你是记忆摘要助手。"},
+                {"role": "user", "content": prompt},
+            ])
+            summary = resp.content.strip()[:300] if resp and resp.content else ""
+            if not summary or len(summary) < 10:
+                return 0
+            # 存 LTM
+            self.long_term.add_memory(
+                user_id=user_id,
+                content=f"[摘要] {summary}",
+                memory_type="summary",
+                importance=0.7,  # 摘要比单条消息重要
+                tags=["auto_summary", conversation_id[:8]],
+            )
+            return 1
+        except Exception:
+            return 0
 
     def _promote_to_working(
         self, user_id: str, conversation_id: str, messages: List[Dict[str, Any]],

@@ -434,7 +434,7 @@ POST /api/agent/react
 
 **P6.S.17 已把"最大功能 gap"(LLM 自主 tool-use)消除**,agent 从"高级模板"升级为"真 LLM 驱动的 agent"。
 
-### P6.S.18 残余 bug 修复(本次)
+### P6.S.18 残余 bug 修复
 **审计 + 修复的实际 bug**:
 
 1. **记忆截断 bug**(高严重):
@@ -452,20 +452,57 @@ POST /api/agent/react
    - `langgraph_agent.py chat_stream` 是 generator 但无 HTTP 入口
    - 用户等 30s 无进度反馈
    - 修复:`POST /api/chat/stream` SSE 端点,EventSource 消费
-   - 端到端测试: 返 start/done/end 3 个 event,Content-Type: text/event-stream
 
 4. **json import 漏**(修 SSE 时发现)
 
-**未做(留给后续 P6.S.19)**:
-- Planner/Skills 模块集成到主流程(从硬编码 if-else 迁移)
-- LLM `__init__.py` 与 `client.py` 重复类清理
-- LLM memory 摘要路径(短→长时调 LLM 摘要)
+**9 个新测试** (`tests/test_p6s18_residual_bugs.py`)
 
-**9 个新测试** (`tests/test_p6s18_residual_bugs.py`):
-- 记忆内容不再截断(200 字符) / 重要度标注
-- onboarding 全程公开(status/start/answer + user.update)
-- /api/metrics 存在
-- /api/chat/stream SSE 端到端
+### P6.S.19 记忆摘要(本次)
+**问题**: 长期记忆只是 raw 切片,缺 LLM 摘要路径,长对话上下文丢失
+- `consolidation.py` 短→长时,只把单条消息塞 LTM,没有合并 / 摘要
+
+**修复**:
+- `src/memory/consolidation.py` 新增 `_summarize_medium_memories()`:
+  - 过滤中等重要性消息(importance 0.4-0.6)
+  - <3 条不调 LLM(避免浪费); ≥3 条调 LLM 摘要 100 字
+  - 摘要存为 `memory_type="summary"` + importance 0.7 + 含 `auto_summary` tag
+- 接入 `consolidate()` 主流程
+- 异常吞掉改 logging.debug(原 `except Exception: pass`)
+
+**7 个新测试** (`tests/test_p6s19_20_summarize_observability.py` P6.S.19 部分)
+
+### P6.S.20 Observability(本次)
+**问题**: 运维/调试无可见性
+- P5-B 有 trace_id + JSON 日志 + 内存指标,但未暴露到 endpoint
+- /api/metrics 已存在但内容简
+
+**修复**:
+- `src/observability/metrics.py` `MetricsCollector` 新增 4 个埋点:
+  - `record_tool_call(name)`:tool 调用计数
+  - `record_endpoint_latency(path, ms)`:端点延迟(保留最近 100 个)
+  - `record_intent(intent)`:意图分布
+  - `record_user_activity(user_id)`:活跃 user
+- `summary()` 返 4 个新字段:`tool_calls` / `endpoint_latencies` / `intent_counts` / `active_users_count`
+- 接入实际路径:
+  - `agent/tool_dispatcher.py dispatch_tool_call` → `record_tool_call`
+  - `agent/core.py chat_enhanced` → `record_intent` + `record_user_activity`
+  - `server/app.py _dispatch` → `record_endpoint_latency`
+- 空 history 也返新字段(避免前端拿不到 key)
+
+**端到端验证**:
+```
+POST /api/chat/enhanced {message: "你好"}
+GET /api/metrics
+  total_calls: 1
+  tool_calls: {}                          ← P6.S.20 新
+  intent_counts: {"greeting": 1}         ← P6.S.20 新
+  active_users_count: 1                  ← P6.S.20 新
+  endpoint_latencies: {
+    "/api/chat/enhanced": {count: 1, avg_ms: 1523.45, p95_ms: 1523.45}
+  }                                       ← P6.S.20 新
+```
+
+**7 个新测试** (P6.S.20 部分)
 **问题**: 问"你是什么模型"会返 0.04 相似度的无关内容
 - ChromaDB 用 `1/(1+d²)` 倒数映射,无关查询 score 也 ≥ 0
 - `min_similarity=0.0` 预过滤失效
