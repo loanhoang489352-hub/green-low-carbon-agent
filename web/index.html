@@ -2446,6 +2446,21 @@
                 // 逐步更新状态，让用户知道进度
                 updateTypingStatus('正在思考...');
 
+                // P6.S.22: 浏览器定位(若已授权) — 加进请求体,server 优先用
+                const browserLocation = localStorage.getItem('green_agent_browser_location');
+                const requestBody = {
+                    user_id: effectiveUserId,
+                    message: message,
+                    conversation_id: conversationId,
+                };
+                if (browserLocation) {
+                    try {
+                        const loc = JSON.parse(browserLocation);
+                        requestBody.location = loc;
+                        console.log('[Chat] 含浏览器定位:', loc);
+                    } catch (_) {}
+                }
+
                 const response = await fetch(endpoint, {
                     method: 'POST',
                     headers: {
@@ -2453,11 +2468,7 @@
                         // P6.S.2 fix: 已登录用户带 Bearer token,不然 /api/chat/enhanced 返 401
                         ...(sessionId ? { 'Authorization': 'Bearer ' + sessionId } : {})
                     },
-                    body: JSON.stringify({
-                        user_id: effectiveUserId,
-                        message: message,
-                        conversation_id: conversationId
-                    }),
+                    body: JSON.stringify(requestBody),
                     signal: controller.signal
                 });
 
@@ -3782,6 +3793,44 @@
         checkConnection();
         // 定期检查连接状态
         setInterval(checkConnection, 30000);
+
+        // P6.S.22: 浏览器定位 — 页面加载时请求一次,后续都发
+        (function initBrowserGeolocation() {
+            if (!navigator.geolocation) {
+                console.log('[Geolocation] 浏览器不支持 navigator.geolocation');
+                return;
+            }
+            // 页面加载 3 秒后请求定位(避免阻塞 UI)
+            setTimeout(() => {
+                navigator.geolocation.getCurrentPosition(
+                    (pos) => {
+                        // 反向地理编码(用 Nominatim 免费 API,免 key)
+                        const lat = pos.coords.latitude;
+                        const lng = pos.coords.longitude;
+                        fetch(`https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lng}&accept-language=zh-CN`)
+                            .then(r => r.json())
+                            .then(data => {
+                                const a = data.address || {};
+                                const city = a.city || a.town || a.county || a.state || '';
+                                const region = a.state || '';
+                                localStorage.setItem('green_agent_browser_location', JSON.stringify({
+                                    lat, lng, city, region, country: a.country || '中国',
+                                }));
+                                console.log('[Geolocation] 浏览器定位成功:', city, lat, lng);
+                            })
+                            .catch(() => {
+                                // 降级:只存坐标
+                                localStorage.setItem('green_agent_browser_location', JSON.stringify({lat, lng}));
+                                console.log('[Geolocation] 反查失败,只存坐标');
+                            });
+                    },
+                    (err) => {
+                        console.log('[Geolocation] 用户拒绝或失败:', err.message);
+                    },
+                    {timeout: 8000, maximumAge: 600000, enableHighAccuracy: false}
+                );
+            }, 3000);
+        })();
     </script>
 </body>
 </html>

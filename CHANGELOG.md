@@ -553,12 +553,72 @@ POST /api/agent/react
 | MCP 集成 | ✅ 真实工作 | 1 server connected, 3 tool |
 | LLM 自主 tool-use | ✅ ReAct 工作 | 调 MCP tool 拿真实数据 |
 | 出行规划 | ✅ 有 GAODE_KEY 时全链路 | 无 key 时降级 |
-| 位置自动定位 | ❌ **不可用** | 需用户写明地址 |
+| 位置自动定位 | ✅ **P6.S.22 已实现** | 3 层 fallback 全工作 |
 | 知识库守门员 | ❌ **缺失** | 仍是直接入库,无 LLM 审核 |
 | KB 存量清洗 | ✅ 7 个无关文件已归档 | 51.6KB 移走 |
 | RAG BM25 索引 | ✅ 修复后填上 | 234 chunks |
 | RAG 分数区分 | ✅ 修复后能区分 | 相关 2.79 vs 无关 0.02 |
-| 文档化 | ✅ 完整 CHANGELOG | 全部 P6.S.7-21 |
+| 文档化 | ✅ 完整 CHANGELOG | 全部 P6.S.7-22 |
+
+### P6.S.22 定位能力实现(本次)
+**目标**: 让 Agent 能自动获取用户真实位置,不用手动写
+
+**3 层 fallback 架构**:
+1. **浏览器 geolocation**(优先级最高):前端 `navigator.geolocation.getCurrentPosition` → Nominatim 反查 → localStorage → 请求体 location
+2. **画像 default city**:从 `user_profile.basic_info.region` 读 + 已知城市坐标
+3. **IP 反查**(`ip-api.com`,免费,免 key,45 req/min):进程内缓存 1h,失败兜底北京
+
+**新增模块**:
+- `src/utils/geolocate.py`:
+  - `GeoInfo` dataclass(city / region / country / lat / lng / ip / source / cached)
+  - `geolocate_by_ip(ip)` — IP 反查带缓存
+  - `geolocate_request(handler)` — 从 handler 提 IP + 反查
+  - `geolocate_from_profile(user_id)` — 从画像读
+  - `best_location(handler, user_id)` — 3 层 fallback
+- `src/agent/core.py` `_resolve_current_location()` 新方法:
+  - 模式 3("去A" / "到A")从字面量" 当前位置"改为真实定位
+- `src/server/routers/system.py`:
+  - `GET /api/geolocate?user_id=X` — 调试端点
+  - `POST /api/geolocate` — 浏览器定位回调(存到 handler._browser_location)
+- `src/server/routers/chat.py` `chat_enhanced`:
+  - 从请求体读 `location` → 存 `handler._browser_location`
+  - 响应返 `location` 字段(含 source 让前端展示)
+- `web/index.html`:
+  - 页面加载 3s 后请求浏览器定位
+  - Nominatim 反向地理编码 → localStorage
+  - 发聊天请求时自动塞入 `location` 字段
+
+**端到端验证**:
+```
+GET /api/geolocate?user_id=test
+  → location: {city: "北京", source: "default", lat: 39.9042, lng: 116.4074}
+
+POST /api/chat/enhanced
+  {user_id, message, location: {lat: 31.23, lng: 121.47, city: "上海"}}
+  → response.location = {source: "browser", city: "上海"}
+```
+
+**8 个新测试** (`tests/test_p6s22_geolocation.py`) 全过
+
+## 累计 16 个 P6.S.x commit(P6.S.7 → S.22)
+
+```
+21fc93f P6.S.21 全链路审计 + BM25 + KB 清洗
+fd0475e P6.S.20 Observability + P6.S.19 记忆摘要
+85f1505 P6.S.18 残余 bug 修复
+3d657b0 P6.S.17 LLM 自主 tool-use(ReAct)
+117641f P6.S.16 MCP 集成
+50b02c3 P6.S.15 Tool/Skill 全量注册
+7fc9d66 P6.S.14 chat 公开
+4b44a9b P6.S.13 agent.bat/sh
+51c3abc P6.S.13 修 LLM 大脑
+9d01050 P6.S.12 修意图过激
+85009e5 P6.S.11 LLM 自然化
+21e339b P6.S.10 出行规划绕 RAG
+933ffe4 P6.S.9  RAG 检索质量
+9a8f6c7 P6.S.8  政策画像
+ed4970e P6.S.7  基础解锁
++ P6.S.22 定位能力实现(本次)
 **问题**: 问"你是什么模型"会返 0.04 相似度的无关内容
 - ChromaDB 用 `1/(1+d²)` 倒数映射,无关查询 score 也 ≥ 0
 - `min_similarity=0.0` 预过滤失效

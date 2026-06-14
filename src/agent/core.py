@@ -858,6 +858,7 @@ class GreenAgent:
 
         提取 origin/destination → 调 TravelPlanningTool → 返结构化结果
         若提取不到 origin/destination,降级为 advice(让用户补充)
+        P6.S.22: 用 3 层 fallback 解析用户真实位置(origin 不再是字面量" 当前位置")
         """
         import re
         from utils.helpers import get_current_datetime
@@ -1236,6 +1237,29 @@ class GreenAgent:
         """检索知识库"""
         results = self.knowledge_manager.search(query, top_k=3)
         return results
+
+    def _resolve_current_location(
+        self, user_id: str, conversation_id: str = None, message: str = ""
+    ) -> str:
+        """P6.S.22: 3 层 fallback 解析用户当前位置
+
+        优先级:
+          1) 浏览器(前端 navigator.geolocation 上报)
+          2) 用户画像 default city(basic_info.region)
+          3) IP 反查(ip-api.com,带进程内缓存)
+          失败兜底:北京
+
+        Returns: 城市名字符串(高德地理编码能解析的形式)
+        """
+        try:
+            from utils.geolocate import best_location
+            geo = best_location(handler=self, user_id=user_id)
+            if geo and geo.city:
+                return geo.city
+        except Exception as e:
+            import logging
+            logging.getLogger(__name__).debug("[P6.S.22] resolve location: %s", e)
+        return "北京"
 
     def _get_recent_memories(self, user_id: str) -> List[str]:
         """获取用户最近的记忆(P6.S.18: 100 字符,含类型 + 重要度)"""

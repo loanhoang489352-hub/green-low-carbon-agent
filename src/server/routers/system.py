@@ -186,6 +186,37 @@ def register_system_routes(registry) -> None:
         except Exception as e:
             handler.send_json({"error": str(e), "servers": [], "tools": []}, status=200)
 
+    def geolocate_status(handler):
+        """P6.S.22: 调试端点 — 查看当前位置定位结果(3 层 fallback)"""
+        try:
+            from utils.geolocate import best_location
+            from urllib.parse import urlparse, parse_qs
+            qs = parse_qs(urlparse(handler.path).query)
+            user_id = qs.get("user_id", ["anonymous"])[0]
+            geo = best_location(handler=handler, user_id=user_id)
+            handler.send_json({"ok": True, "location": geo.to_dict()})
+        except Exception as e:
+            handler.send_json({"ok": False, "error": str(e)[:200]}, status=200)
+
+    def geolocate_set_browser(handler, data):
+        """P6.S.22: 前端浏览器定位回调(用户授权后调此)"""
+        try:
+            lat = float(data.get("lat", 0))
+            lng = float(data.get("lng", 0))
+            city = data.get("city", "")
+            region = data.get("region", "")
+            country = data.get("country", "中国")
+            if lat and lng:
+                handler._browser_location = {
+                    "lat": lat, "lng": lng, "city": city,
+                    "region": region, "country": country,
+                }
+                handler.send_json({"ok": True, "stored": True})
+            else:
+                handler.send_json({"ok": False, "error": "lat/lng required"}, status=400)
+        except Exception as e:
+            handler.send_json({"ok": False, "error": str(e)[:200]}, status=200)
+
     def policy_latest(handler):
         updater = handler.policy_updater
         # P6.S.8: 解析 ?limit=N 查询参数(前端传 20,避免硬编码 10 截断)
@@ -214,5 +245,7 @@ def register_system_routes(registry) -> None:
     registry.add_route("GET", "/api/rag/status", rag_status, auth_required=False, description="RAG 异步重建进度(P5-H.C)")
     registry.add_route("GET", "/api/tools-skills", tools_skills_status, auth_required=False, description="P6.S.15: 已注册 tools + skills 列表")
     registry.add_route("GET", "/api/mcp/status", mcp_status, auth_required=False, description="P6.S.16: MCP server 状态 + tool 列表")
+    registry.add_route("GET", "/api/geolocate", geolocate_status, auth_required=False, description="P6.S.22: 当前位置定位(3 层 fallback)")
+    registry.add_route("POST", "/api/geolocate", geolocate_set_browser, auth_required=False, description="P6.S.22: 设置浏览器定位")
     registry.add_route("GET", "/api/policy/latest", policy_latest, auth_required=False, description="最新政策")
     registry.add_route("GET", "/api/policy/summary", policy_summary, auth_required=False, description="政策摘要")

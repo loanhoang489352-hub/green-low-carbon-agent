@@ -35,7 +35,28 @@ def register_chat_routes(registry) -> None:
         if not message:
             raise APIError("BAD_REQUEST", "Message is required")
 
+        # P6.S.22: 浏览器传入的 location(前端 navigator.geolocation) → handler._browser_location
+        loc = data.get("location")
+        if loc and isinstance(loc, dict) and loc.get("lat") and loc.get("lng"):
+            try:
+                handler._browser_location = {
+                    "lat": float(loc["lat"]),
+                    "lng": float(loc["lng"]),
+                    "city": loc.get("city", "") or "",
+                    "region": loc.get("region", "") or "",
+                    "country": loc.get("country", "中国"),
+                }
+            except Exception:
+                pass
+
         response = handler.agent.chat_enhanced(user_id, message, conversation_id)
+        # 响应里返定位来源(便于前端展示)
+        try:
+            from utils.geolocate import best_location
+            geo = best_location(handler=handler, user_id=user_id)
+            location_info = geo.to_dict()
+        except Exception:
+            location_info = {}
         handler.send_json({
             "message": response.message,
             "conversation_id": response.conversation_id,
@@ -46,6 +67,7 @@ def register_chat_routes(registry) -> None:
             "personalization": response.personalization_info,
             "recommendations": response.recommendations,
             "profile_updates": response.profile_updates,
+            "location": location_info,  # P6.S.22: 返定位来源供前端展示
         })
 
     def conversation_reset(handler, data):
