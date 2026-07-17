@@ -1,0 +1,3 @@
+[tool.deptry]
+exclude = ["scripts", "tests"]
+ignore_missing = ["paths", "config_loader", "agent", "utils", "rag", "llm", "memory", "db", "observability", "policy", "knowledge", "user_profile", "feedback", "auth", "server"]

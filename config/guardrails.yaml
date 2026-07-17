@@ -1,0 +1,55 @@
+# 任务6: LLM 输入/输出守门员规则(PoC)
+# 注意:完整 NeMo Guardrails 集成评估中,先用规则式轻量实现
+
+# 输入过滤:拦截有害/越权/越界提问
+input_filters:
+  # 关键词黑名单(简单命中即拒)
+  forbidden_keywords:
+    - "如何制造炸弹"
+    - "如何合成毒品"
+    - "黑客攻击教程"
+    - "绕过鉴权"
+    - "DDoS 攻击"
+    - "如何自杀"
+    - "种族歧视"
+  # 越权模式(试图让 agent 执行越界操作)
+  jailbreak_patterns:
+    - "忽略之前的指令"
+    - "ignore previous instructions"
+    - "忽略系统提示"
+    - "你现在不是"
+    - "act as"
+    - "system prompt"
+  # 长度限制(防 token 爆炸)
+  max_length: 2000
+
+# 输出过滤:拦截有害/低质回复
+output_filters:
+  # PII 防护:自动脱敏(已有 utils/pii.py)
+  pii_redaction: true
+  # 长度限制
+  max_length: 5000
+  # 必含关键词(若用户问绿色低碳,答案需含至少一个)
+  required_keywords_min_count: 0  # 0=不强制,正数=最少命中数
+  green_keywords:
+    - "碳"
+    - "低碳"
+    - "环保"
+    - "减排"
+    - "节能"
+    - "绿色"
+    - "可持续"
+    - "green"
+    - "carbon"
+    - "low-carbon"
+
+# 审计:敏感操作落 audit_log
+audit:
+  enabled: true
+  # 命中 input filter 时也记录
+  log_filtered_input: true
+  log_filtered_output: true
+
+# 降级:rule-only 模式(无 LLM judge,生产环境推荐快速拦截)
+# 升级:接入 NeMo Guardrails 后改 llm_judge: true
+mode: "rule-only"  # rule-only | llm_judge | hybrid
