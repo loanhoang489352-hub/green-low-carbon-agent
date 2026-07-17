@@ -47,12 +47,21 @@ backups/data_*.manifest.json
 backups/data_BEFORE_RESTORE_*.tar.gz
 backups/.last_backup_ts
 
+# Local backup artifacts (never commit — 防止 .env 备份/任意 .bak 误提交)
+*.bak
+.backups/
+
 # 源可达性测试报告(P6.J 跑测时生成,会变)
 data/source_test_report.md
 
 # Environment
 .env
 .env.local
+# .env 备份文件(可能含真实 API 密钥,绝对不要 commit)
+/.env.bak*
+/.env.bak.*
+*.env.bak
+*.env.bak.*
 *.log
 
 # Database
