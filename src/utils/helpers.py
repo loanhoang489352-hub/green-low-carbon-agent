@@ -16,13 +16,13 @@ def load_config(config_path: Optional[str] = None) -> Dict[str, Any]:
         config_path = get_project_root() / "config" / "settings.yaml"
     else:
         config_path = Path(config_path)
-    
+
     if not config_path.exists():
         return {}
-    
+
     with open(config_path, "r", encoding="utf-8") as f:
         config = yaml.safe_load(f)
-    
+
     # 处理环境变量替换
     config = _replace_env_vars(config)
     return config
@@ -55,7 +55,7 @@ def get_data_path() -> Path:
 def format_carbon_amount(kg: float) -> str:
     """格式化碳排放量为易读格式"""
     if kg >= 1000:
-        return f"{kg/1000:.2f} 吨 CO2"
+        return f"{kg / 1000:.2f} 吨 CO2"
     return f"{kg:.2f} 千克 CO2"
 
 
@@ -92,7 +92,7 @@ def create_response_structure(
     intent: str = None,
     suggestions: list = None,
     knowledge_refs: list = None,
-    memory_hints: list = None
+    memory_hints: list = None,
 ) -> Dict[str, Any]:
     """创建标准响应结构"""
     return {
@@ -101,17 +101,46 @@ def create_response_structure(
         "suggestions": suggestions or [],
         "knowledge_refs": knowledge_refs or [],
         "memory_hints": memory_hints or [],
-        "timestamp": get_current_datetime()
+        "timestamp": get_current_datetime(),
     }
 
 
 def extract_keywords(text: str) -> list:
     """提取文本关键词（简化版）"""
     # 简化的中文分词
-    stop_words = {"的", "了", "是", "在", "我", "有", "和", "就", "不", "人", "都", "一", "一个", "上", "也", "很", "到", "说", "要", "去", "你", "会", "着", "没有", "看", "好", "自己", "这"}
-    
+    stop_words = {
+        "的",
+        "了",
+        "是",
+        "在",
+        "我",
+        "有",
+        "和",
+        "就",
+        "不",
+        "人",
+        "都",
+        "一",
+        "一个",
+        "上",
+        "也",
+        "很",
+        "到",
+        "说",
+        "要",
+        "去",
+        "你",
+        "会",
+        "着",
+        "没有",
+        "看",
+        "好",
+        "自己",
+        "这",
+    }
+
     # 简单字符过滤
     chars = [c for c in text if c.isalnum() or c.isspace()]
     words = "".join(chars).split()
-    
+
     return [w for w in words if w not in stop_words and len(w) > 1]

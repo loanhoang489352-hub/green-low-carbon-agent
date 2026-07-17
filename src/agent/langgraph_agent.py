@@ -6,30 +6,26 @@ LangGraph 驱动的智能体
 import uuid
 import sys
 from pathlib import Path
-from typing import Dict, List, Optional, Any
+from typing import Dict, List, Any
 from dataclasses import dataclass, field
 from datetime import datetime
 
 script_path = Path(__file__).resolve()
 project_root = script_path.parent.parent.parent
-sys.path.insert(0, str(project_root / 'src'))
+sys.path.insert(0, str(project_root / "src"))
 
-from agent.graph import (
-    AgentState,
-    initial_state,
-    get_agent_graph,
-    get_react_graph
-)
-from agent.conversation_store import get_conversation_store, ConversationContext
+from agent.graph import AgentState, initial_state, get_agent_graph, get_react_graph
+from agent.conversation_store import get_conversation_store
 from user_profile.user_profile import UserProfileManager
 from user_profile.dynamic_updater import get_profile_updater
-from memory.short_term import ShortTermMemory, get_short_term_memory
+from memory.short_term import get_short_term_memory
 from memory.long_term import LongTermMemory
 
 
 @dataclass
 class LangGraphResponse:
     """LangGraph 智能体响应"""
+
     message: str
     conversation_id: str
     intent: str
@@ -41,6 +37,7 @@ class LangGraphResponse:
     personalization_info: Dict = field(default_factory=dict)
     recommendations: List[Dict] = field(default_factory=list)
     metadata: Dict = field(default_factory=dict)
+    tool_result: Dict = field(default_factory=dict)  # P6.S.23: 透出 ReAct 工具结果供前端渲染
 
     def to_dict(self) -> Dict[str, Any]:
         return {
@@ -54,7 +51,8 @@ class LangGraphResponse:
             "timestamp": self.timestamp,
             "personalization_info": self.personalization_info,
             "recommendations": self.recommendations,
-            "metadata": self.metadata
+            "metadata": self.metadata,
+            "tool_result": self.tool_result,
         }
 
 
@@ -71,7 +69,7 @@ class LangGraphAgent:
         use_vector_db: bool = False,
         enable_rag: bool = True,
         use_llm: bool = False,
-        use_react: bool = False
+        use_react: bool = False,
     ):
         self.use_llm = use_llm
         self.use_react = use_react
@@ -88,7 +86,7 @@ class LangGraphAgent:
 
         self._init_graph()
 
-        print(f"LangGraph 智能体初始化完成")
+        print("LangGraph 智能体初始化完成")
         print(f"   - 工作流模式: {'ReAct' if use_react else 'StateGraph'}")
         print(f"   - 知识库: {knowledge_base_path}")
         print(f"   - RAG: {'已启用' if enable_rag else '未启用'}")
@@ -100,12 +98,7 @@ class LangGraphAgent:
         else:
             self.graph = get_agent_graph()
 
-    def chat(
-        self,
-        user_id: str,
-        message: str,
-        conversation_id: str = None
-    ) -> LangGraphResponse:
+    def chat(self, user_id: str, message: str, conversation_id: str = None) -> LangGraphResponse:
         """
         处理用户对话
 
@@ -130,21 +123,17 @@ class LangGraphAgent:
         except Exception as e:
             print(f"LangGraph 执行错误: {e}")
             import traceback
+
             traceback.print_exc()
             return LangGraphResponse(
                 message=f"抱歉，处理您的请求时出现错误: {str(e)}",
                 conversation_id=conversation_id,
                 intent="error",
                 timestamp=datetime.now().isoformat(),
-                metadata={"error": str(e)}
+                metadata={"error": str(e)},
             )
 
-    def chat_stream(
-        self,
-        user_id: str,
-        message: str,
-        conversation_id: str = None
-    ):
+    def chat_stream(self, user_id: str, message: str, conversation_id: str = None):
         """
         流式处理用户对话
 
@@ -164,18 +153,53 @@ class LangGraphAgent:
         for event in self.graph.stream(state):
             yield event
 
-    def _build_response(
-        self,
-        result: AgentState,
-        conversation_id: str
-    ) -> LangGraphResponse:
-        """构建响应对象(P4-G:把 rag_context 也塞进 metadata)"""
+    def _build_response(self, result: AgentState, conversation_id: str) -> LangGraphResponse:
+        """构建响应对象(P4-G:把 rag_context 也塞进 metadata)
+
+        P6.S.23: 解析末条 tool 消息提取 tool_result,供前端渲染出行/天气/地图。
+        """
         # P4-G:把 state.rag_context/rag_results 透出到 metadata, 供 core.py chat_enhanced 读取
         meta = dict(result.get("metadata", {}) or {})
         if result.get("rag_context"):
             meta["rag_context"] = result["rag_context"]
         if result.get("rag_results"):
             meta["rag_results"] = result["rag_results"]
+
+        # P6.S.23: 解析末条 tool 消息,提取 tool_result
+        # 兼容 messages 为 list[dict|BaseMessage]
+        tool_result: Dict = {}
+        try:
+            messages = result.get("messages") or []
+            for msg in reversed(messages):
+                # ToolMessage / AIMessage with tool_calls
+                cls_name = type(msg).__name__
+                if cls_name == "ToolMessage" and getattr(msg, "content", None):
+                    import json as _json
+
+                    try:
+                        tool_result = _json.loads(msg.content)
+                    except (ValueError, TypeError):
+                        tool_result = {"content": str(msg.content)[:2000]}
+                    if isinstance(tool_result, dict):
+                        break
+                    tool_result = {"content": tool_result}
+                    break
+                if cls_name == "AIMessage" and getattr(msg, "tool_calls", None):
+                    # ReAct 模式:工具调用已发起,等下条 ToolMessage 才出结果
+                    # 此处保留 tool_calls 列表,前端可显示
+                    tool_result = {
+                        "tool_calls": [
+                            {
+                                "name": tc.get("name") if isinstance(tc, dict) else getattr(tc, "name", ""),
+                                "args": tc.get("args") if isinstance(tc, dict) else getattr(tc, "args", {}),
+                            }
+                            for tc in (msg.tool_calls or [])
+                        ]
+                    }
+                    break
+        except Exception:
+            tool_result = {}
+
         return LangGraphResponse(
             message=result.get("response_message", ""),
             conversation_id=conversation_id,
@@ -187,7 +211,8 @@ class LangGraphAgent:
             timestamp=datetime.now().isoformat(),
             personalization_info=result.get("personalization_info", {}),
             recommendations=result.get("recommendations", []),
-            metadata=meta
+            metadata=meta,
+            tool_result=tool_result,
         )
 
     def _get_or_create_conversation(self, user_id: str) -> str:
@@ -206,25 +231,18 @@ class LangGraphAgent:
         return conv_id
 
     def get_conversation_history(
-        self,
-        user_id: str,
-        conversation_id: str = None,
-        limit: int = 10
+        self, user_id: str, conversation_id: str = None, limit: int = 10
     ) -> List[Dict]:
         """获取对话历史"""
         if conversation_id:
-            return self.short_term_memory.get_conversation_history(
-                conversation_id, limit
-            )
+            return self.short_term_memory.get_conversation_history(conversation_id, limit)
 
         contexts = self.conversation_store.list_user_conversations(user_id)
         if contexts:
             all_history = []
             for ctx in contexts:
                 all_history.extend(
-                    self.short_term_memory.get_conversation_history(
-                        ctx.conversation_id, limit
-                    )
+                    self.short_term_memory.get_conversation_history(ctx.conversation_id, limit)
                 )
             return all_history[-limit:]
         return []
@@ -250,14 +268,12 @@ class LangGraphAgent:
         contexts = self.conversation_store.list_user_conversations(user_id)
         total_messages = 0
         for ctx in contexts:
-            history = self.short_term_memory.get_conversation_history(
-                ctx.conversation_id, 1000
-            )
+            history = self.short_term_memory.get_conversation_history(ctx.conversation_id, 1000)
             total_messages += len(history)
 
         latest = self.conversation_store.get_latest(user_id)
         return {
             "total_conversations": len(contexts),
             "total_messages": total_messages,
-            "active_conversation": latest.conversation_id if latest else None
+            "active_conversation": latest.conversation_id if latest else None,
         }

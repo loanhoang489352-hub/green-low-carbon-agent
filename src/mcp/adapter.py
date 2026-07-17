@@ -4,9 +4,9 @@ MCP Tool 适配器 — 把远程 MCP tool 包装成 BaseTool
 让现有 ToolRegistry / SkillExecutor / chat_enhanced 等代码无需修改
 就能调用 MCP server 上的工具。
 """
+
 from __future__ import annotations
 
-import asyncio
 import logging
 from typing import Any, Dict, List
 
@@ -47,17 +47,20 @@ class MCPToolAdapter(BaseTool):
         required = schema.get("required", [])
         params = []
         for pname, pdef in properties.items():
-            params.append({
-                "name": pname,
-                "type": pdef.get("type", "string"),
-                "description": pdef.get("description", ""),
-                "required": pname in required,
-            })
+            params.append(
+                {
+                    "name": pname,
+                    "type": pdef.get("type", "string"),
+                    "description": pdef.get("description", ""),
+                    "required": pname in required,
+                }
+            )
         return params
 
     def execute(self, **kwargs) -> ToolResult:
         """同步执行(供 ToolExecutor 兼容)P6.S.16: 直接调同步 call_tool"""
         import time
+
         start = time.time()
         try:
             result = self._client.call_tool(self._mcp_tool.name, kwargs)
@@ -115,6 +118,7 @@ class MCPToolAdapter(BaseTool):
 
 def json_dumps(obj: Any) -> str:
     import json
+
     try:
         return json.dumps(obj, ensure_ascii=False, indent=2)
     except Exception:

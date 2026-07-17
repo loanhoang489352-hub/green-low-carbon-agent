@@ -4,12 +4,13 @@ LangGraph 工作流定义
 
 P4-A:默认挂 SqliteSaver checkpointer,LangGraph 状态跨重启持久化
 """
+
 import sys
 from pathlib import Path
-from typing import Literal, Optional, Any, Dict
+from typing import Any, Dict
 
 script_path = Path(__file__).resolve()
-sys.path.insert(0, str(script_path.parent.parent.parent.parent / 'src'))
+sys.path.insert(0, str(script_path.parent.parent.parent.parent / "src"))
 
 from langgraph.graph import StateGraph, START, END
 from langgraph.checkpoint.memory import MemorySaver
@@ -22,7 +23,7 @@ from .nodes import (
     generate_recommendations,
     generate_response,
     handle_error,
-    get_nodes
+    get_nodes,
 )
 
 
@@ -42,6 +43,7 @@ def _get_default_checkpointer():
         import sqlite3
         from langgraph.checkpoint.sqlite import SqliteSaver
         from paths import DATA_DIR
+
         ckpt_path = str(DATA_DIR / "langgraph_checkpoints.db")
         _CHECKPOINTER_CONN = sqlite3.connect(ckpt_path, check_same_thread=False)
         _CHECKPOINTER_CONN.execute("PRAGMA journal_mode=WAL")
@@ -50,8 +52,10 @@ def _get_default_checkpointer():
         return _CHECKPOINTER
     except Exception as e:
         import logging
+
         logging.getLogger(__name__).warning(
-            "[Graph] SqliteSaver 不可用,回退 MemorySaver: %s", e,
+            "[Graph] SqliteSaver 不可用,回退 MemorySaver: %s",
+            e,
         )
         _CHECKPOINTER = MemorySaver()
         return _CHECKPOINTER
@@ -87,17 +91,14 @@ def create_agent_graph(checkpointer=None) -> StateGraph:
         {
             "use_rag": "retrieve_knowledge",
             "update_profile": "update_profile",
-            "skip": "generate_response"
-        }
+            "skip": "generate_response",
+        },
     )
 
     graph.add_conditional_edges(
         "retrieve_knowledge",
         _route_after_retrieval,
-        {
-            "update_profile": "update_profile",
-            "skip": "generate_recommendations"
-        }
+        {"update_profile": "update_profile", "skip": "generate_recommendations"},
     )
 
     graph.add_edge("update_profile", "generate_recommendations")
@@ -105,10 +106,7 @@ def create_agent_graph(checkpointer=None) -> StateGraph:
     graph.add_conditional_edges(
         "generate_recommendations",
         _route_after_recommendations,
-        {
-            "generate_response": "generate_response",
-            "skip": "generate_response"
-        }
+        {"generate_response": "generate_response", "skip": "generate_response"},
     )
 
     graph.add_edge("generate_response", END)
@@ -150,6 +148,7 @@ def _route_after_recommendations(state: AgentState) -> str:
 
 _agent_graph = None
 
+
 def get_agent_graph() -> StateGraph:
     """获取智能体图实例（单例）"""
     global _agent_graph
@@ -186,10 +185,7 @@ class ReActAgentGraph:
         graph.add_conditional_edges(
             "observe",
             _check_continue_react,
-            {
-                "continue": "think",
-                "finish": "generate_final_response"
-            }
+            {"continue": "think", "finish": "generate_final_response"},
         )
 
         graph.add_edge("generate_final_response", END)
@@ -213,7 +209,7 @@ class ReActAgentGraph:
                 **metadata,
                 "step": "think",
                 "step_count": step_count,
-                "thought": f"分析意图: {state.get('intent_type', 'unknown')}"
+                "thought": f"分析意图: {state.get('intent_type', 'unknown')}",
             }
         }
 
@@ -241,7 +237,7 @@ class ReActAgentGraph:
             "metadata": {
                 **state.get("metadata", {}),
                 "step": "observe",
-                "observation": "动作执行完成"
+                "observation": "动作执行完成",
             }
         }
 
@@ -255,8 +251,10 @@ class ReActAgentGraph:
                 rec_updates = nodes.generate_recommendations(state) or {}
             except Exception as e:
                 import logging
+
                 logging.getLogger(__name__).debug(
-                    "[ReAct] 补推荐失败(非致命): %s", e,
+                    "[ReAct] 补推荐失败(非致命): %s",
+                    e,
                 )
         # 跑响应生成
         try:
@@ -278,6 +276,7 @@ def _check_continue_react(state: AgentState) -> str:
 
 
 _react_graph = None
+
 
 def get_react_graph() -> StateGraph:
     """获取 ReAct 图实例（单例）"""

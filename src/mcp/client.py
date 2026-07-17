@@ -10,6 +10,7 @@ MCP 客户端 — 通过 stdio 传输连接外部 MCP server
 
 P6.S.16: 同步 I/O 线程实现(避免 asyncio + Windows pipe 兼容问题)
 """
+
 from __future__ import annotations
 
 import json
@@ -29,20 +30,22 @@ _logger = logging.getLogger(__name__)
 @dataclass
 class MCPClientConfig:
     """MCP 客户端配置(对应 config/mcp_servers.yaml 一条 server)"""
-    name: str                                          # 内部唯一名
-    command: str                                        # 启动命令(如 "python" / "node")
-    args: List[str] = field(default_factory=list)       # 命令参数
-    env: Dict[str, str] = field(default_factory=dict)   # 额外环境变量
-    cwd: Optional[str] = None                           # 工作目录
-    description: str = ""                               # 描述
-    enabled: bool = True                                # 是否启用
-    connect_timeout_s: float = 10.0                     # 启动超时
-    request_timeout_s: float = 30.0                     # 单次请求超时
+
+    name: str  # 内部唯一名
+    command: str  # 启动命令(如 "python" / "node")
+    args: List[str] = field(default_factory=list)  # 命令参数
+    env: Dict[str, str] = field(default_factory=dict)  # 额外环境变量
+    cwd: Optional[str] = None  # 工作目录
+    description: str = ""  # 描述
+    enabled: bool = True  # 是否启用
+    connect_timeout_s: float = 10.0  # 启动超时
+    request_timeout_s: float = 30.0  # 单次请求超时
 
 
 @dataclass
 class MCPTool:
     """远程 MCP 工具描述"""
+
     name: str
     description: str
     input_schema: Dict[str, Any] = field(default_factory=dict)
@@ -52,6 +55,7 @@ class MCPTool:
 @dataclass
 class MCPServerInfo:
     """MCP server 状态"""
+
     name: str
     status: str  # "connected" | "disconnected" | "error" | "disabled"
     command: str
@@ -203,7 +207,8 @@ class MCPClient:
             if "error" in result:
                 _logger.warning(
                     "[MCPClient] %s list_tools 错误: %s",
-                    self.config.name, result["error"],
+                    self.config.name,
+                    result["error"],
                 )
                 return []
             tools_raw = result.get("result", {}).get("tools", [])
@@ -238,7 +243,9 @@ class MCPClient:
 
     # ============ 底层 JSON-RPC 通信(同步) ============
 
-    def _request_sync(self, method: str, params: Dict[str, Any], timeout: float = 30.0) -> Dict[str, Any]:
+    def _request_sync(
+        self, method: str, params: Dict[str, Any], timeout: float = 30.0
+    ) -> Dict[str, Any]:
         """发送 JSON-RPC 请求,同步等响应"""
         if not self._process or self._process.stdin is None:
             return {"error": "process not running"}

@@ -8,6 +8,7 @@ MCP Server — 把本地 ToolRegistry 暴露为 MCP server
 
 通信: JSON-RPC 2.0 over stdio(每行一个 JSON)
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -91,14 +92,17 @@ class MCPServer:
 
         try:
             if method == "initialize":
-                return self._result(req_id, {
-                    "protocolVersion": "2024-11-05",
-                    "serverInfo": {
-                        "name": self.server_name,
-                        "version": self.server_version,
+                return self._result(
+                    req_id,
+                    {
+                        "protocolVersion": "2024-11-05",
+                        "serverInfo": {
+                            "name": self.server_name,
+                            "version": self.server_version,
+                        },
+                        "capabilities": {"tools": {}},
                     },
-                    "capabilities": {"tools": {}},
-                })
+                )
             elif method == "tools/list":
                 return self._result(req_id, {"tools": self._list_tools()})
             elif method == "tools/call":
@@ -118,11 +122,13 @@ class MCPServer:
                 continue
             meta = self.tool_registry.get_metadata(name)
             desc = (meta.description if meta else None) or inst.description or ""
-            tools_out.append({
-                "name": name,
-                "description": desc,
-                "inputSchema": self._params_to_schema(inst),
-            })
+            tools_out.append(
+                {
+                    "name": name,
+                    "description": desc,
+                    "inputSchema": self._params_to_schema(inst),
+                }
+            )
         return tools_out
 
     @staticmethod
@@ -140,10 +146,17 @@ class MCPServer:
                 continue
             ptype = p.get("type", "string")
             ptype_map = {
-                "string": "string", "int": "integer", "integer": "integer",
-                "float": "number", "number": "number", "bool": "boolean",
-                "boolean": "boolean", "list": "array", "array": "array",
-                "dict": "object", "object": "object",
+                "string": "string",
+                "int": "integer",
+                "integer": "integer",
+                "float": "number",
+                "number": "number",
+                "bool": "boolean",
+                "boolean": "boolean",
+                "list": "array",
+                "array": "array",
+                "dict": "object",
+                "object": "object",
             }
             js_type = ptype_map.get(ptype, "string")
             properties[pname] = {
@@ -167,6 +180,7 @@ class MCPServer:
             # 同步 execute 在线程池跑,避免阻塞 event loop
             loop = asyncio.get_event_loop()
             import concurrent.futures
+
             with concurrent.futures.ThreadPoolExecutor(max_workers=1) as ex:
                 fut = ex.submit(inst.execute, **arguments)
                 result: ToolResult = fut.result(timeout=60)
@@ -177,15 +191,21 @@ class MCPServer:
                     text = data.get("text") or json.dumps(data, ensure_ascii=False)
                 else:
                     text = str(data)
-                return self._result(req_id, {
-                    "content": [{"type": "text", "text": text}],
-                    "isError": False,
-                })
+                return self._result(
+                    req_id,
+                    {
+                        "content": [{"type": "text", "text": text}],
+                        "isError": False,
+                    },
+                )
             else:
-                return self._result(req_id, {
-                    "content": [{"type": "text", "text": f"Error: {result.error}"}],
-                    "isError": True,
-                })
+                return self._result(
+                    req_id,
+                    {
+                        "content": [{"type": "text", "text": f"Error: {result.error}"}],
+                        "isError": True,
+                    },
+                )
         except Exception as e:
             return self._error_response(req_id, -32603, f"Tool execution failed: {e}")
 
@@ -204,8 +224,8 @@ class MCPServer:
 
 def run_mcp_server_sync():
     """同步入口(供 subprocess 启动)"""
-    import os
     from agent.tools import get_registry as get_tool_registry
+
     reg = get_tool_registry()
     server = MCPServer(reg, server_name="green-low-carbon-agent")
     asyncio.run(server.run())

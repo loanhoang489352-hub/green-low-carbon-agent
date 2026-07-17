@@ -7,6 +7,7 @@ HTTP 服务器包
   - errors.py: 统一错误响应
 当前阶段:占位 + 简单文档,完整拆分在 P2.1。
 """
+
 from typing import Callable, Dict
 
 

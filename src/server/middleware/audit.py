@@ -11,9 +11,9 @@
 
 写入失败不应阻塞主流程:try/except + logger.warning。
 """
+
 from __future__ import annotations
 
-import json
 import sqlite3
 from datetime import datetime
 from pathlib import Path
@@ -24,6 +24,7 @@ def _audit_db_path() -> str:
     """审计日志 DB 路径(accounts.db)"""
     try:
         from paths import ACCOUNTS_DB
+
         return str(ACCOUNTS_DB)
     except Exception:
         # 兜底:相对路径(测试环境)
@@ -49,6 +50,7 @@ def record_audit(
         # PII 脱敏(防 detail 中残留)
         try:
             from utils.pii import mask_pii
+
             if detail:
                 detail = mask_pii(detail)
             if target:
@@ -63,8 +65,14 @@ def record_audit(
             VALUES (?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
-                user_id, action, target, ip, user_agent,
-                status_code, detail, datetime.now().isoformat(),
+                user_id,
+                action,
+                target,
+                ip,
+                user_agent,
+                status_code,
+                detail,
+                datetime.now().isoformat(),
             ),
         )
         conn.commit()
@@ -72,8 +80,11 @@ def record_audit(
         return True
     except Exception as e:
         import logging
+
         logging.getLogger("server.audit").warning(
-            "[Audit] 写入失败: action=%s err=%s", action, e,
+            "[Audit] 写入失败: action=%s err=%s",
+            action,
+            e,
         )
         return False
 

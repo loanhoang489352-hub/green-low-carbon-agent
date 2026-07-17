@@ -8,9 +8,9 @@ from pathlib import Path
 
 script_path = Path(__file__).resolve()
 project_root = script_path.parent.parent.parent
-sys.path.insert(0, str(project_root / 'src'))
+sys.path.insert(0, str(project_root / "src"))
 
-from typing import List, Dict, Any, Optional, Tuple
+from typing import List, Dict, Any
 from dataclasses import dataclass
 import re
 
@@ -18,6 +18,7 @@ import re
 @dataclass
 class RetrievalResult:
     """检索结果"""
+
     id: str
     content: str
     metadata: Dict[str, Any]
@@ -31,9 +32,9 @@ class RetrievalResult:
 
         # 尝试在句号处截断
         truncated = self.content[:max_length]
-        last_period = truncated.rfind('。')
+        last_period = truncated.rfind("。")
         if last_period > max_length * 0.7:
-            return truncated[:last_period + 1]
+            return truncated[: last_period + 1]
         return truncated + "..."
 
 
@@ -50,7 +51,7 @@ class Retriever:
         query: str,
         top_k: int = 5,
         filter_metadata: Dict[str, Any] = None,
-        min_score: float = 0.0
+        min_score: float = 0.0,
     ) -> List[RetrievalResult]:
         """
         检索相关文档
@@ -70,13 +71,7 @@ class Retriever:
 class SemanticRetriever(Retriever):
     """语义检索器 - 基于向量相似度"""
 
-    def __init__(
-        self,
-        vector_store,
-        embedder,
-        reranker=None,
-        default_top_k: int = 5
-    ):
+    def __init__(self, vector_store, embedder, reranker=None, default_top_k: int = 5):
         super().__init__(vector_store, embedder, reranker)
         self.default_top_k = default_top_k
 
@@ -85,7 +80,7 @@ class SemanticRetriever(Retriever):
         query: str,
         top_k: int = None,
         filter_metadata: Dict[str, Any] = None,
-        min_score: float = 0.3
+        min_score: float = 0.3,
     ) -> List[RetrievalResult]:
         """语义检索"""
         top_k = top_k or self.default_top_k
@@ -97,20 +92,22 @@ class SemanticRetriever(Retriever):
         results = self.vector_store.search(
             query_embedding=query_embedding,
             top_k=top_k * 2,  # 多取一些用于重排序
-            filter_metadata=filter_metadata
+            filter_metadata=filter_metadata,
         )
 
         # 过滤和转换结果
         retrieval_results = []
         for r in results:
-            if r['score'] >= min_score:
-                retrieval_results.append(RetrievalResult(
-                    id=r['id'],
-                    content=r['content'],
-                    metadata=r.get('metadata', {}),
-                    score=r['score'],
-                    query=query
-                ))
+            if r["score"] >= min_score:
+                retrieval_results.append(
+                    RetrievalResult(
+                        id=r["id"],
+                        content=r["content"],
+                        metadata=r.get("metadata", {}),
+                        score=r["score"],
+                        query=query,
+                    )
+                )
 
         # 重排序（如有）
         if self.reranker and retrieval_results:
@@ -118,11 +115,7 @@ class SemanticRetriever(Retriever):
 
         return retrieval_results[:top_k]
 
-    def _rerank(
-        self,
-        query: str,
-        results: List[RetrievalResult]
-    ) -> List[RetrievalResult]:
+    def _rerank(self, query: str, results: List[RetrievalResult]) -> List[RetrievalResult]:
         """重新排序"""
         # 简单重排序：结合语义相似度和关键词匹配
         query_keywords = set(query.lower().split())
@@ -162,7 +155,7 @@ class BM25Retriever(Retriever):
 
         # 统计词频
         for doc in self.documents:
-            content = doc.get('content', '')
+            content = doc.get("content", "")
             terms = self._tokenize(content)
             unique_terms = set(terms)
             all_terms.update(unique_terms)
@@ -171,7 +164,7 @@ class BM25Retriever(Retriever):
                 self._doc_freq[term] = self._doc_freq.get(term, 0) + 1
 
         # 计算平均文档长度
-        total_len = sum(len(self._tokenize(d.get('content', ''))) for d in self.documents)
+        total_len = sum(len(self._tokenize(d.get("content", ""))) for d in self.documents)
         self._avg_doc_len = total_len / max(n_docs, 1)
 
         # 计算 IDF
@@ -185,7 +178,7 @@ class BM25Retriever(Retriever):
         # 英文：按空格
         text = text.lower()
         # 提取英文单词和中文词
-        tokens = re.findall(r'[\u4e00-\u9fff]+|[a-z]+', text)
+        tokens = re.findall(r"[\u4e00-\u9fff]+|[a-z]+", text)
         return tokens
 
     def _get_term_freq(self, doc_content: str, term: str) -> int:
@@ -198,16 +191,16 @@ class BM25Retriever(Retriever):
         query: str,
         top_k: int = 5,
         filter_metadata: Dict[str, Any] = None,
-        min_score: float = 0.0
+        min_score: float = 0.0,
     ) -> List[RetrievalResult]:
         """BM25 检索"""
         query_terms = self._tokenize(query)
 
         scores: Dict[str, float] = {}
         for doc in self.documents:
-            doc_id = doc.get('id', '')
-            content = doc.get('content', '')
-            metadata = doc.get('metadata', {})
+            doc_id = doc.get("id", "")
+            content = doc.get("content", "")
+            metadata = doc.get("metadata", {})
 
             # 元数据过滤
             if filter_metadata:
@@ -225,8 +218,10 @@ class BM25Retriever(Retriever):
                 idf = self._idf[term]
 
                 # BM25 公式
-                term_score = idf * (tf * (self.k1 + 1)) / (
-                    tf + self.k1 * (1 - self.b + self.b * doc_len / max(self._avg_doc_len, 1))
+                term_score = (
+                    idf
+                    * (tf * (self.k1 + 1))
+                    / (tf + self.k1 * (1 - self.b + self.b * doc_len / max(self._avg_doc_len, 1)))
                 )
                 score += term_score
 
@@ -238,15 +233,17 @@ class BM25Retriever(Retriever):
 
         results = []
         for doc_id in sorted_ids[:top_k]:
-            doc = next((d for d in self.documents if d.get('id') == doc_id), None)
+            doc = next((d for d in self.documents if d.get("id") == doc_id), None)
             if doc:
-                results.append(RetrievalResult(
-                    id=doc_id,
-                    content=doc['content'],
-                    metadata=doc.get('metadata', {}),
-                    score=scores[doc_id],
-                    query=query
-                ))
+                results.append(
+                    RetrievalResult(
+                        id=doc_id,
+                        content=doc["content"],
+                        metadata=doc.get("metadata", {}),
+                        score=scores[doc_id],
+                        query=query,
+                    )
+                )
 
         return results
 
@@ -259,7 +256,7 @@ class BM25Retriever(Retriever):
         """清空"""
         self.documents.clear()
         self._doc_freq.clear()
-        if hasattr(self, '_idf'):
+        if hasattr(self, "_idf"):
             self._idf.clear()
 
 
@@ -272,7 +269,7 @@ class HybridRetriever(Retriever):
         embedder,
         bm25_documents: List[Dict] = None,
         semantic_weight: float = 0.6,
-        bm25_weight: float = 0.4
+        bm25_weight: float = 0.4,
     ):
         self.semantic_retriever = SemanticRetriever(vector_store, embedder)
         self.bm25_retriever = BM25Retriever(bm25_documents)
@@ -284,7 +281,7 @@ class HybridRetriever(Retriever):
         query: str,
         top_k: int = 5,
         filter_metadata: Dict[str, Any] = None,
-        min_score: float = 0.0
+        min_score: float = 0.0,
     ) -> List[RetrievalResult]:
         """混合检索"""
         # 语义检索
@@ -301,40 +298,34 @@ class HybridRetriever(Retriever):
         combined: Dict[str, Dict] = {}
 
         for r in semantic_results:
-            combined[r.id] = {
-                'result': r,
-                'semantic_score': r.score,
-                'bm25_score': 0.0
-            }
+            combined[r.id] = {"result": r, "semantic_score": r.score, "bm25_score": 0.0}
 
         for r in bm25_results:
             if r.id in combined:
-                combined[r.id]['bm25_score'] = r.score
+                combined[r.id]["bm25_score"] = r.score
             else:
-                combined[r.id] = {
-                    'result': r,
-                    'semantic_score': 0.0,
-                    'bm25_score': r.score
-                }
+                combined[r.id] = {"result": r, "semantic_score": 0.0, "bm25_score": r.score}
 
         # 计算综合分数
         results = []
         for doc_id, data in combined.items():
-            semantic = data['semantic_score'] / max(self.semantic_weight, 0.01)
-            bm25 = data['bm25_score'] / max(self.bm25_weight, 0.01)
+            semantic = data["semantic_score"] / max(self.semantic_weight, 0.01)
+            bm25 = data["bm25_score"] / max(self.bm25_weight, 0.01)
             combined_score = (
-                data['semantic_score'] * self.semantic_weight +
-                data['bm25_score'] * self.bm25_weight
+                data["semantic_score"] * self.semantic_weight
+                + data["bm25_score"] * self.bm25_weight
             )
 
-            result = data['result']
-            results.append(RetrievalResult(
-                id=result.id,
-                content=result.content,
-                metadata=result.metadata,
-                score=combined_score,
-                query=query
-            ))
+            result = data["result"]
+            results.append(
+                RetrievalResult(
+                    id=result.id,
+                    content=result.content,
+                    metadata=result.metadata,
+                    score=combined_score,
+                    query=query,
+                )
+            )
 
         # 排序
         results.sort(key=lambda x: x.score, reverse=True)

@@ -5,9 +5,10 @@
 
 import sys
 from pathlib import Path
+
 script_path = Path(__file__).resolve()
 project_root = script_path.parent.parent.parent
-sys.path.insert(0, str(project_root / 'src'))
+sys.path.insert(0, str(project_root / "src"))
 
 from typing import Dict, List, Any, Optional, Tuple
 from datetime import datetime
@@ -15,6 +16,7 @@ from dataclasses import dataclass, field
 
 try:
     import networkx as nx
+
     HAS_NETWORKX = True
 except ImportError:
     HAS_NETWORKX = False
@@ -23,6 +25,7 @@ except ImportError:
 @dataclass
 class ProfileNode:
     """画像节点"""
+
     node_id: str
     node_type: str  # user, interest, action, behavior_stage, knowledge_level, preference
     properties: Dict[str, Any] = field(default_factory=dict)
@@ -35,13 +38,14 @@ class ProfileNode:
             "node_type": self.node_type,
             "properties": self.properties,
             "created_at": self.created_at,
-            "updated_at": self.updated_at
+            "updated_at": self.updated_at,
         }
 
 
 @dataclass
 class ProfileEdge:
     """画像边"""
+
     source: str
     target: str
     relation_type: str  # HAS_INTEREST, PERFORMS, AT_STAGE, REJECTS, etc.
@@ -56,7 +60,7 @@ class ProfileEdge:
             "relation_type": self.relation_type,
             "weight": self.weight,
             "properties": self.properties,
-            "created_at": self.created_at
+            "created_at": self.created_at,
         }
 
 
@@ -93,7 +97,7 @@ class UserProfileGraph:
         "diet_eco": "饮食",
         "water_conservation": "用水",
         "renewable_energy": "能源",
-        "carbon_offset": "碳补偿"
+        "carbon_offset": "碳补偿",
     }
 
     # 行为阶段层级
@@ -121,7 +125,7 @@ class UserProfileGraph:
             node_type="user",
             properties={"user_id": self.user_id},
             created_at=self._now,
-            updated_at=self._now
+            updated_at=self._now,
         )
         self.nodes[user_node.node_id] = user_node
 
@@ -147,10 +151,10 @@ class UserProfileGraph:
                     "interest_id": interest_id,
                     "name": category,
                     "confidence": confidence,
-                    "source": source
+                    "source": source,
                 },
                 created_at=self._now,
-                updated_at=self._now
+                updated_at=self._now,
             )
             self.nodes[node_id] = node
 
@@ -161,8 +165,7 @@ class UserProfileGraph:
         user_node = f"user_{self.user_id}"
         existing_edge = None
         for e in self.edges:
-            if (e.source == user_node and e.target == node_id
-                    and e.relation_type == "HAS_INTEREST"):
+            if e.source == user_node and e.target == node_id and e.relation_type == "HAS_INTEREST":
                 existing_edge = e
                 break
         if existing_edge is None:
@@ -179,7 +182,13 @@ class UserProfileGraph:
 
         return node_id
 
-    def add_action(self, action: str, sentiment: str = "positive", context: str = "", carbon_saved: float = None):
+    def add_action(
+        self,
+        action: str,
+        sentiment: str = "positive",
+        context: str = "",
+        carbon_saved: float = None,
+    ):
         """
         记录用户行为
 
@@ -192,13 +201,12 @@ class UserProfileGraph:
         # P4-G: 同一行为(action 文本相同)在 user 节点上只保留一条节点+边
         # 已有则只更新元数据(碳减排、context、sentiment)
         for existing in self.nodes.values():
-            if (existing.node_type == "action"
-                    and existing.properties.get("action") == action):
+            if existing.node_type == "action" and existing.properties.get("action") == action:
                 # 更新元数据
                 if carbon_saved is not None:
                     existing.properties["carbon_saved"] = (
-                        (existing.properties.get("carbon_saved") or 0) + carbon_saved
-                    )
+                        existing.properties.get("carbon_saved") or 0
+                    ) + carbon_saved
                 if context:
                     existing.properties["context"] = context
                 existing.properties["sentiment"] = sentiment
@@ -220,7 +228,7 @@ class UserProfileGraph:
                 "carbon_saved": carbon_saved,
             },
             created_at=self._now,
-            updated_at=self._now
+            updated_at=self._now,
         )
         self.nodes[node_id] = node
 
@@ -243,12 +251,9 @@ class UserProfileGraph:
             node = ProfileNode(
                 node_id=node_id,
                 node_type="behavior_stage",
-                properties={
-                    "stage": stage,
-                    "level": self.BEHAVIOR_STAGES.index(stage)
-                },
+                properties={"stage": stage, "level": self.BEHAVIOR_STAGES.index(stage)},
                 created_at=self._now,
-                updated_at=self._now
+                updated_at=self._now,
             )
             self.nodes[node_id] = node
 
@@ -268,12 +273,9 @@ class UserProfileGraph:
         node = ProfileNode(
             node_id=node_id,
             node_type="rejected",
-            properties={
-                "topic": topic,
-                "reason": reason
-            },
+            properties={"topic": topic, "reason": reason},
             created_at=self._now,
-            updated_at=self._now
+            updated_at=self._now,
         )
         self.nodes[node_id] = node
 
@@ -294,12 +296,9 @@ class UserProfileGraph:
             node = ProfileNode(
                 node_id=node_id,
                 node_type="knowledge_level",
-                properties={
-                    "level": level,
-                    "value": level_value
-                },
+                properties={"level": level, "value": level_value},
                 created_at=self._now,
-                updated_at=self._now
+                updated_at=self._now,
             )
             self.nodes[node_id] = node
 
@@ -317,7 +316,7 @@ class UserProfileGraph:
             target=target,
             relation_type=relation,
             weight=weight,
-            created_at=self._now
+            created_at=self._now,
         )
         self.edges.append(edge)
 
@@ -374,9 +373,7 @@ class UserProfileGraph:
         return results
 
     def query_personalized_actions(
-        self,
-        max_depth: int = 3,
-        min_confidence: float = 0.3
+        self, max_depth: int = 3, min_confidence: float = 0.3
     ) -> List[Dict[str, Any]]:
         """
         图谱查询：基于用户当前状态查询适合的行动
@@ -402,7 +399,7 @@ class UserProfileGraph:
             "意向": ["easy", "medium"],
             "准备": ["easy", "medium"],
             "行动": ["medium", "hard"],
-            "维持": ["hard"]
+            "维持": ["hard"],
         }
 
         # 兴趣到行动的映射
@@ -428,7 +425,7 @@ class UserProfileGraph:
             "carbon_offset": [
                 {"action": "种植一棵树", "difficulty": "medium", "carbon_saving": "5-10kg/年"},
                 {"action": "碳汇投资", "difficulty": "medium", "carbon_saving": "可量化"},
-            ]
+            ],
         }
 
         # 基于兴趣推荐行动
@@ -444,15 +441,17 @@ class UserProfileGraph:
                         # 构建推理路径
                         path = self._build_reasoning_path(interest_id, action_info["action"])
 
-                        results.append({
-                            "action": action_info["action"],
-                            "difficulty": action_info["difficulty"],
-                            "carbon_saving": action_info["carbon_saving"],
-                            "confidence": confidence,
-                            "interest": interest_id,
-                            "reasoning_path": path,
-                            "stage_match": stage or "unknown"
-                        })
+                        results.append(
+                            {
+                                "action": action_info["action"],
+                                "difficulty": action_info["difficulty"],
+                                "carbon_saving": action_info["carbon_saving"],
+                                "confidence": confidence,
+                                "interest": interest_id,
+                                "reasoning_path": path,
+                                "stage_match": stage or "unknown",
+                            }
+                        )
 
         # 按置信度排序
         results.sort(key=lambda x: x["confidence"], reverse=True)
@@ -469,7 +468,7 @@ class UserProfileGraph:
             "意向": "开始考虑行动",
             "准备": "准备采取行动",
             "行动": "正在执行",
-            "维持": "保持良好习惯"
+            "维持": "保持良好习惯",
         }
 
         if stage:
@@ -488,7 +487,7 @@ class UserProfileGraph:
         interest_action_links = {
             "low_carbon_travel": {"骑行": "减少碳排放", "公交": "公共交通"},
             "energy_saving": {"关灯": "减少用电", "空调": "降低能耗"},
-            "green_consumption": {"环保袋": "减少塑料", "一次性筷": "森林保护"}
+            "green_consumption": {"环保袋": "减少塑料", "一次性筷": "森林保护"},
         }
 
         if from_interest in interest_action_links:
@@ -506,7 +505,7 @@ class UserProfileGraph:
         return {
             "user_id": self.user_id,
             "nodes": [n.to_dict() for n in self.nodes.values()],
-            "edges": [e.to_dict() for e in self.edges]
+            "edges": [e.to_dict() for e in self.edges],
         }
 
     @classmethod
@@ -520,7 +519,9 @@ class UserProfileGraph:
             for node_id, node in graph.nodes.items():
                 graph._graph.add_node(node_id, **node.to_dict())
             for edge in graph.edges:
-                graph._graph.add_edge(edge.source, edge.target, relation=edge.relation_type, weight=edge.weight)
+                graph._graph.add_edge(
+                    edge.source, edge.target, relation=edge.relation_type, weight=edge.weight
+                )
 
         return graph
 

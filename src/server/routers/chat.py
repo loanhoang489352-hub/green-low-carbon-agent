@@ -1,6 +1,7 @@
 """
 聊天路由 (P5-E: 改用 APIError 异常体系,异常不再泄栈)
 """
+
 import json
 
 
@@ -19,13 +20,15 @@ def register_chat_routes(registry) -> None:
 
         response = handler.agent.chat(user_id, message, conversation_id)
         # P6.S.3: 完整序列化(含 tool_result 让前端可渲染地图/天气/路线)
-        handler.send_json({
-            "message": response.message,
-            "conversation_id": response.conversation_id,
-            "intent": response.intent if hasattr(response, "intent") else None,
-            "suggestions": response.suggestions if hasattr(response, "suggestions") else [],
-            "tool_result": response.tool_result if hasattr(response, "tool_result") else None,
-        })
+        handler.send_json(
+            {
+                "message": response.message,
+                "conversation_id": response.conversation_id,
+                "intent": response.intent if hasattr(response, "intent") else None,
+                "suggestions": response.suggestions if hasattr(response, "suggestions") else [],
+                "tool_result": response.tool_result if hasattr(response, "tool_result") else None,
+            }
+        )
 
     def chat_enhanced(handler, data):
         user_id = data.get("user_id", "anonymous")
@@ -53,22 +56,26 @@ def register_chat_routes(registry) -> None:
         # 响应里返定位来源(便于前端展示)
         try:
             from utils.geolocate import best_location
+
             geo = best_location(handler=handler, user_id=user_id)
             location_info = geo.to_dict()
         except Exception:
             location_info = {}
-        handler.send_json({
-            "message": response.message,
-            "conversation_id": response.conversation_id,
-            "intent": response.intent,
-            "suggestions": response.suggestions,
-            "knowledge_refs": response.knowledge_refs,
-            "timestamp": response.timestamp,
-            "personalization": response.personalization_info,
-            "recommendations": response.recommendations,
-            "profile_updates": response.profile_updates,
-            "location": location_info,  # P6.S.22: 返定位来源供前端展示
-        })
+        handler.send_json(
+            {
+                "message": response.message,
+                "conversation_id": response.conversation_id,
+                "intent": response.intent,
+                "suggestions": response.suggestions,
+                "knowledge_refs": response.knowledge_refs,
+                "timestamp": response.timestamp,
+                "personalization": response.personalization_info,
+                "recommendations": response.recommendations,
+                "profile_updates": response.profile_updates,
+                "location": location_info,  # P6.S.22: 返定位来源供前端展示
+                "tool_result": response.tool_result if hasattr(response, "tool_result") else None,  # P6.S.23
+            }
+        )
 
     def conversation_reset(handler, data):
         conv_id = data.get("conversation_id")
@@ -87,22 +94,25 @@ def register_chat_routes(registry) -> None:
         user_id = data.get("user_id", "anonymous")
         profile = handler.agent.get_user_profile(user_id)
         from user_profile.personalized_recommender import PersonalizedRecommendationEngine
+
         engine = PersonalizedRecommendationEngine()
         recs = engine.generate_recommendations(profile, count=3)
-        handler.send_json({
-            "recommendations": [
-                {
-                    "action": r.action,
-                    "category": r.category,
-                    "reason": r.reason,
-                    "carbon_saving": r.estimated_carbon_saving,
-                    "difficulty": r.difficulty,
-                    "impact": r.impact,
-                    "examples": r.examples,
-                }
-                for r in recs
-            ]
-        })
+        handler.send_json(
+            {
+                "recommendations": [
+                    {
+                        "action": r.action,
+                        "category": r.category,
+                        "reason": r.reason,
+                        "carbon_saving": r.estimated_carbon_saving,
+                        "difficulty": r.difficulty,
+                        "impact": r.impact,
+                        "examples": r.examples,
+                    }
+                    for r in recs
+                ]
+            }
+        )
 
     def agent_react(handler, data):
         """P6.S.17: ReAct 测试端点 — 让 LLM 自主选 tool,跑多步循环"""
@@ -117,28 +127,34 @@ def register_chat_routes(registry) -> None:
         from agent.intent import IntentRecognizer
         from agent.response import ResponseContext
         import logging
+
         log = logging.getLogger(__name__)
         llm = get_llm_client()
         ir = IntentRecognizer()
         intent = ir.recognize(message).intent.value
-        from llm import build_chat_prompt
         try:
             from user_profile.user_profile import UserProfileManager
+
             upm = UserProfileManager()
             profile = upm.get_profile(data.get("user_id", "anonymous"))
         except Exception:
             profile = {}
         try:
             ctx = ResponseContext(
-                user_profile=profile, conversation_history=[],
-                retrieved_knowledge=[], recent_memories=[],
+                user_profile=profile,
+                conversation_history=[],
+                retrieved_knowledge=[],
+                recent_memories=[],
                 intent_type=intent,
             )
             from agent.response import ResponseGenerator
+
             rg = ResponseGenerator(use_llm=True)
             rg._get_llm_client()
             messages = rg._build_prompt(
-                user_message=message, user_profile=profile, rag_context="",
+                user_message=message,
+                user_profile=profile,
+                rag_context="",
                 conversation_history=[],
             )
         except Exception as e:
@@ -147,16 +163,22 @@ def register_chat_routes(registry) -> None:
                 {"role": "system", "content": "你是绿宝,绿色低碳助手。"},
                 {"role": "user", "content": message},
             ]
-        messages.insert(0, {
-            "role": "system",
-            "content": (
-                "你有一个工具调用系统。优先用工具查真实数据,基于工具结果回答。"
-                "若没有合适工具,直接回答。"
-            ),
-        })
+        messages.insert(
+            0,
+            {
+                "role": "system",
+                "content": (
+                    "你有一个工具调用系统。优先用工具查真实数据,基于工具结果回答。"
+                    "若没有合适工具,直接回答。"
+                ),
+            },
+        )
         result = run_react_loop(
-            messages, llm, tool_names=tool_names,
-            max_steps=max_steps, trace_id=new_trace_id(),
+            messages,
+            llm,
+            tool_names=tool_names,
+            max_steps=max_steps,
+            trace_id=new_trace_id(),
         )
         handler.send_json(result)
 
@@ -188,9 +210,9 @@ def register_chat_routes(registry) -> None:
         try:
             emit("start", json.dumps({"user_id": user_id}))
             # 用 LangGraphAgent.chat_stream 走 LangGraph 路径
-            from agent.langgraph_agent import LangGraphAgent
             if not hasattr(handler, "_stream_agent"):
                 from agent.langgraph_agent import LangGraphAgent as _LGA
+
                 try:
                     handler._stream_agent = _LGA(use_langgraph=True, langgraph_mode="default")
                 except Exception:
@@ -202,6 +224,7 @@ def register_chat_routes(registry) -> None:
             else:
                 # 降级: 走普通 chat 然后一次性 emit
                 from src.main import get_agent
+
                 base_agent = get_agent()
                 if base_agent.use_langgraph and base_agent.langgraph_agent:
                     for event in base_agent.langgraph_agent.chat_stream(
@@ -210,11 +233,18 @@ def register_chat_routes(registry) -> None:
                         emit("progress", json.dumps(event, ensure_ascii=False, default=str))
                 else:
                     result = base_agent.chat_enhanced(user_id, message, conversation_id)
-                    emit("done", json.dumps({
-                        "content": result.message,
-                        "intent": result.intent,
-                        "knowledge_refs": result.knowledge_refs,
-                    }, ensure_ascii=False, default=str))
+                    emit(
+                        "done",
+                        json.dumps(
+                            {
+                                "content": result.message,
+                                "intent": result.intent,
+                                "knowledge_refs": result.knowledge_refs,
+                            },
+                            ensure_ascii=False,
+                            default=str,
+                        ),
+                    )
                     emit("end", "{}")
                     return
             emit("end", "{}")
@@ -227,9 +257,45 @@ def register_chat_routes(registry) -> None:
     #   - 仍支持 Bearer token:有则用 login user,无则用 body user_id
     #   - 敏感端点(feedback/memory/profile)仍需 auth
     registry.add_route("POST", "/api/chat", chat, auth_required=False, description="基础聊天")
-    registry.add_route("POST", "/api/chat/enhanced", chat_enhanced, auth_required=False, description="增强聊天(RAG+个性化)")
-    registry.add_route("POST", "/api/conversation/reset", conversation_reset, auth_required=False, description="重置对话")
-    registry.add_route("POST", "/api/conversation/history", conversation_history, auth_required=False, description="对话历史")
-    registry.add_route("POST", "/api/recommendations", recommendations, auth_required=False, description="个性化推荐")
-    registry.add_route("POST", "/api/agent/react", agent_react, auth_required=False, description="P6.S.17: ReAct 测试 — LLM 自主选 tool")
-    registry.add_route("POST", "/api/chat/stream", chat_stream_sse, auth_required=False, description="P6.S.18: SSE 流式 chat")
+    registry.add_route(
+        "POST",
+        "/api/chat/enhanced",
+        chat_enhanced,
+        auth_required=False,
+        description="增强聊天(RAG+个性化)",
+    )
+    registry.add_route(
+        "POST",
+        "/api/conversation/reset",
+        conversation_reset,
+        auth_required=False,
+        description="重置对话",
+    )
+    registry.add_route(
+        "POST",
+        "/api/conversation/history",
+        conversation_history,
+        auth_required=False,
+        description="对话历史",
+    )
+    registry.add_route(
+        "POST",
+        "/api/recommendations",
+        recommendations,
+        auth_required=False,
+        description="个性化推荐",
+    )
+    registry.add_route(
+        "POST",
+        "/api/agent/react",
+        agent_react,
+        auth_required=False,
+        description="P6.S.17: ReAct 测试 — LLM 自主选 tool",
+    )
+    registry.add_route(
+        "POST",
+        "/api/chat/stream",
+        chat_stream_sse,
+        auth_required=False,
+        description="P6.S.18: SSE 流式 chat",
+    )

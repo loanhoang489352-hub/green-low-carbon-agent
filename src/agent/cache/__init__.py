@@ -1,4 +1,5 @@
 """agent cache 命名空间 — P6.C Query cache"""
+
 from .query_cache import (
     QueryCache,
     get_query_cache,

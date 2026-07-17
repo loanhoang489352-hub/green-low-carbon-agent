@@ -7,6 +7,7 @@
 - 内存缓存 + 写穿,热路径仍是 O(1) dict 读
 - 公共 API 与重构前完全兼容(测试 / scheduler 都不需改)
 """
+
 from __future__ import annotations
 
 import json
@@ -20,9 +21,11 @@ from datetime import datetime, timedelta
 # P5-F: 模块级 logger
 try:
     from observability import get_logger
+
     _logger = get_logger("memory.short_term")
 except Exception:
     import logging
+
     _logger = logging.getLogger("memory.short_term")
 
 
@@ -36,13 +39,14 @@ class ShortTermMemory:
 
     # 配置
     MAX_CONVERSATION_LENGTH = 50  # 单个对话最大消息数
-    CONVERSATION_TTL_DAYS = 7     # 对话保留天数
-    WORKING_MEMORY_SIZE = 5        # 工作记忆大小(最近 N 轮)
+    CONVERSATION_TTL_DAYS = 7  # 对话保留天数
+    WORKING_MEMORY_SIZE = 5  # 工作记忆大小(最近 N 轮)
 
     def __init__(self, db_path: Optional[str] = None):
         # 决定 DB 路径(可选注入用于测试)
         if db_path is None:
             from paths import SHORT_TERM_DB
+
             db_path = str(SHORT_TERM_DB)
         self.db_path = Path(db_path)
         self.db_path.parent.mkdir(parents=True, exist_ok=True)
@@ -54,7 +58,7 @@ class ShortTermMemory:
         # 注意:内部用 _cache,公共方法仍以 self.conversations 形式暴露(向后兼容)
         # 但为了一致性,公共 API 也读 _cache
         self._cache: Dict[str, List[Dict]] = {}
-        self.metadata: Dict[str, Dict] = {}        # 公共属性,scheduler 读
+        self.metadata: Dict[str, Dict] = {}  # 公共属性,scheduler 读
         self.working_memory: Dict[str, List[Dict]] = {}
 
         self._init_db()
@@ -63,9 +67,9 @@ class ShortTermMemory:
     def _get_conn(self):
         """P6.E.2: 连接池获取(同线程 60s 内复用)"""
         from db.connection import get_connection
+
         return get_connection(str(self.db_path))
-        _logger.info("[STM] 持久化初始化完成,db=%s,加载 %d 个会话",
-                     self.db_path, len(self._cache))
+        _logger.info("[STM] 持久化初始化完成,db=%s,加载 %d 个会话", self.db_path, len(self._cache))
 
     # ============================================================
     # SQLite 持久化层
@@ -125,8 +129,11 @@ class ShortTermMemory:
             conn.execute(
                 "INSERT OR REPLACE INTO conversations (conversation_id, payload, updated_at) "
                 "VALUES (?, ?, ?)",
-                (cid, json.dumps(self._cache.get(cid, []), ensure_ascii=False),
-                 datetime.now().isoformat()),
+                (
+                    cid,
+                    json.dumps(self._cache.get(cid, []), ensure_ascii=False),
+                    datetime.now().isoformat(),
+                ),
             )
             conn.commit()
             self._release(conn)
@@ -142,8 +149,13 @@ class ShortTermMemory:
                 "INSERT OR REPLACE INTO conversation_meta "
                 "(conversation_id, user_id, message_count, last_activity, created_at) "
                 "VALUES (?, ?, ?, ?, ?)",
-                (cid, md.get("user_id"), md.get("message_count", 0),
-                 md.get("last_activity"), md.get("created_at")),
+                (
+                    cid,
+                    md.get("user_id"),
+                    md.get("message_count", 0),
+                    md.get("last_activity"),
+                    md.get("created_at"),
+                ),
             )
             conn.commit()
             self._release(conn)
@@ -190,7 +202,7 @@ class ShortTermMemory:
         # 2) 限制对话长度
         if len(self._cache[conversation_id]) > self.MAX_CONVERSATION_LENGTH:
             self._cache[conversation_id] = self._cache[conversation_id][
-                -self.MAX_CONVERSATION_LENGTH:
+                -self.MAX_CONVERSATION_LENGTH :
             ]
 
         # 3) 更新工作记忆(派生)
@@ -216,7 +228,7 @@ class ShortTermMemory:
         """更新工作记忆(派生自 _cache)"""
         messages = self._cache.get(conversation_id, [])
         # 保留最近的消息
-        self.working_memory[conversation_id] = messages[-self.WORKING_MEMORY_SIZE * 2:]
+        self.working_memory[conversation_id] = messages[-self.WORKING_MEMORY_SIZE * 2 :]
 
     def get_conversation_history(
         self,
@@ -264,18 +276,17 @@ class ShortTermMemory:
 
             if keyword:
                 messages = self._cache.get(conv_id, [])
-                has_keyword = any(
-                    keyword in msg.get("content", "")
-                    for msg in messages
-                )
+                has_keyword = any(keyword in msg.get("content", "") for msg in messages)
                 if not has_keyword:
                     continue
 
-            results.append({
-                "conversation_id": conv_id,
-                "metadata": metadata,
-                "preview": self._cache.get(conv_id, [{}])[-1].get("content", "")[:100],
-            })
+            results.append(
+                {
+                    "conversation_id": conv_id,
+                    "metadata": metadata,
+                    "preview": self._cache.get(conv_id, [{}])[-1].get("content", "")[:100],
+                }
+            )
 
         # 按最后活动时间排序
         results.sort(
@@ -329,10 +340,13 @@ class ShortTermMemory:
                 total_messages / len(self._cache) if self._cache else 0
             ),
             "active_conversations": sum(
-                1 for m in self.metadata.values()
-                if (datetime.now() - datetime.fromisoformat(
-                    m.get("last_activity", datetime.now().isoformat())
-                )).days < 1
+                1
+                for m in self.metadata.values()
+                if (
+                    datetime.now()
+                    - datetime.fromisoformat(m.get("last_activity", datetime.now().isoformat()))
+                ).days
+                < 1
             ),
         }
 

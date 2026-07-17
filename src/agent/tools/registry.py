@@ -3,8 +3,8 @@
 提供工具的注册、发现、查询功能
 """
 
-from typing import Dict, List, Optional, Callable
-from .base import BaseTool, ToolResult, ToolMetadata
+from typing import Dict, List, Optional
+from .base import BaseTool, ToolMetadata
 
 
 class ToolRegistry:
@@ -25,10 +25,7 @@ class ToolRegistry:
         self._metadata: Dict[str, ToolMetadata] = {}
 
     def register(
-        self,
-        tool: BaseTool,
-        metadata: ToolMetadata = None,
-        overwrite: bool = False
+        self, tool: BaseTool, metadata: ToolMetadata = None, overwrite: bool = False
     ) -> bool:
         """
         注册工具

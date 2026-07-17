@@ -8,4 +8,4 @@ from .vector_store import VectorStore
 from .retriever import Retriever
 from .rag_engine import RAGEngine
 
-__all__ = ['Embedder', 'VectorStore', 'Retriever', 'RAGEngine']
+__all__ = ["Embedder", "VectorStore", "Retriever", "RAGEngine"]

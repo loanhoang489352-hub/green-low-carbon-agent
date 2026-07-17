@@ -5,4 +5,4 @@ Skill 模块
 
 from .skill import Skill, SkillContext, SkillExecutor, get_skill_executor
 
-__all__ = ['Skill', 'SkillContext', 'SkillExecutor', 'get_skill_executor']
+__all__ = ["Skill", "SkillContext", "SkillExecutor", "get_skill_executor"]

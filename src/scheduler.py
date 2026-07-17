@@ -8,6 +8,7 @@ APScheduler 集成
 - 每 4 小时 工作记忆 heartbeat (P4-H)
 - 启动时 后台异步 RAG 重建 (P5-F,避免阻塞)
 """
+
 from __future__ import annotations
 
 import logging
@@ -24,11 +25,18 @@ _lock = threading.Lock()
 
 
 def _daily_kb_update() -> None:
-    """每日 02:00:全量增量知识/政策更新,触发 KNOWLEDGE_UPDATED 事件 → RAG 重建"""
+    """每日 02:00:全量增量知识/政策更新,触发 KNOWLEDGE_UPDATED 事件 → RAG 重建
+
+    修复: 调 KnowledgeUpdater.check_updates() 返回 List[UpdateResult] 后,
+    再传 process_updates(results)。原代码无参调用 process_updates() 触发
+    TypeError,日 KB 更新静默失败(P5 遗留 bug)。
+    """
     try:
         from knowledge.updater import KnowledgeUpdater
+
         updater = KnowledgeUpdater()
-        count = updater.process_updates()
+        results = updater.check_updates()  # 先 check
+        count = updater.process_updates(results)  # 再 process(用 check 的结果)
         logger.info("[Scheduler] 每日知识更新完成,新增 %d 项", count)
     except Exception as e:
         logger.exception("[Scheduler] 每日知识更新失败: %s", e)
@@ -38,6 +46,7 @@ def _memory_decay() -> None:
     """每日 03:00:长期记忆 importance 衰减(半衰期 30 天)"""
     try:
         from memory.long_term import LongTermMemory
+
         ltm = LongTermMemory()
         affected = ltm.decay_importance(half_life_days=30)
         logger.info("[Scheduler] 记忆衰减完成,影响 %d 条", affected)
@@ -54,6 +63,7 @@ def _consolidate_short_to_long() -> None:
     try:
         from memory.short_term import get_short_term_memory
         from memory.consolidation import get_consolidator
+
         stm = get_short_term_memory()
         consolidator = get_consolidator()
         total = 0
@@ -76,6 +86,7 @@ def _short_term_cleanup() -> None:
     """每 6 小时:短期记忆 TTL 清理"""
     try:
         from memory.short_term import get_short_term_memory
+
         stm = get_short_term_memory()
         removed = stm.cleanup_expired()
         logger.info("[Scheduler] 短期记忆清理完成,删除 %d 条会话", removed)
@@ -93,6 +104,7 @@ def _working_memory_heartbeat() -> None:
     try:
         from memory.working import get_working_memory, WORKSPACE_TTL_HOURS
         from memory.memory_agent import promote_working_to_long_term
+
         wm = get_working_memory()
         # 1) 清理过期
         removed = wm.cleanup_expired(ttl_hours=WORKSPACE_TTL_HOURS)
@@ -108,7 +120,8 @@ def _working_memory_heartbeat() -> None:
             wm._save_snapshot(uid)
         logger.info(
             "[Scheduler] 工作记忆 heartbeat 完成, 清理 %d 过期, 晋升 %d 长期",
-            removed, promoted,
+            removed,
+            promoted,
         )
     except Exception as e:
         logger.exception("[Scheduler] 工作记忆 heartbeat 失败: %s", e)
@@ -119,6 +132,7 @@ def _async_rag_rebuild_on_startup() -> None:
     try:
         from rag.rag_engine import get_rag_engine
         from paths import KNOWLEDGE_BASE_DIR
+
         engine = get_rag_engine()
         if engine is None:
             logger.info("[Scheduler] RAG 引擎未启用,跳过异步重建")

@@ -3,8 +3,6 @@
 在对话过程中自动学习用户偏好，动态更新画像
 """
 
-import json
-import re
 from typing import Dict, List, Any, Optional, Tuple
 from datetime import datetime
 from collections import Counter
@@ -24,93 +22,170 @@ class DynamicProfileUpdater:
     # 兴趣关键词映射
     INTEREST_KEYWORDS = {
         "low_carbon_travel": {
-            "keywords": ["开车", "骑车", "骑行", "步行", "公交", "地铁", "打车", "电动车", "自行车", "飞机", "火车", "通勤", "出行", "交通"],
-            "weight": 1.0
+            "keywords": [
+                "开车",
+                "骑车",
+                "骑行",
+                "步行",
+                "公交",
+                "地铁",
+                "打车",
+                "电动车",
+                "自行车",
+                "飞机",
+                "火车",
+                "通勤",
+                "出行",
+                "交通",
+            ],
+            "weight": 1.0,
         },
         "energy_saving": {
-            "keywords": ["空调", "暖气", "电费", "用电", "节能", "省电", "灯", "LED", "热水器", "洗衣机", "冰箱", "功耗"],
-            "weight": 1.0
+            "keywords": [
+                "空调",
+                "暖气",
+                "电费",
+                "用电",
+                "节能",
+                "省电",
+                "灯",
+                "LED",
+                "热水器",
+                "洗衣机",
+                "冰箱",
+                "功耗",
+            ],
+            "weight": 1.0,
         },
         "waste_classification": {
-            "keywords": ["垃圾", "分类", "回收", "废品", "可回收", "有害", "厨余", "干垃圾", "湿垃圾"],
-            "weight": 1.0
+            "keywords": [
+                "垃圾",
+                "分类",
+                "回收",
+                "废品",
+                "可回收",
+                "有害",
+                "厨余",
+                "干垃圾",
+                "湿垃圾",
+            ],
+            "weight": 1.0,
         },
         "green_consumption": {
-            "keywords": ["购物", "购买", "环保产品", "有机", "一次性", "塑料袋", "包装", "快递", "网购"],
-            "weight": 1.0
+            "keywords": [
+                "购物",
+                "购买",
+                "环保产品",
+                "有机",
+                "一次性",
+                "塑料袋",
+                "包装",
+                "快递",
+                "网购",
+            ],
+            "weight": 1.0,
         },
         "diet_eco": {
-            "keywords": ["饮食", "素食", "减少浪费", "光盘", "肉", "蔬菜", "外卖", "本地食材", "食物", "吃"],
-            "weight": 0.8
+            "keywords": [
+                "饮食",
+                "素食",
+                "减少浪费",
+                "光盘",
+                "肉",
+                "蔬菜",
+                "外卖",
+                "本地食材",
+                "食物",
+                "吃",
+            ],
+            "weight": 0.8,
         },
         "water_conservation": {
             "keywords": ["水", "节水", "用水", "水费", "洗澡", "淋浴", "水资源"],
-            "weight": 0.8
+            "weight": 0.8,
         },
         "renewable_energy": {
             "keywords": ["太阳能", "光伏", "新能源", "风电", "清洁能源", "充电桩", "充电"],
-            "weight": 1.0
+            "weight": 1.0,
         },
         "carbon_offset": {
             "keywords": ["植树", "碳汇", "碳中和", "碳补偿", "碳足迹", "碳排放", "减排"],
-            "weight": 1.0
-        }
+            "weight": 1.0,
+        },
     }
 
     # 行为阶段关键词
     BEHAVIOR_STAGE_KEYWORDS = {
         "无意向": {
             "indicators": ["不了解", "没想过", "不想", "没必要", "太麻烦", "没时间"],
-            "opposite": ["想", "考虑", "了解"]
+            "opposite": ["想", "考虑", "了解"],
         },
         "意向": {
             "indicators": ["想", "考虑", "了解一下", "可能", "有兴趣", "打算", "计划"],
-            "opposite": ["已经", "开始", "做了", "完成"]
+            "opposite": ["已经", "开始", "做了", "完成"],
         },
         "准备": {
             "indicators": ["准备", "正在准备", "打算", "计划", "要开始", "准备开始", "第一步"],
-            "opposite": ["已经", "完成", "习惯了"]
+            "opposite": ["已经", "完成", "习惯了"],
         },
         "行动": {
             "indicators": ["开始", "正在", "已经", "做了", "执行", "尝试", "进行中", "实施"],
-            "opposite": ["想", "考虑", "打算"]
+            "opposite": ["想", "考虑", "打算"],
         },
         "维持": {
             "indicators": ["坚持", "持续", "保持", "习惯", "已经习惯", "一直", "每天"],
-            "opposite": ["不想", "算了", "放弃"]
-        }
+            "opposite": ["不想", "算了", "放弃"],
+        },
     }
 
     # 行动类型
     ACTION_TYPES = {
         "travel_change": {
-            "positive": ["骑行了", "骑自行车", "步行了", "走路去", "坐地铁", "坐公交", "换了电动车", "买了自行车", "少开了车"],
-            "negative": ["开了车", "打车了", "坐飞机了"]
+            "positive": [
+                "骑行了",
+                "骑自行车",
+                "步行了",
+                "走路去",
+                "坐地铁",
+                "坐公交",
+                "换了电动车",
+                "买了自行车",
+                "少开了车",
+            ],
+            "negative": ["开了车", "打车了", "坐飞机了"],
         },
         "energy_saving": {
             "positive": ["关了灯", "关了空调", "调高了温度", "拔了插头", "换了LED", "用了节能模式"],
-            "negative": ["开了空调", "开了暖气", "忘了关灯"]
+            "negative": ["开了空调", "开了暖气", "忘了关灯"],
         },
         "consumption_change": {
             "positive": ["买了环保袋", "拒绝了塑料", "买了有机", "自带杯子", "自带餐具"],
-            "negative": ["点了外卖", "买了塑料瓶"]
+            "negative": ["点了外卖", "买了塑料瓶"],
         },
         "waste_action": {
             "positive": ["分类了", "回收了", "卖了废品", "做了垃圾分类"],
-            "negative": ["乱扔了", "没分类"]
-        }
+            "negative": ["乱扔了", "没分类"],
+        },
     }
 
     # 知识水平信号
     KNOWLEDGE_LEVEL_SIGNALS = {
         "beginner": {
-            "questions": ["什么是", "为什么", "碳足迹是什么", "怎么算", "什么意思", "不太懂", "不清楚"],
-            "terminology_lack": True
+            "questions": [
+                "什么是",
+                "为什么",
+                "碳足迹是什么",
+                "怎么算",
+                "什么意思",
+                "不太懂",
+                "不清楚",
+            ],
+            "terminology_lack": True,
         },
         "advanced": {
             "questions": ["计算方法", "原理", "机制", "标准", "数据", "研究", "分析", "碳汇计算"],
-            "terminology_use": ["碳足迹", "碳中和", "碳达峰", "温室气体", "生命周期", "LCA"]
-        }
+            "terminology_use": ["碳足迹", "碳中和", "碳达峰", "温室气体", "生命周期", "LCA"],
+        },
     }
 
     def __init__(self):
@@ -118,7 +193,9 @@ class DynamicProfileUpdater:
         self._action_history: Dict[str, List[Dict]] = {}
         self._feedback_history: Dict[str, List[Dict]] = {}
 
-    def analyze_message(self, user_id: str, message: str, intent_type: str, entities: List[str] = None) -> Dict[str, Any]:
+    def analyze_message(
+        self, user_id: str, message: str, intent_type: str, entities: List[str] = None
+    ) -> Dict[str, Any]:
         """
         分析用户消息，提取偏好信息
 
@@ -136,7 +213,7 @@ class DynamicProfileUpdater:
             "behavior_indicators": [],
             "knowledge_signals": [],
             "action_reports": [],
-            "confidence_scores": {}
+            "confidence_scores": {},
         }
 
         message_lower = message.lower()
@@ -196,7 +273,7 @@ class DynamicProfileUpdater:
                 return {
                     "stage": stage,
                     "confidence": min(positive_count * 0.3, 1.0),
-                    "matched_keywords": [kw for kw in config["indicators"] if kw in message]
+                    "matched_keywords": [kw for kw in config["indicators"] if kw in message],
                 }
         return None
 
@@ -224,22 +301,26 @@ class DynamicProfileUpdater:
         for action_type, configs in self.ACTION_TYPES.items():
             for action in configs.get("positive", []):
                 if action in message:
-                    actions.append({
-                        "type": action_type,
-                        "sentiment": "positive",
-                        "action": action,
-                        "original_text": message
-                    })
+                    actions.append(
+                        {
+                            "type": action_type,
+                            "sentiment": "positive",
+                            "action": action,
+                            "original_text": message,
+                        }
+                    )
                     break
 
             for action in configs.get("negative", []):
                 if action in message:
-                    actions.append({
-                        "type": action_type,
-                        "sentiment": "negative",
-                        "action": action,
-                        "original_text": message
-                    })
+                    actions.append(
+                        {
+                            "type": action_type,
+                            "sentiment": "negative",
+                            "action": action,
+                            "original_text": message,
+                        }
+                    )
                     break
 
         return actions
@@ -249,17 +330,16 @@ class DynamicProfileUpdater:
         if user_id not in self._action_history:
             self._action_history[user_id] = []
 
-        action_record = {
-            **action,
-            "timestamp": datetime.now().isoformat()
-        }
+        action_record = {**action, "timestamp": datetime.now().isoformat()}
 
         self._action_history[user_id].append(action_record)
 
         if len(self._action_history[user_id]) > 100:
             self._action_history[user_id] = self._action_history[user_id][-100:]
 
-    def analyze_feedback(self, user_id: str, feedback_type: str, feedback_content: str, suggestion: str = None) -> Dict[str, Any]:
+    def analyze_feedback(
+        self, user_id: str, feedback_type: str, feedback_content: str, suggestion: str = None
+    ) -> Dict[str, Any]:
         """
         分析用户反馈
 
@@ -272,11 +352,7 @@ class DynamicProfileUpdater:
         Returns:
             分析结果
         """
-        results = {
-            "feedback_type": feedback_type,
-            "reasons": [],
-            "inferred_preferences": {}
-        }
+        results = {"feedback_type": feedback_type, "reasons": [], "inferred_preferences": {}}
 
         feedback_lower = feedback_content.lower()
 
@@ -335,7 +411,7 @@ class DynamicProfileUpdater:
             "type": feedback_type,
             "content": content,
             "analysis": analysis,
-            "timestamp": datetime.now().isoformat()
+            "timestamp": datetime.now().isoformat(),
         }
 
         self._feedback_history[user_id].append(record)
@@ -361,8 +437,7 @@ class DynamicProfileUpdater:
 
         cutoff = datetime.now().timestamp() - (recent_days * 24 * 3600)
         recent_actions = [
-            a for a in actions
-            if datetime.fromisoformat(a["timestamp"]).timestamp() > cutoff
+            a for a in actions if datetime.fromisoformat(a["timestamp"]).timestamp() > cutoff
         ]
 
         positive = sum(1 for a in recent_actions if a.get("sentiment") == "positive")
@@ -377,7 +452,7 @@ class DynamicProfileUpdater:
             "negative_count": negative,
             "positive_ratio": positive / total if total > 0 else 0,
             "action_types": dict(action_types),
-            "most_common_type": action_types.most_common(1)[0][0] if action_types else None
+            "most_common_type": action_types.most_common(1)[0][0] if action_types else None,
         }
 
     def get_profile_updates(self, user_id: str) -> Dict[str, Any]:
@@ -399,7 +474,7 @@ class DynamicProfileUpdater:
                         "travel_change": "low_carbon_travel",
                         "energy_saving": "energy_saving",
                         "consumption_change": "green_consumption",
-                        "waste_action": "waste_classification"
+                        "waste_action": "waste_classification",
                     }
                     if most_common in action_to_interest:
                         if "primary_interests" not in updates:

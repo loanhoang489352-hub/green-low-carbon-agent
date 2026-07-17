@@ -6,11 +6,9 @@ P5-G: 加 embedding BLOB 列,search_memories 走向量 + LIKE 兜底
 """
 
 import json
-import sqlite3
 from typing import List, Dict, Any, Optional, Tuple
 from pathlib import Path
 from datetime import datetime, timedelta
-import hashlib
 import sys
 
 # 添加项目根目录
@@ -21,23 +19,25 @@ if str(project_root) not in sys.path:
 # P5-F: 模块级 logger
 try:
     from observability import get_logger
+
     _logger = get_logger("memory.long_term")
 except Exception:
     import logging
+
     _logger = logging.getLogger("memory.long_term")
 
 
 class LongTermMemory:
     """
     长期记忆管理器
-    
+
     功能:
     - 存储用户持久化的偏好和记忆
     - 支持向量相似度检索（简化版：基于关键词）
     - 用户画像持久化
     - 记忆整合与遗忘
     """
-    
+
     def __init__(self, db_path: str = None):
         """
         初始化长期记忆
@@ -63,8 +63,9 @@ class LongTermMemory:
     def _get_conn(self):
         """P6.E.2: 连接池获取(同线程 60s 内复用)"""
         from db.connection import get_connection
+
         return get_connection(str(self.db_path))
-    
+
     def _init_database(self):
         """初始化数据库表"""
         conn = self._get_conn()
@@ -73,7 +74,7 @@ class LongTermMemory:
         conn.execute("PRAGMA busy_timeout=5000")
         conn.execute("PRAGMA synchronous=NORMAL")
         cursor = conn.cursor()
-        
+
         # 用户记忆表(P5-G: 加 embedding BLOB 列,默认 NULL)
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS user_memories (
@@ -89,7 +90,7 @@ class LongTermMemory:
                 embedding BLOB
             )
         """)
-        
+
         # 用户偏好表
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS user_preferences (
@@ -102,7 +103,7 @@ class LongTermMemory:
                 UNIQUE(user_id, preference_type)
             )
         """)
-        
+
         # 创建索引
         cursor.execute("""
             CREATE INDEX IF NOT EXISTS idx_memories_user_id
@@ -126,14 +127,14 @@ class LongTermMemory:
 
         conn.commit()
         self._release(conn)
-    
+
     def add_memory(
         self,
         user_id: str,
         content: str,
         memory_type: str = "general",
         importance: float = 0.5,
-        tags: List[str] = None
+        tags: List[str] = None,
     ) -> int:
         """
         添加记忆
@@ -157,11 +158,14 @@ class LongTermMemory:
         # P5-G: 计算 embedding(embedder 不可用时存 NULL)
         embedding_blob = self._compute_embedding_blob(content)
 
-        cursor.execute("""
+        cursor.execute(
+            """
             INSERT INTO user_memories
             (user_id, memory_type, content, importance, created_at, last_accessed, tags, embedding)
             VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-        """, (user_id, memory_type, content, importance, now, now, tags_json, embedding_blob))
+        """,
+            (user_id, memory_type, content, importance, now, now, tags_json, embedding_blob),
+        )
 
         memory_id = cursor.lastrowid
 
@@ -178,6 +182,7 @@ class LongTermMemory:
         """
         try:
             from rag.rag_engine import get_rag_engine
+
             engine = get_rag_engine()
             if engine is None or not getattr(engine, "_initialized", False):
                 return None
@@ -185,6 +190,7 @@ class LongTermMemory:
             if embedder is None:
                 return None
             import numpy as np
+
             vec = embedder.encode(content)
             # encode 可能返 (1, dim) 也可能返 (dim,)
             if vec.ndim == 2:
@@ -193,12 +199,9 @@ class LongTermMemory:
         except Exception as e:
             _logger.debug("[LTM] _compute_embedding_blob 失败(存 NULL): %s", e)
             return None
-    
+
     def get_recent_memories(
-        self,
-        user_id: str,
-        memory_type: str = None,
-        limit: int = 10
+        self, user_id: str, memory_type: str = None, limit: int = 10
     ) -> List[Dict]:
         """
         获取最近的记忆
@@ -217,36 +220,44 @@ class LongTermMemory:
         # P5-G: SELECT 加 embedding 列(返回 dict 不暴露,但要 fetch 让 sqlite
         # 拿到所有字段,避免长 blob 截断)
         if memory_type:
-            cursor.execute("""
+            cursor.execute(
+                """
                 SELECT id, memory_type, content, importance, created_at, tags, embedding
                 FROM user_memories
                 WHERE user_id = ? AND memory_type = ?
                 ORDER BY created_at DESC
                 LIMIT ?
-            """, (user_id, memory_type, limit))
+            """,
+                (user_id, memory_type, limit),
+            )
         else:
-            cursor.execute("""
+            cursor.execute(
+                """
                 SELECT id, memory_type, content, importance, created_at, tags, embedding
                 FROM user_memories
                 WHERE user_id = ?
                 ORDER BY created_at DESC
                 LIMIT ?
-            """, (user_id, limit))
+            """,
+                (user_id, limit),
+            )
 
         rows = cursor.fetchall()
         self._release(conn)
 
         memories = []
         for row in rows:
-            memories.append({
-                "id": row[0],
-                "type": row[1],
-                "content": row[2],
-                "importance": row[3],
-                "created_at": row[4],
-                "tags": json.loads(row[5]),
-                # 不暴露 embedding 字节(只用于内部)
-            })
+            memories.append(
+                {
+                    "id": row[0],
+                    "type": row[1],
+                    "content": row[2],
+                    "importance": row[3],
+                    "created_at": row[4],
+                    "tags": json.loads(row[5]),
+                    # 不暴露 embedding 字节(只用于内部)
+                }
+            )
 
         # P4-B.3: 访问热度更新(防止热度永不变,decay 与 search 失真)
         if memories:
@@ -254,12 +265,7 @@ class LongTermMemory:
 
         return memories
 
-    def search_memories(
-        self,
-        user_id: str,
-        query: str,
-        limit: int = 5
-    ) -> List[Dict]:
+    def search_memories(self, user_id: str, query: str, limit: int = 5) -> List[Dict]:
         """P5-G: 向量检索 + LIKE 兜底
 
         1) 加载该用户全部 memories(有/无 embedding 都加载)
@@ -293,30 +299,35 @@ class LongTermMemory:
             if emb_bytes:
                 try:
                     import numpy as np
+
                     emb = np.frombuffer(emb_bytes, dtype="float32")
                     if emb.size == 0:
                         emb = None
                 except Exception:
                     emb = None
-            parsed.append({
-                "id": r[0],
-                "type": r[1],
-                "content": r[2],
-                "importance": r[3],
-                "created_at": r[4],
-                "tags": json.loads(r[5]),
-                "_embedding": emb,
-            })
+            parsed.append(
+                {
+                    "id": r[0],
+                    "type": r[1],
+                    "content": r[2],
+                    "importance": r[3],
+                    "created_at": r[4],
+                    "tags": json.loads(r[5]),
+                    "_embedding": emb,
+                }
+            )
 
         # 2) 向量召回(embedder 不可用 → try/except 跳过)
         vector_scored: List[Tuple[float, Dict]] = []
         try:
             from rag.rag_engine import get_rag_engine
+
             engine = get_rag_engine()
             if engine is not None and getattr(engine, "_initialized", False):
                 embedder = getattr(engine, "_embedder", None)
                 if embedder is not None:
                     import numpy as np
+
                     q_vec = np.asarray(embedder.encode(query), dtype="float32")
                     if q_vec.ndim == 2:
                         q_vec = q_vec[0]
@@ -365,14 +376,17 @@ class LongTermMemory:
         merged.sort(key=lambda m: -m["_score"])
 
         # 6) 返回 top `limit`(不暴露内部 _embedding / _score / _source)
-        result = [{
-            "id": m["id"],
-            "type": m["type"],
-            "content": m["content"],
-            "importance": m["importance"],
-            "created_at": m["created_at"],
-            "tags": m["tags"],
-        } for m in merged[:limit]]
+        result = [
+            {
+                "id": m["id"],
+                "type": m["type"],
+                "content": m["content"],
+                "importance": m["importance"],
+                "created_at": m["created_at"],
+                "tags": m["tags"],
+            }
+            for m in merged[:limit]
+        ]
 
         # P4-B.3: 访问热度更新
         if result:
@@ -405,17 +419,13 @@ class LongTermMemory:
             conn.commit()
         finally:
             self._release(conn)
-    
+
     def update_preference(
-        self,
-        user_id: str,
-        preference_type: str,
-        value: str,
-        confidence: float = 0.5
+        self, user_id: str, preference_type: str, value: str, confidence: float = 0.5
     ):
         """
         更新用户偏好
-        
+
         Args:
             user_id: 用户ID
             preference_type: 偏好类型
@@ -424,14 +434,15 @@ class LongTermMemory:
         """
         conn = self._get_conn()
         cursor = conn.cursor()
-        
+
         now = datetime.now().isoformat()
-        
+
         # 如果值是列表或字典，转换为 JSON 字符串
         if isinstance(value, (list, dict)):
             value = json.dumps(value, ensure_ascii=False)
-        
-        cursor.execute("""
+
+        cursor.execute(
+            """
             INSERT INTO user_preferences (user_id, preference_type, value, confidence, updated_at)
             VALUES (?, ?, ?, ?, ?)
             ON CONFLICT(user_id, preference_type)
@@ -439,77 +450,79 @@ class LongTermMemory:
                 value = excluded.value,
                 confidence = excluded.confidence,
                 updated_at = excluded.updated_at
-        """, (user_id, preference_type, value, confidence, now))
-        
+        """,
+            (user_id, preference_type, value, confidence, now),
+        )
+
         conn.commit()
         self._release(conn)
-    
+
     def get_preferences(self, user_id: str) -> Dict[str, Dict]:
         """
         获取用户偏好
-        
+
         Args:
             user_id: 用户ID
-        
+
         Returns:
             偏好字典 {type: {value, confidence, updated_at}}
         """
         conn = self._get_conn()
         cursor = conn.cursor()
-        
-        cursor.execute("""
+
+        cursor.execute(
+            """
             SELECT preference_type, value, confidence, updated_at
             FROM user_preferences
             WHERE user_id = ?
-        """, (user_id,))
-        
+        """,
+            (user_id,),
+        )
+
         rows = cursor.fetchall()
         self._release(conn)
-        
+
         preferences = {}
         for row in rows:
-            preferences[row[0]] = {
-                "value": row[1],
-                "confidence": row[2],
-                "updated_at": row[3]
-            }
-        
+            preferences[row[0]] = {"value": row[1], "confidence": row[2], "updated_at": row[3]}
+
         return preferences
-    
+
     def get_all_memories(self, user_id: str) -> List[Dict]:
         """获取用户所有记忆"""
         return self.get_recent_memories(user_id, limit=1000)
-    
+
     def delete_old_memories(self, user_id: str, days: int = 90) -> int:
         """
         删除旧记忆
-        
+
         Args:
             user_id: 用户ID
             days: 保留最近多少天的记忆
-        
+
         Returns:
             删除的记忆数量
         """
         conn = self._get_conn()
         cursor = conn.cursor()
-        
-        cutoff = (
-            datetime.now() - timedelta(days=days)
-        ).isoformat()
-        
-        cursor.execute("""
+
+        cutoff = (datetime.now() - timedelta(days=days)).isoformat()
+
+        cursor.execute(
+            """
             DELETE FROM user_memories
             WHERE user_id = ? AND created_at < ?
-        """, (user_id, cutoff))
-        
+        """,
+            (user_id, cutoff),
+        )
+
         deleted = cursor.rowcount
-        
+
         conn.commit()
         self._release(conn)
-        
+
         return deleted
-    
+
     def decay_importance(self, decay_rate: float = 0.95, half_life_days: int = None) -> int:
         """
         降低记忆重要性(记忆遗忘机制)
@@ -556,24 +569,23 @@ class LongTermMemory:
             return updated
 
         # 兼容旧调用:整体乘以 decay_rate
-        cursor.execute("""
+        cursor.execute(
+            """
             UPDATE user_memories
             SET importance = importance * ?
             WHERE importance > 0.1
-        """, (decay_rate,))
+        """,
+            (decay_rate,),
+        )
 
         conn.commit()
         self._release(conn)
         return cursor.rowcount
-    
-    def consolidate_short_term(
-        self,
-        user_id: str,
-        short_term_memories: List[Dict]
-    ):
+
+    def consolidate_short_term(self, user_id: str, short_term_memories: List[Dict]):
         """
         将短期记忆整合到长期记忆
-        
+
         Args:
             user_id: 用户ID
             short_term_memories: 短期记忆列表
@@ -583,32 +595,30 @@ class LongTermMemory:
                 user_id=user_id,
                 content=memory.get("content", ""),
                 memory_type=memory.get("type", "general"),
-                importance=memory.get("importance", 0.5)
+                importance=memory.get("importance", 0.5),
             )
-    
+
     def get_stats(self) -> Dict[str, Any]:
         """获取统计信息"""
         conn = self._get_conn()
         cursor = conn.cursor()
-        
+
         cursor.execute("SELECT COUNT(*) FROM user_memories")
         total_memories = cursor.fetchone()[0]
-        
+
         cursor.execute("SELECT COUNT(DISTINCT user_id) FROM user_memories")
         total_users = cursor.fetchone()[0]
-        
+
         cursor.execute("SELECT COUNT(*) FROM user_preferences")
         total_preferences = cursor.fetchone()[0]
-        
+
         self._release(conn)
-        
+
         return {
             "total_memories": total_memories,
             "total_users": total_users,
             "total_preferences": total_preferences,
-            "avg_memories_per_user": (
-                total_memories / total_users if total_users > 0 else 0
-            )
+            "avg_memories_per_user": (total_memories / total_users if total_users > 0 else 0),
         }
 
 

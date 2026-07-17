@@ -95,21 +95,54 @@ session_id 默认 7 天有效。
 {
   "message": "北京的低碳政策有哪些?",
   "session_id": "uuid-xxx",
-  "user_id": "user-1"  // 可选,缺省 = session 关联的 user
+  "user_id": "user-1",     // 可选,缺省 = session 关联的 user
+  "location": {            // P6.S.22 可选,前端浏览器定位回调
+    "lat": 39.9042,
+    "lng": 116.4074,
+    "city": "北京",
+    "region": "北京市",
+    "country": "中国"
+  }
 }
 ```
 响应:
 ```json
 {
   "ok": true,
-  "response": "...",
-  "intent": "KNOWLEDGE_QUERY",
-  "recommendations": [...],
+  "message": "...",
+  "intent": "KNOWLEDGE_QUERY",         // P6.S.23 新增 LOCATION_QUERY
+  "suggestions": [...],
   "knowledge_refs": [{"source": "policy/...", "score": 0.87}],
-  "rag_context_chars": 685,
+  "tool_result": {                     // P6.S.23 新增: 出行/天气/路线等工具调用结果
+    "origin": "北京西站",
+    "destination": "首都机场",
+    "routes": [
+      {"type": "公交", "distance_km": 32.5, "duration_min": 65,
+       "carbon_kg": 0.3, "cost_yuan": 7.0, "polyline": [{"lat":39.89,"lng":116.32}, ...]}
+    ],
+    "weather": {"temp": 22, "desc": "晴"},
+    "recommended": {...}
+  },
+  "recommendations": [...],
+  "location": {                        // P6.S.22 定位来源(browser / ip / profile)
+    "city": "北京",
+    "region": "北京市",
+    "country": "中国",
+    "source": "browser",
+    "lat": 39.9042,
+    "lng": 116.4074
+  },
+  "personalization": {...},
+  "profile_updates": {...},
+  "timestamp": "2026-06-15T...",
   "conversation_id": "conv-xxx"
 }
 ```
+
+> **P6.S.23 变更**:
+> - `tool_result` 字段此前漏返,前端无法消费;现已补全,出行/天气/路线/碳排对比等工具调用结果全部透出
+> - `intent` 新增 `LOCATION_QUERY`(用户在问"我的位置 / where am i"),响应中 `message` 直接包含 "📍 你在 北京 · 浏览器定位"
+> - `location` 是 best_location() 3 层 fallback 结果,前端可在助手消息右上角显示标签
 
 ## 画像(Profile)
 
@@ -173,11 +206,21 @@ session_id 默认 7 天有效。
 ### GET /api/knowledge/stats
 ```json
 {
-  "total_documents": 13,
-  "categories": {"basic": 3, "policy": 5, "guide": 2, "regional": 3},
-  "vector_count": 67
+  "total_documents": 300,            // P6.S.23: 优先 RAG vector_store_count + bm25_doc_count
+  "knowledge_base_files": 68,        // P6.S.23: 静态 markdown 文件数(供前端副标题)
+  "categories": {"basic": 10, "policy": 30, "guide": 8, "regional": 12},
+  "rag_enabled": true,
+  "rag_stats": {
+    "vector_store_count": 150,
+    "bm25_doc_count": 150,
+    "is_enabled": true,
+    "config": {...}
+  }
 }
 ```
+
+> **P6.S.23 变更**:`total_documents` 之前是 `KnowledgeManager.documents` 的内存长度(可能 0),
+> 现优先用 RAG 实际块数(150)。`knowledge_base_files` 保留静态 KB 文件数,前端副标题展示。
 
 ## RAG
 

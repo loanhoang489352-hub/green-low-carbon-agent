@@ -6,6 +6,7 @@
 
 来自:图片集/4.jpg "Day36 整合三层:MemoryAgent 级联查询闭环"
 """
+
 from __future__ import annotations
 
 import sys
@@ -70,12 +71,14 @@ def cascaded_recall(
         wm = get_working_memory()
         snap = wm.snapshot(user_id)
         for k, entry in (snap.get("scope") or {}).items():
-            working_items.append({
-                "key": k,
-                "value": entry.get("value"),
-                "importance": entry.get("importance", 0.5),
-                "agent": entry.get("agent"),
-            })
+            working_items.append(
+                {
+                    "key": k,
+                    "value": entry.get("value"),
+                    "importance": entry.get("importance", 0.5),
+                    "agent": entry.get("agent"),
+                }
+            )
     except Exception:
         pass
 
@@ -84,6 +87,7 @@ def cascaded_recall(
     if need_recall:
         try:
             from memory.long_term import LongTermMemory
+
             lt = LongTermMemory()
             long_items = lt.search_memories(user_id, query, limit=long_limit)
         except Exception:
@@ -93,8 +97,7 @@ def cascaded_recall(
     prompt_parts: List[str] = []
     if short_msgs:
         short_text = "\n".join(
-            f"{m.get('role', '?')}: {m.get('content', '')[:200]}"
-            for m in short_msgs[-short_limit:]
+            f"{m.get('role', '?')}: {m.get('content', '')[:200]}" for m in short_msgs[-short_limit:]
         )
         prompt_parts.append(f"[短期记忆(最近对话)]\n{short_text}")
     if working_items:
@@ -105,8 +108,7 @@ def cascaded_recall(
         prompt_parts.append(f"[工作记忆(workspace)]\n{ws_text}")
     if long_items:
         lt_text = "\n".join(
-            f"- {it.get('content', str(it))[:200]}"
-            for it in long_items[:long_limit]
+            f"- {it.get('content', str(it))[:200]}" for it in long_items[:long_limit]
         )
         prompt_parts.append(f"[长期记忆(相关历史)]\n{lt_text}")
 
@@ -140,6 +142,7 @@ def promote_working_to_long_term(
         if meta.get("importance", 0.5) < importance_threshold:
             return False
         from memory.long_term import LongTermMemory
+
         lt = LongTermMemory()
         content = f"[{key}] {entry}"
         lt.add_memory(

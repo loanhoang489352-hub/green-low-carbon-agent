@@ -600,6 +600,34 @@ POST /api/chat/enhanced
 
 **8 个新测试** (`tests/test_p6s22_geolocation.py`) 全过
 
+### P6.S.23 前端 4 大问题修复 + 全量体验优化(本次)
+**目标**: 用户在 3.png 看到 4 个明显问题 — 全部是数据契约/字段透出/意图识别/前端消费的断点
+
+| # | 用户问题 | 根因 | 修法 |
+|---|---------|------|------|
+| C1 | "知识条目=0" | `get_knowledge_stats` 用了 `KnowledgeManager.documents`(可能 0),不是 RAG 实际 150 | `core.get_knowledge_stats` 优先用 `rag_engine.get_stats()["vector_store_count"]`;前端 `loadKnowledgeStats` 消费 `data.rag_stats` + `knowledge_base_files` |
+| C2 | 快捷按钮文字截断/重复 | CSS `.quick-btn` 缺 `max-width`;`sendQuickMessage` 无去重;welcome 不消失 | 加 `max-width/min-width:0/white-space:normal`;`lastSentQuickMessage` 去重;首次发言 `welcome` display:none |
+| C3 | "where am i" 答非所问 | `INTENT_PATTERNS` 无 LOCATION_QUERY;LLM prompt 不含 location;LLM_MOCK 截胡 | 新增 `IntentType.LOCATION_QUERY` + 20 个关键词(中/英);`core.chat_enhanced` 早返 `_handle_location_query` 调 `best_location()`;`response.py` 注入 `current_location` 到 prompt |
+| C4 | 出行规划无地图 | `chat_enhanced` 漏返 `tool_result`;前端不消费 | `chat.py:64-77` 补 `tool_result` 字段;`langgraph_agent.py` `LangGraphResponse.tool_result`;`addMessage` 接收 `toolResult` + 渲染 `travel-card` CSS 路线对比(PR-2 升级 Leaflet) |
+
+**安全加固(S2/S3/S4)**:
+- **S2 XSS**:`web/index.html` 新增 `escapeHtml()` 工具函数;`addMessage`/`policies`/`profile` 全部 `innerHTML` 模板中用户/后端可控字段过 escapeHtml;`formatContent` 改为"先转义再标记化"
+- **S3 `Math.random().toString(36).substr` 5 处替换**:新建 `createUserId(prefix)` 统一入口,用 `crypto.randomUUID().slice(0,8)`(现代浏览器全支持)+ 老浏览器降级
+- **S4 suggestion XSS 改事件委托**:`onclick="sendQuickMessage(...)"` 拼接(只转单引号不全)→ 改 `data-suggestion` 属性 + `setupChatContainerDelegation` 单一 click listener
+- **M3 发送 loading**:`_isSending` 防双击 + `setSendButtonLoading(true)` spinner
+- **M4 错误重试**:`catch` 块生成 `data-retry` 按钮
+
+**改动文件**(7 个后端 + 1 个前端 + 2 个新测试):
+- 后端:`src/agent/intent.py` + `src/agent/core.py`(get_knowledge_stats + LOCATION_QUERY 早返 + tool_result 透出) + `src/agent/response.py`(prompt 注入) + `src/agent/langgraph_agent.py`(LangGraphResponse.tool_result + _build_response 解析 ToolMessage) + `src/server/routers/chat.py`(响应补 tool_result)
+- 前端:`web/index.html`(escapeHtml/createUserId 工具 + addMessage 重写 + sendMessage loading/retry + loadKnowledgeStats 新字段 + 事件委托 + CSS 出行卡片/重试按钮/移动端适配)
+- 新增:`tests/test_p6s23_intent_location.py`(10 个) + `tests/test_p6s23_xss_helpers.py`(14 个)
+
+**验收**:
+- 24/24 新测试 PASS
+- 43/43 PR-1 + P5-I 测试 PASS
+- 3 个 `test_p4g_e2e.py` 失败 = pre-existing(Python 3.14 RAG/recommendation 兼容),stash 验证与本次无关
+- 用户验收点(待手测):头部"知识条目"显示 150 / 快捷按钮不截断 / "where am i" 答 city / 出行 plan 有路线对比卡片
+
 ## 累计 16 个 P6.S.x commit(P6.S.7 → S.22)
 
 ```

@@ -9,6 +9,7 @@ from typing import List, Dict, Any, Optional
 
 class KnowledgeDocument:
     """知识文档"""
+
     def __init__(
         self,
         id: str,
@@ -20,7 +21,7 @@ class KnowledgeDocument:
         created_at: str,
         updated_at: str,
         version: int = 1,
-        embedding: Optional[List[float]] = None
+        embedding: Optional[List[float]] = None,
     ):
         self.id = id
         self.title = title
@@ -36,6 +37,7 @@ class KnowledgeDocument:
 
 class KnowledgeSearchResult:
     """知识检索结果"""
+
     def __init__(self, document: KnowledgeDocument, score: float, highlight: str):
         self.document = document
         self.score = score

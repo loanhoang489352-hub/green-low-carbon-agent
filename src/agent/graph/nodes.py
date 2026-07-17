@@ -10,7 +10,7 @@ from datetime import datetime
 
 script_path = Path(__file__).resolve()
 project_root = script_path.parent.parent.parent.parent  # src/agent/graph/nodes.py → 项目根
-sys.path.insert(0, str(project_root / 'src'))
+sys.path.insert(0, str(project_root / "src"))
 
 try:
     from paths import KNOWLEDGE_BASE_DIR as _KB_DIR
@@ -26,6 +26,7 @@ def _rec_to_dict(r):
         return r
     if hasattr(r, "__dataclass_fields__"):
         from dataclasses import asdict
+
         return asdict(r)
     if hasattr(r, "__dict__"):
         return dict(r.__dict__)
@@ -49,7 +50,7 @@ class AgentNodes:
         if self._initialized:
             return
 
-        from agent.intent import IntentRecognizer, IntentType as OldIntentType
+        from agent.intent import IntentRecognizer
         from rag.rag_engine import RAGEngine, RAGConfig
         from user_profile.user_profile import UserProfileManager
         from user_profile.dynamic_updater import get_profile_updater
@@ -66,7 +67,7 @@ class AgentNodes:
             rag_config = RAGConfig(
                 enabled=True,
                 provider="sentence-transformers",
-                persist_directory=str(project_root / "data" / "vector_db")
+                persist_directory=str(project_root / "data" / "vector_db"),
             )
             self._rag_engine = RAGEngine(rag_config)
             self._rag_engine.initialize(str(_KB_DIR))
@@ -86,6 +87,7 @@ class AgentNodes:
         # P4-B.2: 短期记忆写入(用户消息)
         try:
             from memory.short_term import get_short_term_memory
+
             stm = get_short_term_memory()
             stm.add_message(
                 conversation_id=state.get("conversation_id", ""),
@@ -103,8 +105,8 @@ class AgentNodes:
             "metadata": {
                 "entities": intent_result.entities,
                 "context": intent_result.context,
-                "suggested_response_type": intent_result.suggested_response_type
-            }
+                "suggested_response_type": intent_result.suggested_response_type,
+            },
         }
 
     def retrieve_knowledge(self, state: AgentState) -> AgentState:
@@ -112,39 +114,38 @@ class AgentNodes:
         self.initialize()
 
         if not self._rag_engine or not self._rag_engine.is_enabled:
-            return {
-                "rag_context": "",
-                "rag_results": [],
-                "knowledge_refs": []
-            }
+            return {"rag_context": "", "rag_results": [], "knowledge_refs": []}
 
         message = state["message"]
         intent_type = state.get("intent_type", "")
 
         # P6.S.10: 意图门控 — 出行/寒暄/反馈等意图跳过 RAG
         NO_RAG_INTENTS = {
-            "travel_planning", "greeting", "question", "unknown",
-            "feedback", "action_report",
-            "suggestion_accept", "suggestion_reject",
+            "travel_planning",
+            "greeting",
+            "question",
+            "unknown",
+            "feedback",
+            "action_report",
+            "suggestion_accept",
+            "suggestion_reject",
         }
         if intent_type in NO_RAG_INTENTS:
-            return {
-                "rag_context": "",
-                "rag_results": [],
-                "knowledge_refs": []
-            }
+            return {"rag_context": "", "rag_results": [], "knowledge_refs": []}
 
         # P4-F.1: 基于用户画像构造软过滤信号(region + interests)
         personalization = self._build_personalization_hints(state)
 
         try:
             raw_results = self._rag_engine.retrieve(
-                message, top_k=max(8, 3 * 2),  # 多取一些用于软过滤
+                message,
+                top_k=max(8, 3 * 2),  # 多取一些用于软过滤
             )
 
             # 软重排:region/interests 命中的文档分数加成
             ranked = self._rerank_by_personalization(
-                raw_results, personalization,
+                raw_results,
+                personalization,
             )
 
             # 标准化成 dict 格式,方便后续处理
@@ -173,17 +174,13 @@ class AgentNodes:
                 rag_context = ""
                 refs = []
 
-            return {
-                "rag_context": rag_context,
-                "rag_results": rag_items,
-                "knowledge_refs": refs
-            }
+            return {"rag_context": rag_context, "rag_results": rag_items, "knowledge_refs": refs}
         except Exception as e:
             return {
                 "rag_context": "",
                 "rag_results": [],
                 "knowledge_refs": [],
-                "error": f"知识检索失败: {str(e)}"
+                "error": f"知识检索失败: {str(e)}",
             }
 
     def _build_personalization_hints(self, state: AgentState) -> Dict[str, Any]:
@@ -303,13 +300,13 @@ class AgentNodes:
                     "user_id": user_id,
                     "knowledge_level": "beginner",
                     "behavior_stage": "precontemplation",
-                    "communication_style": "friendly"
+                    "communication_style": "friendly",
                 }
-        except Exception as e:
+        except Exception:
             profile = {
                 "user_id": user_id,
                 "knowledge_level": "beginner",
-                "behavior_stage": "precontemplation"
+                "behavior_stage": "precontemplation",
             }
 
         return {"profile": profile}
@@ -340,23 +337,32 @@ class AgentNodes:
             if updates and isinstance(updates, dict) and updates:
                 try:
                     from agent.cache import get_query_cache
+
                     cleared = get_query_cache().invalidate(user_id)
                     if cleared > 0:
                         import logging
+
                         logging.getLogger(__name__).info(
                             "[LangGraph] QueryCache.invalidate user=%s cleared=%d (因画像更新)",
-                            user_id, cleared,
+                            user_id,
+                            cleared,
                         )
                 except Exception as e:
                     import logging
-                    logging.getLogger(__name__).warning("[LangGraph] QueryCache.invalidate 异常(非致命): %s", e)
+
+                    logging.getLogger(__name__).warning(
+                        "[LangGraph] QueryCache.invalidate 异常(非致命): %s", e
+                    )
 
             return {"profile_updates": updates}
         except Exception as e:
             return {"profile_updates": {}, "error": f"画像更新失败: {str(e)}"}
 
     def _apply_profile_updates(
-        self, user_id: str, profile: Dict[str, Any], updates: Dict[str, Any],
+        self,
+        user_id: str,
+        profile: Dict[str, Any],
+        updates: Dict[str, Any],
     ) -> None:
         """把 analyze_message 的产出写回持久化画像(P4-G)
 
@@ -395,11 +401,13 @@ class AgentNodes:
             action_history: List[Dict[str, Any]] = list(eco.get("action_history") or [])
             for act in action_reports:
                 if isinstance(act, dict):
-                    action_history.append({
-                        "action": act.get("action", ""),
-                        "carbon_saved": act.get("carbon_saved"),
-                        "context": act.get("context", ""),
-                    })
+                    action_history.append(
+                        {
+                            "action": act.get("action", ""),
+                            "carbon_saved": act.get("carbon_saved"),
+                            "context": act.get("context", ""),
+                        }
+                    )
                 elif isinstance(act, str):
                     action_history.append({"action": act, "carbon_saved": None})
             if action_history:
@@ -408,12 +416,15 @@ class AgentNodes:
 
             if interest_ids or new_stage or action_history:
                 self._profile_manager.update_eco_profile(
-                    user_id, profile.get("eco_profile", {}),
+                    user_id,
+                    profile.get("eco_profile", {}),
                 )
         except Exception as e:
             import logging
+
             logging.getLogger(__name__).debug(
-                "[update_profile] 画像回写失败(非致命): %s", e,
+                "[update_profile] 画像回写失败(非致命): %s",
+                e,
             )
 
     def generate_recommendations(self, state: AgentState) -> AgentState:
@@ -445,13 +456,12 @@ class AgentNodes:
                     suggestions.append(r.get("action", ""))
 
             return {
-                "recommendations": [
-                    _rec_to_dict(r) for r in recommendations[:5]
-                ],
+                "recommendations": [_rec_to_dict(r) for r in recommendations[:5]],
                 "suggestions": [s for s in suggestions if s],
             }
         except Exception as e:
             import traceback
+
             traceback.print_exc()
             return {"recommendations": [], "suggestions": [], "error": f"推荐生成失败: {str(e)}"}
 
@@ -469,18 +479,20 @@ class AgentNodes:
 
         try:
             from agent.response import ResponseContext
+
             context = ResponseContext(
                 user_profile=profile,
                 conversation_history=state.get("messages", []),
                 retrieved_knowledge=state.get("rag_results", []),
                 recent_memories=state.get("memory_hints", []),
-                intent_type=intent_type
+                intent_type=intent_type,
             )
 
             # P4-H: 注入工作记忆到 LLM prompt
             working_memory_text = ""
             try:
                 from memory.working import get_working_memory
+
                 wm = get_working_memory()
                 working_memory_text = wm.snapshot_for_prompt(user_id)
             except Exception:
@@ -491,16 +503,24 @@ class AgentNodes:
             cached_response = None
             try:
                 from agent.cache import get_query_cache
+
                 cached_response = get_query_cache().get(message, user_id, profile)
             except Exception as e:
                 import logging
-                logging.getLogger(__name__).warning("[LangGraph] QueryCache.get 异常(非致命): %s", e)
+
+                logging.getLogger(__name__).warning(
+                    "[LangGraph] QueryCache.get 异常(非致命): %s", e
+                )
 
             if cached_response:
                 response_text = cached_response["message"]
                 final_suggestions = cached_response.get("suggestions", []) or suggestions or []
             else:
-                if self._response_generator and self._response_generator._use_llm and working_memory_text:
+                if (
+                    self._response_generator
+                    and self._response_generator._use_llm
+                    and working_memory_text
+                ):
                     # 走 LLM 路径,带 working memory
                     response_text = self._response_generator.generate_with_llm(
                         user_input=message,
@@ -511,8 +531,7 @@ class AgentNodes:
                     response = {"message": response_text, "suggestions": suggestions or []}
                 else:
                     response = self._response_generator.generate_response(
-                        user_input=message,
-                        context=context
+                        user_input=message, context=context
                     )
                     response_text = response.get("message", "")
 
@@ -521,13 +540,20 @@ class AgentNodes:
                 # 写缓存(失败非致命)
                 try:
                     from agent.cache import get_query_cache
+
                     get_query_cache().set(
-                        message, user_id, profile,
-                        response_text, final_suggestions,
+                        message,
+                        user_id,
+                        profile,
+                        response_text,
+                        final_suggestions,
                     )
                 except Exception as e:
                     import logging
-                    logging.getLogger(__name__).warning("[LangGraph] QueryCache.set 异常(非致命): %s", e)
+
+                    logging.getLogger(__name__).warning(
+                        "[LangGraph] QueryCache.set 异常(非致命): %s", e
+                    )
 
             # 兼容旧逻辑用的 response dict
             response = {"message": response_text, "suggestions": final_suggestions}
@@ -539,6 +565,7 @@ class AgentNodes:
             # P4-B.2: 短期记忆写入(助手回复)
             try:
                 from memory.short_term import get_short_term_memory
+
                 stm = get_short_term_memory()
                 stm.add_message(
                     conversation_id=state.get("conversation_id", ""),
@@ -552,6 +579,7 @@ class AgentNodes:
             # P4-B.1: 触发短→长整合(节点出口)
             try:
                 from memory.consolidation import get_consolidator
+
                 consolidator = get_consolidator()
                 conv_id = state.get("conversation_id", "")
                 user_id = state.get("user_id", "")
@@ -564,18 +592,21 @@ class AgentNodes:
             return {
                 "response_message": response_text,
                 "suggestions": suggestions or response.get("suggestions", []),
-                "messages": [{
-                    "role": "assistant",
-                    "content": response_text,
-                    "timestamp": datetime.now().isoformat()
-                }]
+                "messages": [
+                    {
+                        "role": "assistant",
+                        "content": response_text,
+                        "timestamp": datetime.now().isoformat(),
+                    }
+                ],
             }
         except Exception as e:
             import traceback
+
             traceback.print_exc()
             return {
                 "response_message": f"抱歉，生成响应时出现错误: {str(e)}",
-                "error": f"响应生成失败: {str(e)}"
+                "error": f"响应生成失败: {str(e)}",
             }
 
     def handle_error(self, state: AgentState) -> AgentState:
@@ -583,7 +614,7 @@ class AgentNodes:
         error = state.get("error", "未知错误")
         return {
             "response_message": f"处理过程中遇到问题: {error}",
-            "turn_count": state.get("turn_count", 0) + 1
+            "turn_count": state.get("turn_count", 0) + 1,
         }
 
     def should_use_rag(self, state: AgentState) -> str:
@@ -610,6 +641,7 @@ class AgentNodes:
 
 _nodes_instance = None
 
+
 def get_nodes() -> AgentNodes:
     """获取节点实例（单例）"""
     global _nodes_instance
@@ -622,25 +654,31 @@ def recognize_intent(state: AgentState) -> AgentState:
     """意图识别节点"""
     return get_nodes().recognize_intent(state)
 
+
 def retrieve_knowledge(state: AgentState) -> AgentState:
     """RAG 知识检索节点"""
     return get_nodes().retrieve_knowledge(state)
+
 
 def get_user_profile(state: AgentState) -> AgentState:
     """获取用户画像节点"""
     return get_nodes().get_user_profile(state)
 
+
 def update_profile(state: AgentState) -> AgentState:
     """更新用户画像节点"""
     return get_nodes().update_profile(state)
+
 
 def generate_recommendations(state: AgentState) -> AgentState:
     """生成推荐节点"""
     return get_nodes().generate_recommendations(state)
 
+
 def generate_response(state: AgentState) -> AgentState:
     """响应生成节点"""
     return get_nodes().generate_response(state)
+
 
 def handle_error(state: AgentState) -> AgentState:
     """错误处理节点"""

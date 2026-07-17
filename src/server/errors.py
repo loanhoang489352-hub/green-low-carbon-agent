@@ -8,13 +8,15 @@
 - HTTP_STATUS_MAP 是 code → (status, default_message) 查找表
 - P6.H: 错误消息支持中英双语,根据 Accept-Language 头或 thread-local locale 切换
 """
+
 from typing import Any, Dict, Optional, Tuple
 
 
 def _i18n_message(code: str) -> str:
     """P6.H: 根据当前 locale 返错误消息(默认中文)"""
     try:
-        from i18n import t, get_locale
+        from i18n import t
+
         # 把错误码映射到 i18n key
         key = f"error.{code.lower()}"
         return t(key) if t(key) != f"[{key}]" else None
@@ -28,21 +30,21 @@ def _i18n_message(code: str) -> str:
 # P6.H: 加英文 message 列,locale=en 时用英文
 _HTTP_STATUS_DATA: Dict[str, Tuple[int, str, str]] = {
     # 4xx
-    "BAD_REQUEST":       (400, "请求参数错误", "Invalid request"),
-    "UNAUTHORIZED":      (401, "需要登录", "Authentication required"),
-    "FORBIDDEN":         (403, "没有权限", "Permission denied"),
-    "NOT_FOUND":         (404, "资源不存在", "Resource not found"),
-    "METHOD_NOT_ALLOWED":(405, "方法不允许", "Method not allowed"),
-    "CONFLICT":          (409, "资源冲突", "Resource conflict"),
-    "BODY_TOO_LARGE":    (413, "请求体过大", "Request body too large"),
-    "RATE_LIMITED":      (429, "请求过于频繁", "Too many requests"),
-    "VALIDATION":         (422, "输入校验失败", "Validation failed"),
+    "BAD_REQUEST": (400, "请求参数错误", "Invalid request"),
+    "UNAUTHORIZED": (401, "需要登录", "Authentication required"),
+    "FORBIDDEN": (403, "没有权限", "Permission denied"),
+    "NOT_FOUND": (404, "资源不存在", "Resource not found"),
+    "METHOD_NOT_ALLOWED": (405, "方法不允许", "Method not allowed"),
+    "CONFLICT": (409, "资源冲突", "Resource conflict"),
+    "BODY_TOO_LARGE": (413, "请求体过大", "Request body too large"),
+    "RATE_LIMITED": (429, "请求过于频繁", "Too many requests"),
+    "VALIDATION": (422, "输入校验失败", "Validation failed"),
     # 5xx
-    "INTERNAL":          (500, "服务暂时不可用", "Service temporarily unavailable"),
-    "NOT_IMPLEMENTED":   (501, "未实现", "Not implemented"),
-    "LLM_UNAVAILABLE":   (503, "LLM 暂不可用", "LLM temporarily unavailable"),
-    "DEPENDENCY_DOWN":   (503, "依赖服务不可用", "Dependency unavailable"),
-    "TIMEOUT":           (504, "请求超时", "Request timeout"),
+    "INTERNAL": (500, "服务暂时不可用", "Service temporarily unavailable"),
+    "NOT_IMPLEMENTED": (501, "未实现", "Not implemented"),
+    "LLM_UNAVAILABLE": (503, "LLM 暂不可用", "LLM temporarily unavailable"),
+    "DEPENDENCY_DOWN": (503, "依赖服务不可用", "Dependency unavailable"),
+    "TIMEOUT": (504, "请求超时", "Request timeout"),
 }
 
 
@@ -63,6 +65,7 @@ def message_for(code: str, locale: Optional[str] = None) -> str:
     if locale is None:
         try:
             from i18n import get_locale
+
             locale = get_locale()
         except Exception:
             locale = "zh"
@@ -70,6 +73,7 @@ def message_for(code: str, locale: Optional[str] = None) -> str:
 
 
 # ========== APIError 异常类 ==========
+
 
 class APIError(Exception):
     """
@@ -85,7 +89,14 @@ class APIError(Exception):
             raise APIError("LLM_UNAVAILABLE", "所有 LLM provider 失败")
     """
 
-    def __init__(self, code: str, message: Optional[str] = None, status: Optional[int] = None, locale: Optional[str] = None, **extra: Any):
+    def __init__(
+        self,
+        code: str,
+        message: Optional[str] = None,
+        status: Optional[int] = None,
+        locale: Optional[str] = None,
+        **extra: Any,
+    ):
         self.code = code
         self.locale = locale
         if message:
@@ -112,6 +123,7 @@ class APIError(Exception):
 
 # ========== 向后兼容的 error_response() ==========
 
+
 def error_response(code: str, message: str, status: int = 400, **extra: Any) -> Dict[str, Any]:
     """构造标准错误响应(P2 兼容,handler 内可用 send_json(error_response(...), status=...))"""
     payload: Dict[str, Any] = {"error": {"code": code, "message": message, "status": status}}
@@ -132,8 +144,10 @@ COMMON_ERRORS = {
 
 # ========== 健康检查支持 (P5-E) ==========
 
+
 class HealthStatus:
     """健康检查聚合结果"""
+
     OK = "ok"
     DEGRADED = "degraded"
     DOWN = "down"

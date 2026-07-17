@@ -3,10 +3,10 @@
 将用户复杂目标拆解为可执行的原子任务序列
 """
 
-from typing import List, Dict, Any, Optional
+from typing import List, Dict, Any
 import re
 
-from .task import Task, TaskType, TaskStatus
+from .task import Task, TaskType
 
 
 class TaskDecomposer:
@@ -18,8 +18,15 @@ class TaskDecomposer:
 
     # 复合意图标记词
     MULTI_INTENT_MARKERS = [
-        "而且", "还有", "并且", "另外", "顺便", "同时",
-        "还有就是", "另外还有", "除此之外"
+        "而且",
+        "还有",
+        "并且",
+        "另外",
+        "顺便",
+        "同时",
+        "还有就是",
+        "另外还有",
+        "除此之外",
     ]
 
     # 疑问标记（多问题检测）
@@ -27,8 +34,17 @@ class TaskDecomposer:
 
     # 行动相关词
     ACTION_MARKERS = [
-        "想", "要", "打算", "计划", "准备", "开始", "尝试",
-        "做了", "做了", "完成了", "实现了"
+        "想",
+        "要",
+        "打算",
+        "计划",
+        "准备",
+        "开始",
+        "尝试",
+        "做了",
+        "做了",
+        "完成了",
+        "实现了",
     ]
 
     # 反馈相关词
@@ -36,15 +52,34 @@ class TaskDecomposer:
 
     def __init__(self):
         self._intent_task_map = {
-            "knowledge_query": [TaskType.INTENT_RECOGNITION, TaskType.KNOWLEDGE_RETRIEVAL, TaskType.RESPONSE_GENERATE],
-            "advice_request": [TaskType.INTENT_RECOGNITION, TaskType.KNOWLEDGE_QUERY, TaskType.ACTION_RECOMMEND, TaskType.RESPONSE_GENERATE],
-            "action_report": [TaskType.INTENT_RECOGNITION, TaskType.PROFILE_UPDATE, TaskType.RESPONSE_GENERATE],
-            "feedback": [TaskType.INTENT_RECOGNITION, TaskType.PROFILE_UPDATE, TaskType.RESPONSE_GENERATE],
+            "knowledge_query": [
+                TaskType.INTENT_RECOGNITION,
+                TaskType.KNOWLEDGE_RETRIEVAL,
+                TaskType.RESPONSE_GENERATE,
+            ],
+            "advice_request": [
+                TaskType.INTENT_RECOGNITION,
+                TaskType.KNOWLEDGE_QUERY,
+                TaskType.ACTION_RECOMMEND,
+                TaskType.RESPONSE_GENERATE,
+            ],
+            "action_report": [
+                TaskType.INTENT_RECOGNITION,
+                TaskType.PROFILE_UPDATE,
+                TaskType.RESPONSE_GENERATE,
+            ],
+            "feedback": [
+                TaskType.INTENT_RECOGNITION,
+                TaskType.PROFILE_UPDATE,
+                TaskType.RESPONSE_GENERATE,
+            ],
             "greeting": [TaskType.INTENT_RECOGNITION, TaskType.RESPONSE_GENERATE],
             "other": [TaskType.INTENT_RECOGNITION, TaskType.RESPONSE_GENERATE],
         }
 
-    def decompose(self, message: str, intent_type: str, context: Dict[str, Any] = None) -> List[Task]:
+    def decompose(
+        self, message: str, intent_type: str, context: Dict[str, Any] = None
+    ) -> List[Task]:
         """
         分解任务
 
@@ -96,7 +131,9 @@ class TaskDecomposer:
 
     def _decompose_simple(self, intent_type: str, context: Dict[str, Any]) -> List[Task]:
         """简单任务：直接映射到标准任务序列"""
-        task_types = self._intent_task_map.get(intent_type, [TaskType.INTENT_RECOGNITION, TaskType.RESPONSE_GENERATE])
+        task_types = self._intent_task_map.get(
+            intent_type, [TaskType.INTENT_RECOGNITION, TaskType.RESPONSE_GENERATE]
+        )
 
         tasks = []
         prev_task_id = None
@@ -106,7 +143,7 @@ class TaskDecomposer:
                 task_type=task_type,
                 description=self._get_task_description(task_type),
                 parameters=context.copy(),
-                priority=len(task_types) - i  # 前面的任务优先级更高
+                priority=len(task_types) - i,  # 前面的任务优先级更高
             )
 
             # 设置依赖
@@ -118,7 +155,9 @@ class TaskDecomposer:
 
         return tasks
 
-    def _decompose_compound(self, message: str, intent_type: str, context: Dict[str, Any]) -> List[Task]:
+    def _decompose_compound(
+        self, message: str, intent_type: str, context: Dict[str, Any]
+    ) -> List[Task]:
         """
         复合任务：包含多个子任务
 
@@ -130,7 +169,7 @@ class TaskDecomposer:
         intent_task = Task(
             task_type=TaskType.INTENT_RECOGNITION,
             description="识别用户意图",
-            parameters={"message": message}
+            parameters={"message": message},
         )
         tasks.append(intent_task)
 
@@ -143,7 +182,7 @@ class TaskDecomposer:
                 task_type=TaskType.KNOWLEDGE_RETRIEVAL,
                 description="检索相关知识",
                 parameters={"message": message},
-                dependencies=[intent_task.task_id]
+                dependencies=[intent_task.task_id],
             )
             tasks.append(retrieval_task)
 
@@ -152,7 +191,7 @@ class TaskDecomposer:
                 task_type=TaskType.ACTION_RECOMMEND,
                 description="生成推荐建议",
                 parameters={"message": message, "context": context},
-                dependencies=[intent_task.task_id]
+                dependencies=[intent_task.task_id],
             )
             tasks.append(rec_task)
 
@@ -161,7 +200,7 @@ class TaskDecomposer:
             task_type=TaskType.RESPONSE_GENERATE,
             description="生成最终响应",
             parameters={"message": message},
-            priority=0
+            priority=0,
         )
         # 设置依赖
         deps = [t.task_id for t in tasks]
@@ -171,7 +210,9 @@ class TaskDecomposer:
 
         return tasks
 
-    def _decompose_complex(self, message: str, intent_type: str, context: Dict[str, Any]) -> List[Task]:
+    def _decompose_complex(
+        self, message: str, intent_type: str, context: Dict[str, Any]
+    ) -> List[Task]:
         """
         复杂任务：包含条件分支和错误处理
 
@@ -183,7 +224,7 @@ class TaskDecomposer:
         intent_task = Task(
             task_type=TaskType.INTENT_RECOGNITION,
             description="识别用户意图和需求",
-            parameters={"message": message}
+            parameters={"message": message},
         )
         tasks.append(intent_task)
 
@@ -193,7 +234,7 @@ class TaskDecomposer:
                 task_type=TaskType.KNOWLEDGE_QUERY,
                 description="获取相关知识信息",
                 parameters={"message": message},
-                dependencies=[intent_task.task_id]
+                dependencies=[intent_task.task_id],
             )
             tasks.append(knowledge_task)
 
@@ -202,7 +243,7 @@ class TaskDecomposer:
             task_type=TaskType.PROFILE_UPDATE,
             description="更新用户画像",
             parameters={"message": message},
-            dependencies=[intent_task.task_id]
+            dependencies=[intent_task.task_id],
         )
         tasks.append(profile_task)
 
@@ -211,7 +252,7 @@ class TaskDecomposer:
             task_type=TaskType.ACTION_RECOMMEND,
             description="生成个性化推荐",
             parameters={"message": message},
-            dependencies=[profile_task.task_id]
+            dependencies=[profile_task.task_id],
         )
         tasks.append(rec_task)
 
@@ -220,7 +261,7 @@ class TaskDecomposer:
             task_type=TaskType.REFLECTION,
             description="反思推荐结果",
             parameters={"recommendations": rec_task.result},
-            dependencies=[rec_task.task_id]
+            dependencies=[rec_task.task_id],
         )
         tasks.append(reflection_task)
 
@@ -229,7 +270,7 @@ class TaskDecomposer:
             task_type=TaskType.RESPONSE_GENERATE,
             description="生成最终响应",
             parameters={"message": message},
-            dependencies=[reflection_task.task_id]
+            dependencies=[reflection_task.task_id],
         )
         tasks.append(response_task)
 
@@ -258,7 +299,7 @@ class TaskDecomposer:
         例如："我想了解碳中和，也想问问低碳出行" -> 拆分为两个子目标
         """
         # 按标点分割多目标
-        segments = re.split(r'[。；!?\n]', message)
+        segments = re.split(r"[。；!?\n]", message)
         segments = [s.strip() for s in segments if s.strip()]
 
         result = []

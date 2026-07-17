@@ -13,11 +13,12 @@ from enum import Enum
 
 script_path = Path(__file__).resolve()
 project_root = script_path.parent.parent.parent
-sys.path.insert(0, str(project_root / 'src'))
+sys.path.insert(0, str(project_root / "src"))
 
 
 class TimeUnit(Enum):
     """时间单位"""
+
     TODAY = "today"
     TOMORROW = "tomorrow"
     WEEK = "week"
@@ -28,34 +29,37 @@ class TimeUnit(Enum):
 
 class LocationType(Enum):
     """位置类型"""
-    POI = "poi"           # 兴趣点（商场、学校、医院等）
-    ADDRESS = "address"    # 地址
-    HOME = "home"          # 家
-    WORK = "work"          # 公司/工作地点
-    CITY = "city"          # 城市
-    AREA = "area"          # 区域（如"京津冀"）
+
+    POI = "poi"  # 兴趣点（商场、学校、医院等）
+    ADDRESS = "address"  # 地址
+    HOME = "home"  # 家
+    WORK = "work"  # 公司/工作地点
+    CITY = "city"  # 城市
+    AREA = "area"  # 区域（如"京津冀"）
     UNKNOWN = "unknown"
 
 
 class AmbiguityType(Enum):
     """歧义类型"""
-    TIME_VAGUE = "time_vague"           # 时间模糊
+
+    TIME_VAGUE = "time_vague"  # 时间模糊
     LOCATION_AMBIGUOUS = "location_ambiguous"  # 地点模糊
     INTENT_MULTIPLE = "intent_multiple"  # 多意图
     PRONOUN_REFERENCE = "pronoun_reference"  # 代词指代
-    MANNER_UNCLEAR = "manner_unclear"    # 方式不明确
+    MANNER_UNCLEAR = "manner_unclear"  # 方式不明确
     SUBJECT_OMITTED = "subject_omitted"  # 主语省略
 
 
 @dataclass
 class TemporalInfo:
     """时间信息"""
-    raw: str                           # 原始文本 "今天"、"下周一"
-    normalized: Optional[str] = None   # 标准化格式 "2026-05-18"
-    time_type: str = "custom"           # 时间类型：today, tomorrow, week, month, custom
+
+    raw: str  # 原始文本 "今天"、"下周一"
+    normalized: Optional[str] = None  # 标准化格式 "2026-05-18"
+    time_type: str = "custom"  # 时间类型：today, tomorrow, week, month, custom
     confidence: float = 1.0
     start_of_day: Optional[str] = None  # 当天开始
-    end_of_day: Optional[str] = None    # 当天结束
+    end_of_day: Optional[str] = None  # 当天结束
 
     def __post_init__(self):
         if self.normalized is None:
@@ -141,12 +145,13 @@ class TemporalInfo:
 @dataclass
 class LocationInfo:
     """位置信息"""
-    raw: str                           # 原始文本
-    normalized: Optional[str] = None   # 标准化名称
-    location_type: str = "unknown"      # 类型：poi, address, home, work, city, area
-    city: Optional[str] = None         # 所属城市
-    district: Optional[str] = None     # 所属区域
-    category: Optional[str] = None     # POI类别（商场、学校、医院等）
+
+    raw: str  # 原始文本
+    normalized: Optional[str] = None  # 标准化名称
+    location_type: str = "unknown"  # 类型：poi, address, home, work, city, area
+    city: Optional[str] = None  # 所属城市
+    district: Optional[str] = None  # 所属区域
+    category: Optional[str] = None  # POI类别（商场、学校、医院等）
     coordinates: Optional[Tuple[float, float]] = None  # 经纬度
     confidence: float = 1.0
 
@@ -195,9 +200,21 @@ class LocationInfo:
         # 推断城市(从 config/cities.yaml 加载)
         try:
             from config_loader import get_major_cities
+
             major_cities = get_major_cities()
         except Exception:
-            major_cities = ["北京", "上海", "广州", "深圳", "杭州", "成都", "武汉", "南京", "西安", "重庆"]
+            major_cities = [
+                "北京",
+                "上海",
+                "广州",
+                "深圳",
+                "杭州",
+                "成都",
+                "武汉",
+                "南京",
+                "西安",
+                "重庆",
+            ]
         for city in major_cities:
             if city in self.raw:
                 self.city = city
@@ -211,9 +228,10 @@ class LocationInfo:
 @dataclass
 class TransportInfo:
     """出行方式信息"""
-    raw: str                           # 原始文本 "开车"、"地铁"
+
+    raw: str  # 原始文本 "开车"、"地铁"
     transport_type: Optional[str] = None  # 类型：driving, transit, cycling, walking, taxi
-    is_preferred: bool = True          # 是否是偏好方式 vs 实际行为
+    is_preferred: bool = True  # 是否是偏好方式 vs 实际行为
 
     TRANSPORT_MAP = {
         "开车": "driving",
@@ -246,7 +264,8 @@ class TransportInfo:
 @dataclass
 class ActivityInfo:
     """活动信息"""
-    raw: str                           # 原始文本
+
+    raw: str  # 原始文本
     activity_type: Optional[str] = None  # 类型：shopping, work, visit, exercise, dining, travel
     target: Optional[LocationInfo] = None  # 活动地点
 
@@ -283,20 +302,22 @@ class ActivityInfo:
 @dataclass
 class SemanticComponents:
     """语义成分"""
-    subject: str = "用户"              # 主语
+
+    subject: str = "用户"  # 主语
     temporal: Optional[TemporalInfo] = None
     location: Optional[LocationInfo] = None
     transport: Optional[TransportInfo] = None
     activity: Optional[ActivityInfo] = None
-    goal: Optional[str] = None          # 目的
-    manner: Optional[str] = None        # 方式
-    recipient: Optional[str] = None     # 接受者（如送给谁）
+    goal: Optional[str] = None  # 目的
+    manner: Optional[str] = None  # 方式
+    recipient: Optional[str] = None  # 接受者（如送给谁）
 
 
 @dataclass
 class ExtractedFact:
     """提取的事实"""
-    fact_type: str      # time, location, transport, activity, quantity, etc.
+
+    fact_type: str  # time, location, transport, activity, quantity, etc.
     value: Any
     raw_text: str
     confidence: float = 1.0
@@ -305,6 +326,7 @@ class ExtractedFact:
 @dataclass
 class QueryUnderstanding:
     """Query理解结果"""
+
     original_query: str
 
     # 意图（复用 IntentType，由 IntentRecognizer 提供）
@@ -341,28 +363,45 @@ class QueryUnderstanding:
                 "subject": self.semantic.subject,
                 "temporal": {
                     "raw": self.semantic.temporal.raw if self.semantic.temporal else None,
-                    "normalized": self.semantic.temporal.normalized if self.semantic.temporal else None,
+                    "normalized": self.semantic.temporal.normalized
+                    if self.semantic.temporal
+                    else None,
                     "type": self.semantic.temporal.time_type if self.semantic.temporal else None,
-                } if self.semantic.temporal else None,
+                }
+                if self.semantic.temporal
+                else None,
                 "location": {
                     "raw": self.semantic.location.raw if self.semantic.location else None,
-                    "normalized": self.semantic.location.normalized if self.semantic.location else None,
-                    "type": self.semantic.location.location_type if self.semantic.location else None,
+                    "normalized": self.semantic.location.normalized
+                    if self.semantic.location
+                    else None,
+                    "type": self.semantic.location.location_type
+                    if self.semantic.location
+                    else None,
                     "city": self.semantic.location.city if self.semantic.location else None,
                     "category": self.semantic.location.category if self.semantic.location else None,
-                } if self.semantic.location else None,
+                }
+                if self.semantic.location
+                else None,
                 "transport": {
                     "raw": self.semantic.transport.raw if self.semantic.transport else None,
-                    "type": self.semantic.transport.transport_type if self.semantic.transport else None,
-                } if self.semantic.transport else None,
+                    "type": self.semantic.transport.transport_type
+                    if self.semantic.transport
+                    else None,
+                }
+                if self.semantic.transport
+                else None,
                 "activity": {
                     "raw": self.semantic.activity.raw if self.semantic.activity else None,
-                    "type": self.semantic.activity.activity_type if self.semantic.activity else None,
-                } if self.semantic.activity else None,
+                    "type": self.semantic.activity.activity_type
+                    if self.semantic.activity
+                    else None,
+                }
+                if self.semantic.activity
+                else None,
             },
             "facts": [
-                {"type": f.fact_type, "value": f.value, "raw": f.raw_text}
-                for f in self.facts
+                {"type": f.fact_type, "value": f.value, "raw": f.raw_text} for f in self.facts
             ],
             "ambiguities": self.ambiguities,
             "domain_signals": self.domain_signals,
@@ -370,7 +409,7 @@ class QueryUnderstanding:
                 "weather": self.needs_weather,
                 "rag": self.needs_rag,
                 "clarification": self.needs_clarification,
-            }
+            },
         }
 
 
@@ -391,10 +430,32 @@ class QueryUnderstandingEngine:
     TIME_SENSITIVE_KEYWORDS = ["今天", "明天", "后天", "昨天", "前天", "这周", "下周"]
 
     # 地点敏感关键词
-    LOCATION_SENSITIVE_KEYWORDS = ["去", "到", "回", "在", "西单", "大悦城", "家", "公司", "商场", "公园"]
+    LOCATION_SENSITIVE_KEYWORDS = [
+        "去",
+        "到",
+        "回",
+        "在",
+        "西单",
+        "大悦城",
+        "家",
+        "公司",
+        "商场",
+        "公园",
+    ]
 
     # 出行方式关键词
-    TRANSPORT_KEYWORDS = ["开车", "骑车", "骑行", "步行", "走路", "公交", "地铁", "打车", "出租", "拼车"]
+    TRANSPORT_KEYWORDS = [
+        "开车",
+        "骑车",
+        "骑行",
+        "步行",
+        "走路",
+        "公交",
+        "地铁",
+        "打车",
+        "出租",
+        "拼车",
+    ]
 
     def __init__(self):
         self._init_patterns()
@@ -424,12 +485,17 @@ class QueryUnderstandingEngine:
 
         # 行动报告模式
         self.action_report_patterns = [
-            (r"(?:我|我们)?(今天|昨天|明天)?(开车|骑车|步行|坐公交|坐地铁)(?:去|到)(.+)", "completed"),
+            (
+                r"(?:我|我们)?(今天|昨天|明天)?(开车|骑车|步行|坐公交|坐地铁)(?:去|到)(.+)",
+                "completed",
+            ),
             (r"(?:我|我们)?(买了|换了|安装了|开始|已经)(.+)", "completed"),
             (r"(?:我|我们)?刚(.+)", "just_completed"),
         ]
 
-    def understand(self, query: str, existing_intent: str = None, existing_entities: List[str] = None) -> QueryUnderstanding:
+    def understand(
+        self, query: str, existing_intent: str = None, existing_entities: List[str] = None
+    ) -> QueryUnderstanding:
         """理解用户Query
 
         Args:
@@ -469,7 +535,7 @@ class QueryUnderstandingEngine:
             needs_weather=needs["weather"],
             needs_rag=needs["rag"],
             needs_clarification=needs["clarification"],
-            raw_entities=entities
+            raw_entities=entities,
         )
 
     def _extract_semantic_components(self, query: str) -> SemanticComponents:
@@ -496,11 +562,35 @@ class QueryUnderstandingEngine:
     def _extract_temporal(self, query: str) -> Optional[TemporalInfo]:
         """提取时间信息"""
         # 常见时间表达
-        time_keywords = ["今天", "明天", "后天", "大后天", "昨天", "前天", "前天",
-                        "这周", "下周", "下周一", "下周二维", "下周些", "下周我", "下周天",
-                        "本周", "本月", "下月",
-                        "早上", "上午", "中午", "下午", "晚上", "傍晚",
-                        "现在", "稍后", "一会儿", "马上"]
+        time_keywords = [
+            "今天",
+            "明天",
+            "后天",
+            "大后天",
+            "昨天",
+            "前天",
+            "前天",
+            "这周",
+            "下周",
+            "下周一",
+            "下周二维",
+            "下周些",
+            "下周我",
+            "下周天",
+            "本周",
+            "本月",
+            "下月",
+            "早上",
+            "上午",
+            "中午",
+            "下午",
+            "晚上",
+            "傍晚",
+            "现在",
+            "稍后",
+            "一会儿",
+            "马上",
+        ]
 
         for kw in time_keywords:
             if kw in query:
@@ -523,8 +613,20 @@ class QueryUnderstandingEngine:
         """提取位置信息"""
         # 排除的活动词（这些不应该被当作地点）
         activity_blacklist = [
-            "开会", "工作", "上班", "吃饭", "运动", "锻炼", "健身",
-            "旅游", "度假", "游玩", "出差", "办事", "购物", "逛街"
+            "开会",
+            "工作",
+            "上班",
+            "吃饭",
+            "运动",
+            "锻炼",
+            "健身",
+            "旅游",
+            "度假",
+            "游玩",
+            "出差",
+            "办事",
+            "购物",
+            "逛街",
         ]
 
         # 目的地模式
@@ -560,7 +662,9 @@ class QueryUnderstandingEngine:
             if kw in query:
                 # 判断是报告行为还是偏好
                 is_preferred = any(p in query for p in ["想", "要", "喜欢", "偏好", "愿意"])
-                return TransportInfo(raw=kw, transport_type=transport_type, is_preferred=is_preferred)
+                return TransportInfo(
+                    raw=kw, transport_type=transport_type, is_preferred=is_preferred
+                )
         return None
 
     def _extract_activity(self, query: str) -> Optional[ActivityInfo]:
@@ -583,32 +687,40 @@ class QueryUnderstandingEngine:
         facts = []
 
         if semantic.temporal:
-            facts.append(ExtractedFact(
-                fact_type="time",
-                value=semantic.temporal.normalized or semantic.temporal.raw,
-                raw_text=semantic.temporal.raw
-            ))
+            facts.append(
+                ExtractedFact(
+                    fact_type="time",
+                    value=semantic.temporal.normalized or semantic.temporal.raw,
+                    raw_text=semantic.temporal.raw,
+                )
+            )
 
         if semantic.location:
-            facts.append(ExtractedFact(
-                fact_type="location",
-                value=semantic.location.normalized or semantic.location.raw,
-                raw_text=semantic.location.raw
-            ))
+            facts.append(
+                ExtractedFact(
+                    fact_type="location",
+                    value=semantic.location.normalized or semantic.location.raw,
+                    raw_text=semantic.location.raw,
+                )
+            )
 
         if semantic.transport:
-            facts.append(ExtractedFact(
-                fact_type="transport",
-                value=semantic.transport.transport_type,
-                raw_text=semantic.transport.raw
-            ))
+            facts.append(
+                ExtractedFact(
+                    fact_type="transport",
+                    value=semantic.transport.transport_type,
+                    raw_text=semantic.transport.raw,
+                )
+            )
 
         if semantic.activity:
-            facts.append(ExtractedFact(
-                fact_type="activity",
-                value=semantic.activity.activity_type,
-                raw_text=semantic.activity.raw
-            ))
+            facts.append(
+                ExtractedFact(
+                    fact_type="activity",
+                    value=semantic.activity.activity_type,
+                    raw_text=semantic.activity.raw,
+                )
+            )
 
         return facts
 
@@ -618,36 +730,36 @@ class QueryUnderstandingEngine:
 
         # 时间模糊
         if semantic.temporal and semantic.temporal.time_type == "custom":
-            ambiguities.append({
-                "type": "time_vague",
-                "description": "时间表达较为模糊",
-                "raw": semantic.temporal.raw
-            })
+            ambiguities.append(
+                {
+                    "type": "time_vague",
+                    "description": "时间表达较为模糊",
+                    "raw": semantic.temporal.raw,
+                }
+            )
 
         # 地点模糊
         if semantic.location and semantic.location.location_type == "unknown":
-            ambiguities.append({
-                "type": "location_ambiguous",
-                "description": "地点类型不明确",
-                "raw": semantic.location.raw
-            })
+            ambiguities.append(
+                {
+                    "type": "location_ambiguous",
+                    "description": "地点类型不明确",
+                    "raw": semantic.location.raw,
+                }
+            )
 
         # 代词指代（简单检测）
         pronouns = ["它", "这", "那", "这里", "那里"]
         if any(p in query for p in pronouns):
-            ambiguities.append({
-                "type": "pronoun_reference",
-                "description": "可能存在代词指代，需要上下文确认"
-            })
+            ambiguities.append(
+                {"type": "pronoun_reference", "description": "可能存在代词指代，需要上下文确认"}
+            )
 
         # 方式不明确（用户说"去"但没有说明交通方式）
         if semantic.location and not semantic.transport:
             # 检查是否是模糊出行意图
             if any(kw in query for kw in ["去", "到", "前往"]):
-                ambiguities.append({
-                    "type": "manner_unclear",
-                    "description": "出行方式未说明"
-                })
+                ambiguities.append({"type": "manner_unclear", "description": "出行方式未说明"})
 
         return ambiguities
 
@@ -663,17 +775,10 @@ class QueryUnderstandingEngine:
         return signals
 
     def _determine_downstream_needs(
-        self,
-        query: str,
-        semantic: SemanticComponents,
-        existing_intent: str = None
+        self, query: str, semantic: SemanticComponents, existing_intent: str = None
     ) -> Dict[str, bool]:
         """判断下游模块需求"""
-        needs = {
-            "weather": False,
-            "rag": True,
-            "clarification": False
-        }
+        needs = {"weather": False, "rag": True, "clarification": False}
 
         # 天气需求判断
         weather_triggers = ["去", "到", "出行", "外面", "户外"]
@@ -693,16 +798,18 @@ class QueryUnderstandingEngine:
             needs["rag"] = True
 
         # 歧义过多时需要澄清
-        if semantic.location and semantic.location.raw and semantic.location.location_type == "unknown":
+        if (
+            semantic.location
+            and semantic.location.raw
+            and semantic.location.location_type == "unknown"
+        ):
             needs["clarification"] = False  # 暂时不主动询问
 
         return needs
 
 
 def create_query_understanding(
-    query: str,
-    intent: str = None,
-    entities: List[str] = None
+    query: str, intent: str = None, entities: List[str] = None
 ) -> QueryUnderstanding:
     """便捷函数：创建Query理解"""
     engine = QueryUnderstandingEngine()
@@ -732,8 +839,12 @@ if __name__ == "__main__":
 
         print(f"  Intent: {result.intent}")
         print(f"  Temporal: {result.semantic.temporal.raw if result.semantic.temporal else 'None'}")
-        print(f"  Location: {result.semantic.location.raw if result.semantic.location else 'None'} ({result.semantic.location.location_type if result.semantic.location else 'None'})")
-        print(f"  Transport: {result.semantic.transport.raw if result.semantic.transport else 'None'}")
+        print(
+            f"  Location: {result.semantic.location.raw if result.semantic.location else 'None'} ({result.semantic.location.location_type if result.semantic.location else 'None'})"
+        )
+        print(
+            f"  Transport: {result.semantic.transport.raw if result.semantic.transport else 'None'}"
+        )
         print(f"  Activity: {result.semantic.activity.raw if result.semantic.activity else 'None'}")
         print(f"  Needs Weather: {result.needs_weather}")
         print(f"  Ambiguities: {len(result.ambiguities)}")

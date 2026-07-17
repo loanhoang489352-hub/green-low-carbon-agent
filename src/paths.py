@@ -2,6 +2,7 @@
 项目路径统一管理
 所有模块应从这里导入路径,避免散落的 Path(__file__).parent.parent.parent
 """
+
 from pathlib import Path
 
 # src/paths.py → 项目根

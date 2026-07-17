@@ -13,6 +13,7 @@
 - 不用 Redis:单机部署,跨进程不是目标
 - 失败安全:任何异常都不阻塞主路径
 """
+
 from __future__ import annotations
 
 import os

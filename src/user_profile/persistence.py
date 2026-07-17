@@ -10,6 +10,7 @@
 不破坏现有 in-memory 类行为(原 goal_tracker / achievement_system 仍可用),
 只是新增"持久化"接口。
 """
+
 from __future__ import annotations
 
 import json
@@ -36,6 +37,7 @@ class BehaviorPersistence:
     # P6.E.2: 连接池接入 — 同线程 60s 内复用连接(12.5x 性能)
     def _get_conn(self) -> sqlite3.Connection:
         from db.connection import get_connection
+
         return get_connection(self.db_path)
 
     def _release(self, conn) -> None:
@@ -78,12 +80,15 @@ class BehaviorPersistence:
             # P5-I.A: 落库前对 user-supplied 自由文本(event_data / context)做 PII 脱敏
             try:
                 from utils.pii import mask_pii_in_dict, mask_pii
+
                 masked_event_data = mask_pii_in_dict(event_data) if event_data else {}
                 masked_context = mask_pii(context) if context else None
             except Exception as _pii_err:
                 import logging
+
                 logging.getLogger(__name__).warning(
-                    "[PII] behavior_event 字段脱敏失败: %s", _pii_err,
+                    "[PII] behavior_event 字段脱敏失败: %s",
+                    _pii_err,
                 )
                 masked_event_data = event_data or {}
                 masked_context = context
@@ -160,17 +165,19 @@ class BehaviorPersistence:
                     data = json.loads(data) if data else {}
                 except (ValueError, TypeError):
                     data = {"raw": data}
-                results.append({
-                    "id": row[0],
-                    "event_type": row[1],
-                    "event_data": data,
-                    "intent_type": row[3],
-                    "context": row[4],
-                    "carbon_impact": row[5],
-                    "duration_minutes": row[6],
-                    "related_interests": related,
-                    "created_at": row[8],
-                })
+                results.append(
+                    {
+                        "id": row[0],
+                        "event_type": row[1],
+                        "event_data": data,
+                        "intent_type": row[3],
+                        "context": row[4],
+                        "carbon_impact": row[5],
+                        "duration_minutes": row[6],
+                        "related_interests": related,
+                        "created_at": row[8],
+                    }
+                )
             return results
         finally:
             self._release(conn)
@@ -277,11 +284,14 @@ class BehaviorPersistence:
             # P5-I.A: 落库前脱敏
             try:
                 from utils.pii import mask_pii_in_dict
+
                 masked_meta = mask_pii_in_dict(metadata) if metadata else {}
             except Exception as _pii_err:
                 import logging
+
                 logging.getLogger(__name__).warning(
-                    "[PII] achievement metadata 脱敏失败: %s", _pii_err,
+                    "[PII] achievement metadata 脱敏失败: %s",
+                    _pii_err,
                 )
                 masked_meta = metadata or {}
             try:
@@ -323,12 +333,14 @@ class BehaviorPersistence:
                     meta = json.loads(meta) if meta else {}
                 except (ValueError, TypeError):
                     meta = {}
-                results.append({
-                    "id": row[0],
-                    "code": row[1],
-                    "earned_at": row[2],
-                    "metadata": meta,
-                })
+                results.append(
+                    {
+                        "id": row[0],
+                        "code": row[1],
+                        "earned_at": row[2],
+                        "metadata": meta,
+                    }
+                )
             return results
         finally:
             self._release(conn)
@@ -351,11 +363,14 @@ class BehaviorPersistence:
             # P5-I.A: 落库前脱敏
             try:
                 from utils.pii import mask_pii_in_dict
+
                 masked_meta = mask_pii_in_dict(metadata) if metadata else {}
             except Exception as _pii_err:
                 import logging
+
                 logging.getLogger(__name__).warning(
-                    "[PII] carbon metadata 脱敏失败: %s", _pii_err,
+                    "[PII] carbon metadata 脱敏失败: %s",
+                    _pii_err,
                 )
                 masked_meta = metadata or {}
             cursor.execute(
@@ -364,8 +379,14 @@ class BehaviorPersistence:
                 (user_id, category, amount_kg_co2e, recorded_at, source, metadata)
                 VALUES (?, ?, ?, ?, ?, ?)
                 """,
-                (user_id, category, amount_kg_co2e, now, source,
-                 json.dumps(masked_meta, ensure_ascii=False)),
+                (
+                    user_id,
+                    category,
+                    amount_kg_co2e,
+                    now,
+                    source,
+                    json.dumps(masked_meta, ensure_ascii=False),
+                ),
             )
             log_id = cursor.lastrowid
             conn.commit()
@@ -376,6 +397,7 @@ class BehaviorPersistence:
     def calculate_weekly_total(self, user_id: str) -> float:
         """计算用户本周总碳足迹(kg CO2e)"""
         from datetime import timedelta
+
         cutoff = (datetime.now() - timedelta(days=7)).isoformat()
         conn = self._get_conn()
         try:

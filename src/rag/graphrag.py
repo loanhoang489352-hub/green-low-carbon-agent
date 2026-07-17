@@ -5,19 +5,19 @@ GraphRAG 引擎
 
 import sys
 from pathlib import Path
-from typing import List, Dict, Tuple, Optional, Set
+from typing import List, Dict, Optional
 from dataclasses import dataclass, field
 from collections import defaultdict
-import re
 
 script_path = Path(__file__).resolve()
 project_root = script_path.parent.parent.parent
-sys.path.insert(0, str(project_root / 'src'))
+sys.path.insert(0, str(project_root / "src"))
 
 
 @dataclass
 class Entity:
     """实体"""
+
     id: str
     name: str
     type: str  # concept, action, policy, metric, location
@@ -34,9 +34,10 @@ class Entity:
 @dataclass
 class Relation:
     """关系"""
+
     source: str  # 源实体ID
     target: str  # 目标实体ID
-    type: str    # contains, affects, causes, belongs_to, related_to
+    type: str  # contains, affects, causes, belongs_to, related_to
     weight: float = 1.0
     description: str = ""
 
@@ -47,6 +48,7 @@ class Relation:
 @dataclass
 class GraphResult:
     """图谱检索结果"""
+
     content: str
     score: float
     entities: List[str]  # 涉及的实体ID列表
@@ -58,25 +60,63 @@ class EntityExtractor:
     """实体提取器"""
 
     ENTITY_PATTERNS = {
-        'concept': [
-            '碳中和', '碳达峰', '碳足迹', '碳交易', '碳排放', '低碳', '减排',
-            '温室气体', '二氧化碳', '可再生能源', '再生能源', '可持续发展'
+        "concept": [
+            "碳中和",
+            "碳达峰",
+            "碳足迹",
+            "碳交易",
+            "碳排放",
+            "低碳",
+            "减排",
+            "温室气体",
+            "二氧化碳",
+            "可再生能源",
+            "再生能源",
+            "可持续发展",
         ],
-        'action': [
-            '骑行', '步行', '公交', '地铁', '开车', '拼车', '乘坐', '出行',
-            '节能', '省电', '节约', '分类', '回收', '减少', '替换'
+        "action": [
+            "骑行",
+            "步行",
+            "公交",
+            "地铁",
+            "开车",
+            "拼车",
+            "乘坐",
+            "出行",
+            "节能",
+            "省电",
+            "节约",
+            "分类",
+            "回收",
+            "减少",
+            "替换",
         ],
-        'policy': [
-            '双碳目标', '碳达峰', '碳中和', '政策', '补贴', '奖励', '优惠',
-            '碳市场', '碳配额', '碳积分', '绿色认证', '环境标志'
+        "policy": [
+            "双碳目标",
+            "碳达峰",
+            "碳中和",
+            "政策",
+            "补贴",
+            "奖励",
+            "优惠",
+            "碳市场",
+            "碳配额",
+            "碳积分",
+            "绿色认证",
+            "环境标志",
         ],
-        'metric': [
-            'kg CO2', '碳排放量', '节能效果', '回本周期', '年省电', '年减碳',
-            '能效', '碳足迹', '排放量'
+        "metric": [
+            "kg CO2",
+            "碳排放量",
+            "节能效果",
+            "回本周期",
+            "年省电",
+            "年减碳",
+            "能效",
+            "碳足迹",
+            "排放量",
         ],
-        'location': [
-            '北京', '上海', '广州', '深圳', '中国', '全国', '各地', '城市', '农村'
-        ]
+        "location": ["北京", "上海", "广州", "深圳", "中国", "全国", "各地", "城市", "农村"],
     }
 
     def extract(self, text: str) -> List[Entity]:
@@ -87,12 +127,14 @@ class EntityExtractor:
         for entity_type, keywords in self.ENTITY_PATTERNS.items():
             for keyword in keywords:
                 if keyword in text and keyword not in found:
-                    entities.append(Entity(
-                        id=f"{entity_type}_{keyword}",
-                        name=keyword,
-                        type=entity_type,
-                        description=f"从文本中识别的{entity_type}类型实体"
-                    ))
+                    entities.append(
+                        Entity(
+                            id=f"{entity_type}_{keyword}",
+                            name=keyword,
+                            type=entity_type,
+                            description=f"从文本中识别的{entity_type}类型实体",
+                        )
+                    )
                     found.add(keyword)
 
         return entities
@@ -106,65 +148,65 @@ class RelationExtractor:
     # 方向-1: target在前，source在后
     RELATION_PATTERNS = [
         # 减少关系
-        ('可以减少', 'reduces', 1),
-        ('有助于减少', 'reduces', 1),
-        ('降低', 'reduces', 1),
-        ('减少', 'reduces', 1),
+        ("可以减少", "reduces", 1),
+        ("有助于减少", "reduces", 1),
+        ("降低", "reduces", 1),
+        ("减少", "reduces", 1),
         # 增加关系
-        ('导致增加', 'causes', 1),
-        ('增加', 'causes', 1),
-        ('提高', 'increases', 1),
+        ("导致增加", "causes", 1),
+        ("增加", "causes", 1),
+        ("提高", "increases", 1),
         # 类型关系
-        ('是的一种', 'is_type_of', 1),
-        ('属于', 'belongs_to', 1),
+        ("是的一种", "is_type_of", 1),
+        ("属于", "belongs_to", 1),
         # 包含关系
-        ('包括', 'contains', 1),
-        ('包含', 'contains', 1),
-        ('涵盖', 'contains', 1),
+        ("包括", "contains", 1),
+        ("包含", "contains", 1),
+        ("涵盖", "contains", 1),
         # 相关关系
-        ('与相关', 'related_to', 1),
-        ('和相关', 'related_to', 1),
-        ('涉及', 'related_to', 1),
+        ("与相关", "related_to", 1),
+        ("和相关", "related_to", 1),
+        ("涉及", "related_to", 1),
         # 影响关系
-        ('影响', 'affects', 1),
-        ('作用于', 'affects', 1),
+        ("影响", "affects", 1),
+        ("作用于", "affects", 1),
         # 促进关系
-        ('促进', 'promotes', 1),
-        ('推动', 'promotes', 1),
-        ('助力', 'promotes', 1),
+        ("促进", "promotes", 1),
+        ("推动", "promotes", 1),
+        ("助力", "promotes", 1),
         # 实现关系
-        ('实现', 'achieves', 1),
-        ('达成', 'achieves', 1),
+        ("实现", "achieves", 1),
+        ("达成", "achieves", 1),
         # 通过关系
-        ('通过', 'via', 1),
-        ('借助', 'via', 1),
+        ("通过", "via", 1),
+        ("借助", "via", 1),
         # 采用关系
-        ('采用', 'adopts', 1),
-        ('使用', 'adopts', 1),
-        ('应用', 'adopts', 1),
+        ("采用", "adopts", 1),
+        ("使用", "adopts", 1),
+        ("应用", "adopts", 1),
         # 替代关系
-        ('替代', 'replaces', 1),
-        ('取代', 'replaces', 1),
-        ('代替', 'replaces', 1),
+        ("替代", "replaces", 1),
+        ("取代", "replaces", 1),
+        ("代替", "replaces", 1),
         # 依赖关系
-        ('依赖', 'depends_on', 1),
-        ('需要', 'depends_on', 1),
+        ("依赖", "depends_on", 1),
+        ("需要", "depends_on", 1),
     ]
 
     # 逆向关系映射
     REVERSE_RELATIONS = {
-        'contains': 'belongs_to',
-        'belongs_to': 'contains',
-        'reduces': 'increases_by',
-        'increases': 'reduces_by',
-        'promotes': 'promoted_by',
-        'achieves': 'achieved_by',
-        'via': 'used_by',
-        'adopts': 'adopted_by',
-        'replaces': 'replaced_by',
-        'depends_on': 'enables',
-        'affects': 'affected_by',
-        'related_to': 'related_to',
+        "contains": "belongs_to",
+        "belongs_to": "contains",
+        "reduces": "increases_by",
+        "increases": "reduces_by",
+        "promotes": "promoted_by",
+        "achieves": "achieved_by",
+        "via": "used_by",
+        "adopts": "adopted_by",
+        "replaces": "replaced_by",
+        "depends_on": "enables",
+        "affects": "affected_by",
+        "related_to": "related_to",
     }
 
     def extract(self, text: str, entities: List[Entity] = None) -> List[Relation]:
@@ -180,6 +222,7 @@ class RelationExtractor:
         # 如果没有提供实体，从关键词提取
         if not entity_list:
             from rag.entity_linking import NLPEntityExtractor
+
             nlp_extractor = NLPEntityExtractor()
             entity_list = nlp_extractor.extract_entities(text)
 
@@ -197,8 +240,8 @@ class RelationExtractor:
 
                 # 在关键词前后寻找已知实体（限制搜索范围）
                 max_search_dist = 15
-                before_text = text[max(0, pos - max_search_dist):pos]
-                after_text = text[pos + len(keyword):pos + len(keyword) + max_search_dist]
+                before_text = text[max(0, pos - max_search_dist) : pos]
+                after_text = text[pos + len(keyword) : pos + len(keyword) + max_search_dist]
 
                 # 向前找实体（取最后一个匹配）
                 source = None
@@ -224,22 +267,26 @@ class RelationExtractor:
                     source_type = self._get_entity_type(source)
                     target_type = self._get_entity_type(target)
 
-                    relations.append(Relation(
-                        source=f"{source_type}:{source}",
-                        target=f"{target_type}:{target}",
-                        type=rel_type,
-                        weight=1.0
-                    ))
+                    relations.append(
+                        Relation(
+                            source=f"{source_type}:{source}",
+                            target=f"{target_type}:{target}",
+                            type=rel_type,
+                            weight=1.0,
+                        )
+                    )
 
                     # 添加逆向关系
                     reverse_type = self.REVERSE_RELATIONS.get(rel_type)
                     if reverse_type:
-                        relations.append(Relation(
-                            source=f"{target_type}:{target}",
-                            target=f"{source_type}:{source}",
-                            type=reverse_type,
-                            weight=0.8
-                        ))
+                        relations.append(
+                            Relation(
+                                source=f"{target_type}:{target}",
+                                target=f"{source_type}:{source}",
+                                type=reverse_type,
+                                weight=0.8,
+                            )
+                        )
 
         return relations
 
@@ -260,10 +307,7 @@ class GraphRAGEngine:
             knowledge_base_path = str(project_root / "knowledge_base")
 
         self.knowledge_base_path = knowledge_base_path
-        self.graph: Dict[str, Dict] = defaultdict(lambda: {
-            'entities': {},
-            'relations': []
-        })
+        self.graph: Dict[str, Dict] = defaultdict(lambda: {"entities": {}, "relations": []})
         self.entity_extractor = EntityExtractor()
         self.relation_extractor = RelationExtractor()
         self._initialized = False
@@ -274,6 +318,7 @@ class GraphRAGEngine:
     def enable_persistence(self, persist_path: str = None):
         """启用图谱持久化"""
         from rag.graph_persistence import GraphPersistence
+
         self._persistence = GraphPersistence(persist_path)
         print("[GraphRAG] 持久化已启用")
 
@@ -316,7 +361,7 @@ class GraphRAGEngine:
 
         for md_file in md_files:
             try:
-                content = md_file.read_text(encoding='utf-8')
+                content = md_file.read_text(encoding="utf-8")
                 self._process_document(md_file.stem, content, str(md_file))
             except Exception as e:
                 print(f"[GraphRAG] 处理文档失败 {md_file}: {e}")
@@ -324,11 +369,11 @@ class GraphRAGEngine:
     def _process_document(self, doc_id: str, content: str, source: str):
         """处理单个文档，构建实体和关系"""
         # 提取标题作为实体
-        lines = content.split('\n')
+        lines = content.split("\n")
         title = lines[0] if lines else doc_id
 
         # 提取段落作为节点内容
-        paragraphs = [p.strip() for p in content.split('\n\n') if p.strip()]
+        paragraphs = [p.strip() for p in content.split("\n\n") if p.strip()]
 
         # O(1) 查重的 (source, target) 集合 — 取代原来的 O(N) 线性扫描
         seen_pairs: set = set()
@@ -340,11 +385,11 @@ class GraphRAGEngine:
             # 提取实体
             entities = self.entity_extractor.extract(para)
             for entity in entities:
-                if entity.name not in self.graph[doc_id]['entities']:
-                    self.graph[doc_id]['entities'][entity.name] = {
-                        'entity': entity,
-                        'content': para,
-                        'source': source
+                if entity.name not in self.graph[doc_id]["entities"]:
+                    self.graph[doc_id]["entities"][entity.name] = {
+                        "entity": entity,
+                        "content": para,
+                        "source": source,
                     }
 
                 # 建立实体间的共现关系
@@ -354,12 +399,14 @@ class GraphRAGEngine:
                         if pair_key in seen_pairs:
                             continue
                         seen_pairs.add(pair_key)
-                        self.graph[doc_id]['relations'].append(Relation(
-                            source=entity.id,
-                            target=other_entity.id,
-                            type='co_occurs',
-                            weight=0.5
-                        ))
+                        self.graph[doc_id]["relations"].append(
+                            Relation(
+                                source=entity.id,
+                                target=other_entity.id,
+                                type="co_occurs",
+                                weight=0.5,
+                            )
+                        )
 
     def build_graph(self):
         """显式构建全局知识图谱"""
@@ -370,20 +417,20 @@ class GraphRAGEngine:
 
         # 合并所有文档的实体和关系
         for doc_id, doc_data in self.graph.items():
-            for entity_name, entity_data in doc_data['entities'].items():
-                entity = entity_data['entity']
+            for entity_name, entity_data in doc_data["entities"].items():
+                entity = entity_data["entity"]
                 if entity.name not in global_entities:
                     global_entities[entity.name] = {
-                        'entity': entity,
-                        'documents': [],
-                        'contents': []
+                        "entity": entity,
+                        "documents": [],
+                        "contents": [],
                     }
-                global_entities[entity.name]['documents'].append(doc_id)
-                global_entities[entity.name]['contents'].append(entity_data['content'])
+                global_entities[entity.name]["documents"].append(doc_id)
+                global_entities[entity.name]["contents"].append(entity_data["content"])
 
         # 跨文档关系
         for doc_id, doc_data in self.graph.items():
-            for rel in doc_data['relations']:
+            for rel in doc_data["relations"]:
                 global_relations.append(rel)
 
         print(f"[GraphRAG] 全局实体: {len(global_entities)}, 全局关系: {len(global_relations)}")
@@ -404,25 +451,29 @@ class GraphRAGEngine:
         relevant_contents = []
         for q_entity in question_entities:
             for doc_id, doc_data in self.graph.items():
-                if q_entity.name in doc_data['entities']:
-                    entity_info = doc_data['entities'][q_entity.name]
-                    relevant_contents.append({
-                        'entity': q_entity.name,
-                        'content': entity_info['content'],
-                        'source': entity_info['source'],
-                        'score': 1.0
-                    })
+                if q_entity.name in doc_data["entities"]:
+                    entity_info = doc_data["entities"][q_entity.name]
+                    relevant_contents.append(
+                        {
+                            "entity": q_entity.name,
+                            "content": entity_info["content"],
+                            "source": entity_info["source"],
+                            "score": 1.0,
+                        }
+                    )
 
         # 构建结果
         results = []
         for item in relevant_contents[:top_k]:
-            results.append(GraphResult(
-                content=item['content'],
-                score=item['score'],
-                entities=[item['entity']],
-                relations=[],
-                path=[item['entity']]
-            ))
+            results.append(
+                GraphResult(
+                    content=item["content"],
+                    score=item["score"],
+                    entities=[item["entity"]],
+                    relations=[],
+                    path=[item["entity"]],
+                )
+            )
 
         return results
 
@@ -458,27 +509,31 @@ class GraphRAGEngine:
 
             # 查找关联内容
             for doc_id, doc_data in self.graph.items():
-                if entity.name in doc_data['entities']:
-                    entity_info = doc_data['entities'][entity.name]
-                    results.append(GraphResult(
-                        content=entity_info['content'],
-                        score=1.0 / len(path),
-                        entities=path,
-                        relations=[],
-                        path=path
-                    ))
+                if entity.name in doc_data["entities"]:
+                    entity_info = doc_data["entities"][entity.name]
+                    results.append(
+                        GraphResult(
+                            content=entity_info["content"],
+                            score=1.0 / len(path),
+                            entities=path,
+                            relations=[],
+                            path=path,
+                        )
+                    )
 
             # 扩展邻居
             if len(path) < max_hops:
                 for doc_id, doc_data in self.graph.items():
-                    if entity.name in doc_data['entities']:
-                        for rel in doc_data['relations']:
+                    if entity.name in doc_data["entities"]:
+                        for rel in doc_data["relations"]:
                             if rel.source == entity.id:
                                 # 找到目标实体
-                                target_name = rel.target.split(':')[-1] if ':' in rel.target else rel.target
+                                target_name = (
+                                    rel.target.split(":")[-1] if ":" in rel.target else rel.target
+                                )
                                 if target_name not in visited:
                                     # 获取实体类型
-                                    target_type = 'concept'
+                                    target_type = "concept"
                                     for etype, keywords in EntityExtractor.ENTITY_PATTERNS.items():
                                         if target_name in keywords:
                                             target_type = etype
@@ -486,7 +541,7 @@ class GraphRAGEngine:
                                     new_entity = Entity(
                                         id=f"{target_type}_{target_name}",
                                         name=target_name,
-                                        type=target_type
+                                        type=target_type,
                                     )
                                     queue.append((new_entity, path + [target_name]))
 
@@ -504,12 +559,12 @@ class GraphRAGEngine:
     def get_entity_info(self, entity_name: str) -> Optional[Dict]:
         """获取实体详情"""
         for doc_id, doc_data in self.graph.items():
-            if entity_name in doc_data['entities']:
+            if entity_name in doc_data["entities"]:
                 return {
-                    'name': entity_name,
-                    'type': doc_data['entities'][entity_name]['entity'].type,
-                    'content': doc_data['entities'][entity_name]['content'],
-                    'source': doc_data['entities'][entity_name]['source']
+                    "name": entity_name,
+                    "type": doc_data["entities"][entity_name]["entity"].type,
+                    "content": doc_data["entities"][entity_name]["content"],
+                    "source": doc_data["entities"][entity_name]["source"],
                 }
         return None
 
@@ -518,14 +573,11 @@ class GraphRAGEngine:
         related = []
 
         for doc_id, doc_data in self.graph.items():
-            if entity_name in doc_data['entities']:
-                for rel in doc_data['relations']:
-                    if rel.source == doc_data['entities'][entity_name]['entity'].id:
-                        target_name = rel.target.split(':')[-1] if ':' in rel.target else rel.target
-                        related.append({
-                            'name': target_name,
-                            'relation': rel.type
-                        })
+            if entity_name in doc_data["entities"]:
+                for rel in doc_data["relations"]:
+                    if rel.source == doc_data["entities"][entity_name]["entity"].id:
+                        target_name = rel.target.split(":")[-1] if ":" in rel.target else rel.target
+                        related.append({"name": target_name, "relation": rel.type})
                         if len(related) >= max_results:
                             return related
 
@@ -533,13 +585,13 @@ class GraphRAGEngine:
 
     def get_stats(self) -> Dict:
         """获取图谱统计"""
-        total_entities = sum(len(d['entities']) for d in self.graph.values())
-        total_relations = sum(len(d['relations']) for d in self.graph.values())
+        total_entities = sum(len(d["entities"]) for d in self.graph.values())
+        total_relations = sum(len(d["relations"]) for d in self.graph.values())
         return {
-            'documents': len(self.graph),
-            'total_entities': total_entities,
-            'total_relations': total_relations,
-            'initialized': self._initialized
+            "documents": len(self.graph),
+            "total_entities": total_entities,
+            "total_relations": total_relations,
+            "initialized": self._initialized,
         }
 
     def get_subgraph(self, entity_name: str, depth: int = 2) -> Dict:
@@ -554,10 +606,7 @@ class GraphRAGEngine:
         """
         self.initialize()
 
-        subgraph = {
-            'entities': {},
-            'relations': []
-        }
+        subgraph = {"entities": {}, "relations": []}
 
         visited = set()
         queue = [(entity_name, 0)]
@@ -571,21 +620,23 @@ class GraphRAGEngine:
 
             # 收集实体
             for doc_id, doc_data in self.graph.items():
-                if current in doc_data['entities']:
-                    entity_info = doc_data['entities'][current]
-                    if current not in subgraph['entities']:
-                        subgraph['entities'][current] = entity_info
+                if current in doc_data["entities"]:
+                    entity_info = doc_data["entities"][current]
+                    if current not in subgraph["entities"]:
+                        subgraph["entities"][current] = entity_info
 
                     # 收集关系
-                    for rel in doc_data['relations']:
-                        if rel.source == entity_info['entity'].id:
-                            target_name = rel.target.split(':')[-1] if ':' in rel.target else rel.target
-                            subgraph['relations'].append(rel)
+                    for rel in doc_data["relations"]:
+                        if rel.source == entity_info["entity"].id:
+                            target_name = (
+                                rel.target.split(":")[-1] if ":" in rel.target else rel.target
+                            )
+                            subgraph["relations"].append(rel)
 
                             # 添加邻居实体
                             if current_depth < depth and target_name not in visited:
                                 for other_doc_id, other_doc_data in self.graph.items():
-                                    if target_name in other_doc_data['entities']:
+                                    if target_name in other_doc_data["entities"]:
                                         queue.append((target_name, current_depth + 1))
 
         return subgraph
@@ -618,14 +669,14 @@ class GraphRAGEngine:
 
             # 查找当前实体的邻居
             for doc_id, doc_data in self.graph.items():
-                if current not in doc_data['entities']:
+                if current not in doc_data["entities"]:
                     continue
 
-                entity_id = doc_data['entities'][current]['entity'].id
+                entity_id = doc_data["entities"][current]["entity"].id
 
-                for rel in doc_data['relations']:
+                for rel in doc_data["relations"]:
                     if rel.source == entity_id or rel.target == entity_id:
-                        target_name = rel.target.split(':')[-1] if ':' in rel.target else rel.target
+                        target_name = rel.target.split(":")[-1] if ":" in rel.target else rel.target
 
                         if target_name == target:
                             return path + [target_name]
@@ -637,10 +688,7 @@ class GraphRAGEngine:
         return None
 
     def query_with_attention(
-        self,
-        question: str,
-        top_k: int = 5,
-        use_embedding: bool = False
+        self, question: str, top_k: int = 5, use_embedding: bool = False
     ) -> List[GraphResult]:
         """基于注意力的查询（优先返回与问题语义相关的实体）
 
@@ -664,27 +712,29 @@ class GraphRAGEngine:
         results = []
         for q_entity in question_entities:
             for doc_id, doc_data in self.graph.items():
-                if q_entity.name in doc_data['entities']:
-                    entity_info = doc_data['entities'][q_entity.name]
+                if q_entity.name in doc_data["entities"]:
+                    entity_info = doc_data["entities"][q_entity.name]
 
                     # 计算相关性评分
                     score = 1.0
 
                     # 实体匹配得分
-                    if q_entity.name == entity_info['entity'].name:
+                    if q_entity.name == entity_info["entity"].name:
                         score *= 1.5
 
                     # 类型匹配
-                    if q_entity.type == entity_info['entity'].type:
+                    if q_entity.type == entity_info["entity"].type:
                         score *= 1.2
 
-                    results.append(GraphResult(
-                        content=entity_info['content'],
-                        score=score,
-                        entities=[q_entity.name],
-                        relations=[],
-                        path=[q_entity.name]
-                    ))
+                    results.append(
+                        GraphResult(
+                            content=entity_info["content"],
+                            score=score,
+                            entities=[q_entity.name],
+                            relations=[],
+                            path=[q_entity.name],
+                        )
+                    )
 
         # 去重并排序
         seen = set()

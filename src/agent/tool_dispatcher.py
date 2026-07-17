@@ -12,6 +12,7 @@ P6.S.17: Tool Dispatcher + ReAct 循环
 
 这是真正"agent"的核心循环,替代 core.py 里 200+ 行硬编码 if-else。
 """
+
 from __future__ import annotations
 
 import json
@@ -19,7 +20,6 @@ import logging
 import time
 from typing import Any, Dict, List, Optional
 
-from llm import LLMResponse
 from llm.client import registry_tools_to_openai_format
 
 _logger = logging.getLogger(__name__)
@@ -35,11 +35,13 @@ def dispatch_tool_call(name: str, arguments_json: str) -> Dict[str, Any]:
     # P6.S.20: 记录 tool 调用到 metrics
     try:
         from observability.metrics import get_metrics_collector
+
         get_metrics_collector().record_tool_call(name)
     except Exception:
         pass
     try:
         from agent.tools import get_registry
+
         reg = get_registry()
     except Exception as e:
         return {"success": False, "error": f"registry unavailable: {e}"}
@@ -51,7 +53,9 @@ def dispatch_tool_call(name: str, arguments_json: str) -> Dict[str, Any]:
     # 解析 arguments
     if arguments_json:
         try:
-            kwargs = json.loads(arguments_json) if isinstance(arguments_json, str) else arguments_json
+            kwargs = (
+                json.loads(arguments_json) if isinstance(arguments_json, str) else arguments_json
+            )
         except Exception as e:
             return {"success": False, "error": f"invalid arguments JSON: {e}"}
     else:
@@ -112,7 +116,10 @@ def run_react_loop(
     for step in range(1, max_steps + 1):
         try:
             resp = llm_client.chat(
-                messages, tools=tools, tool_choice=tool_choice, trace_id=trace_id,
+                messages,
+                tools=tools,
+                tool_choice=tool_choice,
+                trace_id=trace_id,
             )
         except Exception as e:
             return {
@@ -137,45 +144,56 @@ def run_react_loop(
         # OpenAI 要求把 assistant message(含 tool_calls)push 回 messages
         # 然后 tool 结果以 role="tool" push
         from llm.client import _parse_openai_tool_calls  # noqa
+
         # 构造 assistant message
-        messages.append({
-            "role": "assistant",
-            "content": resp.content or "",
-            "tool_calls": [
-                {
-                    "id": tc["id"],
-                    "type": "function",
-                    "function": {
-                        "name": tc["name"],
-                        "arguments": tc["arguments"],
-                    },
-                }
-                for tc in resp.tool_calls
-            ],
-        })
+        messages.append(
+            {
+                "role": "assistant",
+                "content": resp.content or "",
+                "tool_calls": [
+                    {
+                        "id": tc["id"],
+                        "type": "function",
+                        "function": {
+                            "name": tc["name"],
+                            "arguments": tc["arguments"],
+                        },
+                    }
+                    for tc in resp.tool_calls
+                ],
+            }
+        )
         for tc in resp.tool_calls:
             t0 = time.time()
             result = dispatch_tool_call(tc["name"], tc["arguments"])
             elapsed_ms = round((time.time() - t0) * 1000, 2)
-            tool_calls_log.append({
-                "name": tc["name"],
-                "arguments": tc["arguments"],
-                "success": result["success"],
-                "elapsed_ms": elapsed_ms,
-            })
+            tool_calls_log.append(
+                {
+                    "name": tc["name"],
+                    "arguments": tc["arguments"],
+                    "success": result["success"],
+                    "elapsed_ms": elapsed_ms,
+                }
+            )
             # tool 结果以 role="tool" push,带 tool_call_id
             tool_result_text = json.dumps(
                 result.get("output") if result["success"] else {"error": result.get("error")},
-                ensure_ascii=False, default=str,
+                ensure_ascii=False,
+                default=str,
             )[:4000]  # 防超长
-            messages.append({
-                "role": "tool",
-                "tool_call_id": tc["id"],
-                "content": tool_result_text,
-            })
+            messages.append(
+                {
+                    "role": "tool",
+                    "tool_call_id": tc["id"],
+                    "content": tool_result_text,
+                }
+            )
             _logger.info(
                 "[P6.S.17.ReAct] step=%d tool=%s ok=%s ms=%.1f",
-                step, tc["name"], result["success"], elapsed_ms,
+                step,
+                tc["name"],
+                result["success"],
+                elapsed_ms,
             )
 
     # max_steps 用完,强制收尾

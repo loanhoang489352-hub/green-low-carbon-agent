@@ -4,47 +4,47 @@
       "name": "中国碳排放交易网",
       "url": "http://www.pcet.cn",
       "type": "carbon_market",
-      "last_check": "2026-05-18T12:00:21.260735",
-      "last_hash": "27630850e79e16a16f1e2f6942597bfb",
-      "last_update_time": null
+      "last_check": "2026-06-17T02:00:00.552578",
+      "last_hash": "sha256:0733efcbc257ab94cffed6b3f1aba64caeec66087a52e49e2a25cac51e9f5edc",
+      "last_update_time": "2024年12月31日"
     },
     {
       "name": "碳排放交易网",
       "url": "http://www.tanpaifang.com",
       "type": "carbon_market",
-      "last_check": "2026-05-18T12:00:21.260735",
-      "last_hash": "c3d497f1f7e7e7a7ccb678869f3f951e",
-      "last_update_time": null
+      "last_check": "2026-06-17T02:00:00.552578",
+      "last_hash": "sha256:2d173c152fc99dec1b23501abfffb8453eb95f6e68c337f6453eade9c62d2b03",
+      "last_update_time": "2026年5月11日"
     },
     {
       "name": "中国节能信息网",
       "url": "http://www.ceprei.com",
       "type": "energy",
-      "last_check": "2026-05-18T12:00:21.260735",
-      "last_hash": "68c614994c94fae28c0175da4f8560e6",
-      "last_update_time": null
+      "last_check": "2026-06-17T02:00:00.552578",
+      "last_hash": "md5:f32a6e99c22bbe86b1ed7ba44a5811f0",
+      "last_update_time": "2026-06-01"
     },
     {
       "name": "中国环境报",
       "url": "http://www.cenews.com.cn",
       "type": "news",
-      "last_check": "2026-05-18T12:00:21.260735",
-      "last_hash": "5dc3ffaa397b14d3f2d4688bf205f1ba",
+      "last_check": "2026-06-17T02:00:00.552578",
+      "last_hash": "md5:4aee5205a43a37f2fd3c84ff72711bc1",
       "last_update_time": null
     },
     {
       "name": "Carbon Monitor",
       "url": "https://carbonmonitor.org",
       "type": "data",
-      "last_check": "2026-05-18T12:00:21.260735",
-      "last_hash": "b1c14898962321628f2bff239f38114f",
+      "last_check": "2026-06-17T02:00:00.552578",
+      "last_hash": "sha256:d571c6639b5ac508b8158bf96f985e154c6e4ba1e2e4a44af5504a17bcff5d00",
       "last_update_time": null
     },
     {
       "name": "Eartho",
       "url": "https://earthos.taoclimate.com",
       "type": "climate",
-      "last_check": "2026-05-18T12:00:21.260735",
+      "last_check": "2026-06-17T02:00:00.552578",
       "last_hash": "10867cd2504325d68424ea787f761a3b",
       "last_update_time": null
     }

@@ -11,6 +11,7 @@ from enum import Enum
 
 class ToolStatus(Enum):
     """工具执行状态"""
+
     IDLE = "idle"
     RUNNING = "running"
     SUCCESS = "success"
@@ -21,6 +22,7 @@ class ToolStatus(Enum):
 @dataclass
 class ToolResult:
     """工具执行结果"""
+
     success: bool
     data: Any = None
     error: Optional[str] = None
@@ -33,7 +35,7 @@ class ToolResult:
             "data": self.data,
             "error": self.error,
             "metadata": self.metadata,
-            "execution_time": self.execution_time
+            "execution_time": self.execution_time,
         }
 
 
@@ -117,14 +119,11 @@ class BaseTool(ABC):
             "parameters": {
                 "type": "object",
                 "properties": {
-                    p["name"]: {
-                        "type": p["type"],
-                        "description": p.get("description", "")
-                    }
+                    p["name"]: {"type": p["type"], "description": p.get("description", "")}
                     for p in self.parameters
                 },
-                "required": [p["name"] for p in self.parameters if p.get("required", False)]
-            }
+                "required": [p["name"] for p in self.parameters if p.get("required", False)],
+            },
         }
 
 
@@ -138,7 +137,7 @@ class ToolMetadata:
         category: str = "general",
         version: str = "1.0.0",
         tags: List[str] = None,
-        examples: List[str] = None
+        examples: List[str] = None,
     ):
         self.name = name
         self.description = description
@@ -154,5 +153,5 @@ class ToolMetadata:
             "category": self.category,
             "version": self.version,
             "tags": self.tags,
-            "examples": self.examples
+            "examples": self.examples,
         }

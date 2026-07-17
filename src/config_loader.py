@@ -2,9 +2,8 @@
 YAML 配置加载器
 从 config/ 目录加载外部化配置,提供缓存
 """
-import os
+
 from functools import lru_cache
-from pathlib import Path
 from typing import Any, Dict, List
 
 try:

@@ -6,24 +6,26 @@
 import os
 import sys
 from pathlib import Path
+
 script_path = Path(__file__).resolve()
 project_root = script_path.parent.parent.parent
-sys.path.insert(0, str(project_root / 'src'))
+sys.path.insert(0, str(project_root / "src"))
 
-from typing import List, Dict, Any, Optional
-import json
+from typing import List, Dict, Any
 
 try:
     from config_loader import get_default_city
+
     _DEFAULT_CITY = get_default_city()
 except Exception:
     _DEFAULT_CITY = "北京"
 
-from agent.tools.base import BaseTool, ToolResult, ToolMetadata
+from agent.tools.base import BaseTool, ToolResult
 from agent.skills.skill import Skill, SkillContext
 
 
 # ============ 基础工具实现 ============
+
 
 class WeatherTool(BaseTool):
     """天气查询工具"""
@@ -43,27 +45,31 @@ class WeatherTool(BaseTool):
                 "name": "city",
                 "type": "string",
                 "description": "城市名称，如：北京、濂泉响谷",
-                "required": True
+                "required": True,
             },
             {
                 "name": "date",
                 "type": "string",
                 "description": "日期，格式 YYYY-MM-DD，默认查询今天",
                 "required": False,
-                "default": ""
-            }
+                "default": "",
+            },
         ]
 
     def execute(self, **kwargs) -> ToolResult:
         import time
+
         start = time.time()
 
         city = kwargs.get("city", "")
         if not city:
-            return ToolResult(success=False, error="缺少城市参数", execution_time=time.time() - start)
+            return ToolResult(
+                success=False, error="缺少城市参数", execution_time=time.time() - start
+            )
 
         try:
             from utils.web_search import WebSearcher
+
             web_searcher = WebSearcher()
             weather = web_searcher.fetch_weather_from_api(city)
 
@@ -72,19 +78,17 @@ class WeatherTool(BaseTool):
                     success=True,
                     data={"city": city, "weather": weather},
                     metadata={"source": "web_search"},
-                    execution_time=time.time() - start
+                    execution_time=time.time() - start,
                 )
             else:
                 return ToolResult(
                     success=False,
                     error=f"无法获取 {city} 的天气",
-                    execution_time=time.time() - start
+                    execution_time=time.time() - start,
                 )
         except Exception as e:
             return ToolResult(
-                success=False,
-                error=f"天气查询失败: {str(e)}",
-                execution_time=time.time() - start
+                success=False, error=f"天气查询失败: {str(e)}", execution_time=time.time() - start
             )
 
 
@@ -106,35 +110,38 @@ class CarbonCalcTool(BaseTool):
                 "name": "distance_km",
                 "type": "number",
                 "description": "出行距离（公里）",
-                "required": True
+                "required": True,
             },
             {
                 "name": "transport_mode",
                 "type": "string",
                 "description": "出行方式：driving（自驾）、transit（公交）、cycling（骑行）、walking（步行）",
-                "required": True
-            }
+                "required": True,
+            },
         ]
 
     def execute(self, **kwargs) -> ToolResult:
         import time
+
         start = time.time()
 
         distance = kwargs.get("distance_km", 0)
         mode = kwargs.get("transport_mode", "transit")
 
         if distance <= 0:
-            return ToolResult(success=False, error="距离必须大于0", execution_time=time.time() - start)
+            return ToolResult(
+                success=False, error="距离必须大于0", execution_time=time.time() - start
+            )
 
         # 碳排放系数 (kg CO2/人/km)
         emission_factors = {
-            "driving": 0.16,      # 私家车
-            "taxi": 0.18,         # 出租车
-            "transit": 0.08,      # 公交/地铁
-            "cycling": 0.0,       # 骑行
-            "walking": 0.0,       # 步行
+            "driving": 0.16,  # 私家车
+            "taxi": 0.18,  # 出租车
+            "transit": 0.08,  # 公交/地铁
+            "cycling": 0.0,  # 骑行
+            "walking": 0.0,  # 步行
             "high_speed_rail": 0.06,  # 高铁
-            "flight": 0.18,       # 飞机
+            "flight": 0.18,  # 飞机
         }
 
         factor = emission_factors.get(mode, 0.08)
@@ -153,10 +160,12 @@ class CarbonCalcTool(BaseTool):
                 "distance_km": distance,
                 "transport_mode": mode,
                 "carbon_kg": round(carbon_kg, 3),
-                "carbon_saved_kg": round(distance * 0.16 - carbon_kg, 3) if mode != "driving" else 0,
-                "suggestions": suggestions
+                "carbon_saved_kg": round(distance * 0.16 - carbon_kg, 3)
+                if mode != "driving"
+                else 0,
+                "suggestions": suggestions,
             },
-            execution_time=time.time() - start
+            execution_time=time.time() - start,
         )
 
 
@@ -174,36 +183,29 @@ class PublicTransitTool(BaseTool):
     @property
     def parameters(self) -> List[Dict[str, Any]]:
         return [
-            {
-                "name": "origin",
-                "type": "string",
-                "description": "出发地",
-                "required": True
-            },
-            {
-                "name": "destination",
-                "type": "string",
-                "description": "目的地",
-                "required": True
-            }
+            {"name": "origin", "type": "string", "description": "出发地", "required": True},
+            {"name": "destination", "type": "string", "description": "目的地", "required": True},
         ]
 
     def execute(self, **kwargs) -> ToolResult:
         import time
+
         start = time.time()
 
         origin = kwargs.get("origin", "")
         destination = kwargs.get("destination", "")
 
         if not origin or not destination:
-            return ToolResult(success=False, error="缺少出发地或目的地", execution_time=time.time() - start)
+            return ToolResult(
+                success=False, error="缺少出发地或目的地", execution_time=time.time() - start
+            )
 
         api_key = os.environ.get("GAODE_API_KEY", "")
         if not api_key:
             return ToolResult(
                 success=False,
                 error="高德地图API未配置，请设置GAODE_API_KEY",
-                execution_time=time.time() - start
+                execution_time=time.time() - start,
             )
 
         try:
@@ -228,7 +230,7 @@ class PublicTransitTool(BaseTool):
                 return ToolResult(
                     success=False,
                     error="地址解析失败，请提供更详细的地址",
-                    execution_time=time.time() - start
+                    execution_time=time.time() - start,
                 )
 
             # 公交路线查询
@@ -238,7 +240,7 @@ class PublicTransitTool(BaseTool):
                 "origin": origin_coord,
                 "destination": dest_coord,
                 "city": _DEFAULT_CITY,
-                "datatype": "transit"
+                "datatype": "transit",
             }
             req = urllib.request.Request(url + "?" + urllib.parse.urlencode(params))
             with urllib.request.urlopen(req, timeout=5) as resp:
@@ -248,15 +250,13 @@ class PublicTransitTool(BaseTool):
                 return ToolResult(
                     success=False,
                     error="公交路线查询失败，请稍后重试",
-                    execution_time=time.time() - start
+                    execution_time=time.time() - start,
                 )
 
             transits = data["route"].get("transits", [])
             if not transits:
                 return ToolResult(
-                    success=False,
-                    error="未找到公交路线方案",
-                    execution_time=time.time() - start
+                    success=False, error="未找到公交路线方案", execution_time=time.time() - start
                 )
 
             routes = []
@@ -278,14 +278,16 @@ class PublicTransitTool(BaseTool):
                 duration = int(t.get("duration", 0)) // 60
                 carbon_kg = distance * 0.08  # 公交人均碳排放
 
-                routes.append({
-                    "type": "公交/地铁",
-                    "line": " → ".join(segments) if segments else "公交",
-                    "duration_min": duration,
-                    "distance_km": distance,
-                    "carbon_kg": round(carbon_kg, 3),
-                    "cost_yuan": int(t.get("cost", 0))
-                })
+                routes.append(
+                    {
+                        "type": "公交/地铁",
+                        "line": " → ".join(segments) if segments else "公交",
+                        "duration_min": duration,
+                        "distance_km": distance,
+                        "carbon_kg": round(carbon_kg, 3),
+                        "cost_yuan": int(t.get("cost", 0)),
+                    }
+                )
 
             # 推荐低碳路线（优先骑行，其次公共交通）
             recommended = routes[0]
@@ -301,16 +303,16 @@ class PublicTransitTool(BaseTool):
                     "destination": destination,
                     "routes": routes,
                     "recommended": recommended,
-                    "source": "高德地图API"
+                    "source": "高德地图API",
                 },
-                execution_time=time.time() - start
+                execution_time=time.time() - start,
             )
 
         except Exception as e:
             return ToolResult(
                 success=False,
                 error=f"公交路线查询失败: {str(e)}",
-                execution_time=time.time() - start
+                execution_time=time.time() - start,
             )
 
 
@@ -332,12 +334,13 @@ class PolicyQueryTool(BaseTool):
                 "name": "keyword",
                 "type": "string",
                 "description": "政策关键词，如：碳中和、新能源、减排",
-                "required": True
+                "required": True,
             }
         ]
 
     def execute(self, **kwargs) -> ToolResult:
         import time
+
         start = time.time()
 
         keyword = kwargs.get("keyword", "")
@@ -346,6 +349,7 @@ class PolicyQueryTool(BaseTool):
 
         try:
             from policy.updater import PolicyUpdater
+
             updater = PolicyUpdater()
             policies = updater.get_policies_by_keyword(keyword, limit=10)
 
@@ -353,7 +357,7 @@ class PolicyQueryTool(BaseTool):
                 return ToolResult(
                     success=True,
                     data={"keyword": keyword, "policies": policies, "count": len(policies)},
-                    execution_time=time.time() - start
+                    execution_time=time.time() - start,
                 )
             else:
                 # 尝试获取最新政策作为兜底
@@ -361,13 +365,11 @@ class PolicyQueryTool(BaseTool):
                 return ToolResult(
                     success=False,
                     error=f"未找到与「{keyword}」相关的政策，最新政策：{[p['title'] for p in latest]}",
-                    execution_time=time.time() - start
+                    execution_time=time.time() - start,
                 )
         except Exception as e:
             return ToolResult(
-                success=False,
-                error=f"政策查询失败: {str(e)}",
-                execution_time=time.time() - start
+                success=False, error=f"政策查询失败: {str(e)}", execution_time=time.time() - start
             )
 
 
@@ -385,29 +387,20 @@ class ProfileUpdateTool(BaseTool):
     @property
     def parameters(self) -> List[Dict[str, Any]]:
         return [
-            {
-                "name": "user_id",
-                "type": "string",
-                "description": "用户ID",
-                "required": True
-            },
-            {
-                "name": "message",
-                "type": "string",
-                "description": "用户消息内容",
-                "required": True
-            },
+            {"name": "user_id", "type": "string", "description": "用户ID", "required": True},
+            {"name": "message", "type": "string", "description": "用户消息内容", "required": True},
             {
                 "name": "intent_type",
                 "type": "string",
                 "description": "意图类型",
                 "required": False,
-                "default": ""
-            }
+                "default": "",
+            },
         ]
 
     def execute(self, **kwargs) -> ToolResult:
         import time
+
         start = time.time()
 
         user_id = kwargs.get("user_id", "")
@@ -418,6 +411,7 @@ class ProfileUpdateTool(BaseTool):
 
         try:
             from user_profile.dynamic_updater import get_profile_updater
+
             updater = get_profile_updater()
 
             # 简单的消息分析
@@ -426,13 +420,11 @@ class ProfileUpdateTool(BaseTool):
             return ToolResult(
                 success=True,
                 data={"user_id": user_id, "updates": updates},
-                execution_time=time.time() - start
+                execution_time=time.time() - start,
             )
         except Exception as e:
             return ToolResult(
-                success=False,
-                error=f"画像更新失败: {str(e)}",
-                execution_time=time.time() - start
+                success=False, error=f"画像更新失败: {str(e)}", execution_time=time.time() - start
             )
 
     def _analyze_message(self, message: str) -> Dict[str, Any]:
@@ -465,6 +457,7 @@ class ProfileUpdateTool(BaseTool):
 
 # ============ 组合 Skills 实现 ============
 
+
 class LowCarbonTravelSkill(Skill):
     """低碳出行规划 Skill"""
 
@@ -478,6 +471,7 @@ class LowCarbonTravelSkill(Skill):
 
     def execute(self, context: SkillContext) -> ToolResult:
         import time
+
         start = time.time()
 
         destination = context.metadata.get("destination", "")
@@ -512,7 +506,9 @@ class LowCarbonTravelSkill(Skill):
         if results.get("transit"):
             routes = results["transit"].get("routes", [])
             if routes:
-                suggestions.append(f"推荐路线：{routes[0].get('line', '')}，约{routes[0].get('duration_min', '')}分钟")
+                suggestions.append(
+                    f"推荐路线：{routes[0].get('line', '')}，约{routes[0].get('duration_min', '')}分钟"
+                )
         if results.get("carbon"):
             carbon_data = results["carbon"]
             suggestions.append(f"骑行{distance}公里碳排放仅{carbon_data.get('carbon_kg', 0)}kg")
@@ -524,9 +520,9 @@ class LowCarbonTravelSkill(Skill):
                 "weather": results.get("weather"),
                 "transit_routes": results.get("transit"),
                 "carbon_info": results.get("carbon"),
-                "suggestions": suggestions
+                "suggestions": suggestions,
             },
-            execution_time=time.time() - start
+            execution_time=time.time() - start,
         )
 
 
@@ -543,6 +539,7 @@ class PolicyQuerySkill(Skill):
 
     def execute(self, context: SkillContext) -> ToolResult:
         import time
+
         start = time.time()
 
         keyword = context.message or context.metadata.get("keyword", "碳中和")
@@ -552,17 +549,9 @@ class PolicyQuerySkill(Skill):
         result = policy_tool.execute(keyword=keyword)
 
         if result.success:
-            return ToolResult(
-                success=True,
-                data=result.data,
-                execution_time=time.time() - start
-            )
+            return ToolResult(success=True, data=result.data, execution_time=time.time() - start)
         else:
-            return ToolResult(
-                success=False,
-                error=result.error,
-                execution_time=time.time() - start
-            )
+            return ToolResult(success=False, error=result.error, execution_time=time.time() - start)
 
 
 class ProfileUpdateSkill(Skill):
@@ -578,6 +567,7 @@ class ProfileUpdateSkill(Skill):
 
     def execute(self, context: SkillContext) -> ToolResult:
         import time
+
         start = time.time()
 
         user_id = context.user_id
@@ -588,15 +578,11 @@ class ProfileUpdateSkill(Skill):
             return ToolResult(success=False, error="缺少用户ID", execution_time=time.time() - start)
 
         profile_tool = ProfileUpdateTool()
-        result = profile_tool.execute(
-            user_id=user_id,
-            message=message,
-            intent_type=intent_type
-        )
+        result = profile_tool.execute(user_id=user_id, message=message, intent_type=intent_type)
 
         return ToolResult(
             success=result.success,
             data=result.data,
             error=result.error,
-            execution_time=time.time() - start
+            execution_time=time.time() - start,
         )

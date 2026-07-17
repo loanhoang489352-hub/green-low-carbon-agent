@@ -13,13 +13,14 @@
 
 # Windows UTF-8 encoding setup - Only if not already wrapped (avoid duplicate wrapping)
 import sys
-if sys.platform == 'win32':
-    import io
-    if not isinstance(sys.stdout, io.TextIOWrapper) or sys.stdout.encoding != 'utf-8':
-        sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8', errors='replace')
-        sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding='utf-8', errors='replace')
 
-import os
+if sys.platform == "win32":
+    import io
+
+    if not isinstance(sys.stdout, io.TextIOWrapper) or sys.stdout.encoding != "utf-8":
+        sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8", errors="replace")
+        sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding="utf-8", errors="replace")
+
 import uuid
 import warnings
 from pathlib import Path
@@ -30,9 +31,11 @@ import hashlib
 # P5-F: 模块级 logger
 try:
     from observability import get_logger
+
     _logger = get_logger("knowledge.manager")
 except Exception:
     import logging
+
     _logger = logging.getLogger("knowledge.manager")
 
 # 添加项目根目录
@@ -43,10 +46,12 @@ if str(project_root) not in sys.path:
 # 延迟导入base模块
 _base_module = None
 
+
 def _get_base():
     global _base_module
     if _base_module is None:
         from knowledge.base import KnowledgeDocument, KnowledgeSearchResult, BaseKnowledgeBase
+
         _base_module = (KnowledgeDocument, KnowledgeSearchResult, BaseKnowledgeBase)
     return _base_module
 
@@ -62,7 +67,7 @@ class KnowledgeManager:
             base_path = str(project_root / "knowledge_base")
 
         self.base_path = Path(base_path)
-        self.documents: Dict[str, 'KnowledgeDocument'] = {}
+        self.documents: Dict[str, "KnowledgeDocument"] = {}
         self.documents_by_category: Dict[str, List[str]] = {}
 
         # 加载知识库
@@ -88,7 +93,7 @@ class KnowledgeManager:
                         self.documents[doc.id] = doc
                         self.documents_by_category[category].append(doc.id)
 
-    def _parse_markdown_file(self, file_path: Path, category: str) -> Optional['KnowledgeDocument']:
+    def _parse_markdown_file(self, file_path: Path, category: str) -> Optional["KnowledgeDocument"]:
         """解析Markdown文件"""
         try:
             with open(file_path, "r", encoding="utf-8") as f:
@@ -119,7 +124,7 @@ class KnowledgeManager:
                 source=str(file_path),
                 created_at=self._get_file_time(file_path),
                 updated_at=self._get_file_time(file_path),
-                version=1
+                version=1,
             )
 
         except Exception as e:
@@ -134,7 +139,7 @@ class KnowledgeManager:
             "家居": ["家居", "家电", "空调", "节能", "用电"],
             "饮食": ["饮食", "食物", "素食", "外卖", "肉类"],
             "消费": ["消费", "购物", "包装", "一次性"],
-            "政策": ["政策", "补贴", "碳市场", "碳积分"]
+            "政策": ["政策", "补贴", "碳市场", "碳积分"],
         }
 
         tags = []
@@ -152,7 +157,7 @@ class KnowledgeManager:
         except:
             return datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
-    def add_document(self, doc: 'KnowledgeDocument') -> bool:
+    def add_document(self, doc: "KnowledgeDocument") -> bool:
         """添加文档"""
         try:
             doc.id = doc.id or str(uuid.uuid4())
@@ -179,6 +184,7 @@ class KnowledgeManager:
         # 优先 RAGEngine
         try:
             from rag.rag_engine import get_rag_engine
+
             engine = get_rag_engine()
             if engine is not None and getattr(engine, "_initialized", False):
                 rag_results = engine.retrieve(query, top_k=top_k)
@@ -187,17 +193,21 @@ class KnowledgeManager:
                     converted = []
                     for r in rag_results:
                         md = getattr(r, "metadata", {}) or {}
-                        converted.append({
-                            "id": getattr(r, "id", ""),
-                            "title": md.get("source", "")
-                                       .replace("\\", "/").split("/")[-1]
-                                       .replace(".md", "") or "knowledge",
-                            "content": getattr(r, "content", ""),
-                            "category": md.get("category", "rag"),
-                            "tags": [],
-                            "score": float(getattr(r, "score", 0.0)),
-                            "highlight": getattr(r, "content", "")[:200],
-                        })
+                        converted.append(
+                            {
+                                "id": getattr(r, "id", ""),
+                                "title": md.get("source", "")
+                                .replace("\\", "/")
+                                .split("/")[-1]
+                                .replace(".md", "")
+                                or "knowledge",
+                                "content": getattr(r, "content", ""),
+                                "category": md.get("category", "rag"),
+                                "tags": [],
+                                "score": float(getattr(r, "score", 0.0)),
+                                "highlight": getattr(r, "content", "")[:200],
+                            }
+                        )
                     return converted
         except Exception as e:
             _logger.debug("[KnowledgeManager] RAGEngine 不可用,降级关键词: %s", e)
@@ -222,27 +232,63 @@ class KnowledgeManager:
         results = []
         for doc, score in scored_docs[:top_k]:
             highlight = self._get_highlight(doc.content, query_keywords)
-            results.append({
-                "id": doc.id,
-                "title": doc.title,
-                "content": doc.content,
-                "category": doc.category,
-                "tags": doc.tags,
-                "score": score,
-                "highlight": highlight
-            })
+            results.append(
+                {
+                    "id": doc.id,
+                    "title": doc.title,
+                    "content": doc.content,
+                    "category": doc.category,
+                    "tags": doc.tags,
+                    "score": score,
+                    "highlight": highlight,
+                }
+            )
 
         return results
 
     def _extract_keywords(self, text: str) -> List[str]:
         """提取关键词"""
         chinese_keywords = [
-            "碳中和", "碳达峰", "碳足迹", "碳排放", "低碳", "环保", "绿色",
-            "节能", "减排", "可持续", "太阳能", "风能", "电动车", "新能源",
-            "空调", "冰箱", "洗衣机", "LED", "能效", "出行", "交通",
-            "开车", "骑行", "步行", "公交", "地铁", "素食", "肉类",
-            "一次性", "塑料", "垃圾分类", "政策", "补贴", "碳积分",
-            "家居", "用电", "用水", "购物", "消费", "包装"
+            "碳中和",
+            "碳达峰",
+            "碳足迹",
+            "碳排放",
+            "低碳",
+            "环保",
+            "绿色",
+            "节能",
+            "减排",
+            "可持续",
+            "太阳能",
+            "风能",
+            "电动车",
+            "新能源",
+            "空调",
+            "冰箱",
+            "洗衣机",
+            "LED",
+            "能效",
+            "出行",
+            "交通",
+            "开车",
+            "骑行",
+            "步行",
+            "公交",
+            "地铁",
+            "素食",
+            "肉类",
+            "一次性",
+            "塑料",
+            "垃圾分类",
+            "政策",
+            "补贴",
+            "碳积分",
+            "家居",
+            "用电",
+            "用水",
+            "购物",
+            "消费",
+            "包装",
         ]
 
         found = []
@@ -252,7 +298,7 @@ class KnowledgeManager:
 
         return found if found else [text[:10]]
 
-    def _calculate_relevance(self, doc: 'KnowledgeDocument', keywords: List[str]) -> float:
+    def _calculate_relevance(self, doc: "KnowledgeDocument", keywords: List[str]) -> float:
         """计算文档与查询的相关性"""
         if not keywords:
             return 0
@@ -301,11 +347,11 @@ class KnowledgeManager:
 
         return highlight
 
-    def get_document(self, doc_id: str) -> Optional['KnowledgeDocument']:
+    def get_document(self, doc_id: str) -> Optional["KnowledgeDocument"]:
         """获取文档"""
         return self.documents.get(doc_id)
 
-    def update_document(self, doc: 'KnowledgeDocument') -> bool:
+    def update_document(self, doc: "KnowledgeDocument") -> bool:
         """更新文档"""
         if doc.id not in self.documents:
             return False
@@ -328,11 +374,11 @@ class KnowledgeManager:
         del self.documents[doc_id]
         return True
 
-    def get_all_documents(self) -> List['KnowledgeDocument']:
+    def get_all_documents(self) -> List["KnowledgeDocument"]:
         """获取所有文档"""
         return list(self.documents.values())
 
-    def get_documents_by_category(self, category: str) -> List['KnowledgeDocument']:
+    def get_documents_by_category(self, category: str) -> List["KnowledgeDocument"]:
         """获取指定分类的文档"""
         doc_ids = self.documents_by_category.get(category, [])
         return [self.documents[doc_id] for doc_id in doc_ids if doc_id in self.documents]
@@ -346,23 +392,17 @@ class KnowledgeManager:
         return {
             "total_documents": len(self.documents),
             "categories": {
-                cat: len(doc_ids)
-                for cat, doc_ids in self.documents_by_category.items()
+                cat: len(doc_ids) for cat, doc_ids in self.documents_by_category.items()
             },
-            "recent_updated": self._get_recent_updated_docs(5)
+            "recent_updated": self._get_recent_updated_docs(5),
         }
 
     def _get_recent_updated_docs(self, limit: int) -> List[Dict]:
         """获取最近更新的文档"""
-        docs = sorted(
-            self.documents.values(),
-            key=lambda d: d.updated_at,
-            reverse=True
-        )[:limit]
+        docs = sorted(self.documents.values(), key=lambda d: d.updated_at, reverse=True)[:limit]
 
         return [
-            {"title": d.title, "category": d.category, "updated_at": d.updated_at}
-            for d in docs
+            {"title": d.title, "category": d.category, "updated_at": d.updated_at} for d in docs
         ]
 
     def reload(self):

@@ -7,11 +7,9 @@
 
 任何组件 DOWN → 整体 503
 """
-import os
+
 import sqlite3
 import time
-import traceback
-from pathlib import Path
 from typing import Any, Dict
 
 from .errors import HealthStatus
@@ -21,6 +19,7 @@ def _check_accounts_db() -> Dict[str, Any]:
     """accounts.db SELECT 1"""
     try:
         from paths import DATA_DIR
+
         db_path = DATA_DIR / "accounts.db"
         if not db_path.exists():
             return {"status": HealthStatus.DOWN, "detail": f"DB not found: {db_path}"}
@@ -39,6 +38,7 @@ def _check_user_profiles_db() -> Dict[str, Any]:
     """user_profiles.db SELECT 1(辅助)"""
     try:
         from paths import DATA_DIR
+
         db_path = DATA_DIR / "user_profiles.db"
         if not db_path.exists():
             # 还没初始化,不算 DOWN
@@ -70,7 +70,9 @@ def _check_vector_store() -> Dict[str, Any]:
         try:
             count = store.count() if hasattr(store, "count") else None
             if count is None:
-                count = len(store._collection.get()["ids"]) if hasattr(store, "_collection") else "?"
+                count = (
+                    len(store._collection.get()["ids"]) if hasattr(store, "_collection") else "?"
+                )
         except Exception:
             count = "?"
 
@@ -86,6 +88,7 @@ def _check_scheduler() -> Dict[str, Any]:
     """APScheduler 状态"""
     try:
         from scheduler import _scheduler
+
         if _scheduler is None:
             return {"status": HealthStatus.OK, "detail": "scheduler not started"}
         running = _scheduler.running
@@ -104,6 +107,7 @@ def _check_metrics() -> Dict[str, Any]:
     """MetricsCollector 状态(最后延迟 + 错误率)"""
     try:
         from observability import get_metrics_collector
+
         m = get_metrics_collector()
         s = m.summary()
         return {
@@ -123,10 +127,12 @@ def _check_disk_space() -> Dict[str, Any]:
     """data/ 目录所在磁盘剩余空间"""
     try:
         from paths import DATA_DIR
+
         if not DATA_DIR.exists():
             return {"status": HealthStatus.OK, "detail": "data dir not yet created"}
         # 简单 statvfs(Windows 不完全支持,但能拿到 free)
         import shutil
+
         usage = shutil.disk_usage(str(DATA_DIR))
         free_mb = usage.free / (1024 * 1024)
         if free_mb < 100:  # < 100MB → DOWN

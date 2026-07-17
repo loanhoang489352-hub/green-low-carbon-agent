@@ -2,8 +2,8 @@
 设置路由: API Key / 模型设置
 P5-D 迁移
 """
+
 import os
-from pathlib import Path
 
 
 def register_settings_routes(registry) -> None:
@@ -47,6 +47,7 @@ def register_settings_routes(registry) -> None:
         # 持久化到 .env
         try:
             from server.app import PROJECT_ROOT
+
             env_path = PROJECT_ROOT / ".env"
             if env_path.exists():
                 with open(env_path, "r", encoding="utf-8") as f:
@@ -70,6 +71,7 @@ def register_settings_routes(registry) -> None:
         # 重置 LLM 客户端
         try:
             from llm import reset_llm_client
+
             reset_llm_client()
         except Exception:
             pass
@@ -79,6 +81,7 @@ def register_settings_routes(registry) -> None:
             os.environ["LLM_MOCK"] = "false"
             try:
                 from server.app import PROJECT_ROOT
+
                 env_path = PROJECT_ROOT / ".env"
                 if env_path.exists():
                     with open(env_path, "r", encoding="utf-8") as f2:
@@ -95,15 +98,23 @@ def register_settings_routes(registry) -> None:
                 pass
             try:
                 from llm import reset_llm_client
+
                 reset_llm_client()
             except Exception:
                 pass
 
+        handler.send_json(
+            {
+                "status": "saved",
+                "message": "设置已保存",
+                "model": os.environ.get("API_MODEL"),
+            }
+        )
 
-        handler.send_json({
-            "status": "saved",
-            "message": "设置已保存",
-            "model": os.environ.get("API_MODEL"),
-        })
-
-    registry.add_route("POST", "/api/settings/api-key", save_api_key, auth_required=True, description="保存 API Key(写操作,需鉴权)")
+    registry.add_route(
+        "POST",
+        "/api/settings/api-key",
+        save_api_key,
+        auth_required=True,
+        description="保存 API Key(写操作,需鉴权)",
+    )

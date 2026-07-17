@@ -6,6 +6,7 @@
 - ThresholdStrategy(默认):轮次 ≥ 10 / 重要性 ≥ 0.6
 - AdaptiveStrategy:活跃用户降低阈值(继承自原 AdaptiveConsolidator)
 """
+
 from __future__ import annotations
 
 import sys
@@ -24,6 +25,7 @@ from memory.long_term import LongTermMemory
 # ---------------------------------------------------------------------------
 # 策略接口
 # ---------------------------------------------------------------------------
+
 
 @runtime_checkable
 class ConsolidationStrategy(Protocol):
@@ -44,6 +46,7 @@ class ConsolidationStrategy(Protocol):
 # ---------------------------------------------------------------------------
 # 具体策略
 # ---------------------------------------------------------------------------
+
 
 class ThresholdStrategy:
     """阈值策略:轮次 ≥ 10 / 空闲 ≥ 2h / 重要性 ≥ 0.6"""
@@ -127,6 +130,7 @@ class AdaptiveStrategy:
 # 整合器
 # ---------------------------------------------------------------------------
 
+
 class MemoryConsolidator:
     """记忆整合器(委托给策略)"""
 
@@ -164,6 +168,7 @@ class MemoryConsolidator:
             self._promote_to_working(user_id, conversation_id, messages)
         except Exception as e:
             import logging
+
             logging.getLogger(__name__).debug("[consolidation] working promote: %s", e)
         # 2) 短期 → 长期(原逻辑)
         if not memories_to_save:
@@ -176,6 +181,7 @@ class MemoryConsolidator:
             saved += self._summarize_medium_memories(user_id, conversation_id, messages)
         except Exception as e:
             import logging
+
             logging.getLogger(__name__).debug("[consolidation] summarize: %s", e)
         metadata = self._get_or_create_metadata(conversation_id)
         metadata["last_consolidated"] = datetime.now().isoformat()
@@ -183,7 +189,10 @@ class MemoryConsolidator:
         return saved
 
     def _summarize_medium_memories(
-        self, user_id: str, conversation_id: str, messages: List[Dict[str, Any]],
+        self,
+        user_id: str,
+        conversation_id: str,
+        messages: List[Dict[str, Any]],
     ) -> int:
         """P6.S.19: 调 LLM 摘要中等 importance 消息,生成 1 条 summary 存 LTM
 
@@ -201,6 +210,7 @@ class MemoryConsolidator:
             return 0  # 太少不摘要,避免浪费 LLM
         try:
             from llm import get_llm_client
+
             llm = get_llm_client()
         except Exception:
             return 0
@@ -208,15 +218,14 @@ class MemoryConsolidator:
             return 0
         # 调 LLM 摘要
         joined = "\n".join(f"- {c[:200]}" for c in medium[:10])
-        prompt = (
-            "请用 100 字以内中文总结以下用户对话要点(客观、保留关键信息):\n"
-            f"{joined}\n\n摘要:"
-        )
+        prompt = f"请用 100 字以内中文总结以下用户对话要点(客观、保留关键信息):\n{joined}\n\n摘要:"
         try:
-            resp = llm.chat([
-                {"role": "system", "content": "你是记忆摘要助手。"},
-                {"role": "user", "content": prompt},
-            ])
+            resp = llm.chat(
+                [
+                    {"role": "system", "content": "你是记忆摘要助手。"},
+                    {"role": "user", "content": prompt},
+                ]
+            )
             summary = resp.content.strip()[:300] if resp and resp.content else ""
             if not summary or len(summary) < 10:
                 return 0
@@ -233,7 +242,10 @@ class MemoryConsolidator:
             return 0
 
     def _promote_to_working(
-        self, user_id: str, conversation_id: str, messages: List[Dict[str, Any]],
+        self,
+        user_id: str,
+        conversation_id: str,
+        messages: List[Dict[str, Any]],
     ) -> int:
         """P4-H: 把当前会话的"焦点 / 当前任务"提升到工作记忆
 
@@ -242,6 +254,7 @@ class MemoryConsolidator:
         """
         try:
             from memory.working import get_working_memory
+
             wm = get_working_memory()
             recent_assistant = [
                 m.get("content", "")[:200]
@@ -280,12 +293,14 @@ class MemoryConsolidator:
                 continue
             importance = self.strategy.importance_score(msg)
             if importance >= self.IMPORTANCE_THRESHOLD:
-                important.append({
-                    "content": content[:200],
-                    "type": (msg.get("metadata") or {}).get("intent", "general"),
-                    "importance": importance,
-                    "created_at": msg.get("timestamp") or datetime.now().isoformat(),
-                })
+                important.append(
+                    {
+                        "content": content[:200],
+                        "type": (msg.get("metadata") or {}).get("intent", "general"),
+                        "importance": importance,
+                        "created_at": msg.get("timestamp") or datetime.now().isoformat(),
+                    }
+                )
         return important
 
     def _build_state(self, conversation_id: str) -> Dict[str, Any]:
@@ -350,6 +365,7 @@ class MemoryConsolidator:
 # ---------------------------------------------------------------------------
 # 兼容性别名(旧 API)
 # ---------------------------------------------------------------------------
+
 
 class AdaptiveConsolidator(MemoryConsolidator):
     """旧名兼容,内部使用 AdaptiveStrategy"""

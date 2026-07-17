@@ -7,27 +7,29 @@
 # P5-F: 模块级 logger
 try:
     from observability import get_logger
+
     _logger = get_logger("agent.core")
 except Exception:
     import logging
+
     _logger = logging.getLogger("agent.core")
 
 # Windows UTF-8 encoding setup
 import sys
+
 # Windows UTF-8 encoding setup - Only if not already wrapped (avoid duplicate wrapping)
-if sys.platform == 'win32':
+if sys.platform == "win32":
     import io
-    if not isinstance(sys.stdout, io.TextIOWrapper) or sys.stdout.encoding != 'utf-8':
-        sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8', errors='replace')
-        sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding='utf-8', errors='replace')
+
+    if not isinstance(sys.stdout, io.TextIOWrapper) or sys.stdout.encoding != "utf-8":
+        sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8", errors="replace")
+        sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding="utf-8", errors="replace")
 
 import uuid
-import sqlite3
 import os
 from typing import Dict, List, Optional, Any
 from dataclasses import dataclass, field
 from datetime import datetime
-import json
 from pathlib import Path
 
 script_path = Path(__file__).resolve()
@@ -42,30 +44,41 @@ _imported_modules = {}
 
 def _get_module(name):
     if name not in _imported_modules:
-        if name == 'intent':
+        if name == "intent":
             from agent.intent import IntentRecognizer, IntentType, IntentResult
+
             _imported_modules[name] = (IntentRecognizer, IntentType, IntentResult)
-        elif name == 'response':
+        elif name == "response":
             from agent.response import ResponseGenerator, ResponseContext
+
             _imported_modules[name] = (ResponseGenerator, ResponseContext)
-        elif name == 'knowledge':
+        elif name == "knowledge":
             from knowledge.manager import KnowledgeManager
+
             _imported_modules[name] = KnowledgeManager
-        elif name == 'memory':
+        elif name == "memory":
             from memory.short_term import ShortTermMemory
             from memory.long_term import LongTermMemory
+
             _imported_modules[name] = (ShortTermMemory, LongTermMemory)
-        elif name == 'profile':
+        elif name == "profile":
             from user_profile.user_profile import UserProfileManager
             from user_profile.dynamic_updater import get_profile_updater
             from user_profile.personalized_recommender import PersonalizedRecommendationEngine
-            _imported_modules[name] = (UserProfileManager, get_profile_updater, PersonalizedRecommendationEngine)
-        elif name == 'helpers':
+
+            _imported_modules[name] = (
+                UserProfileManager,
+                get_profile_updater,
+                PersonalizedRecommendationEngine,
+            )
+        elif name == "helpers":
             from utils.helpers import create_response_structure, get_current_datetime
+
             _imported_modules[name] = (create_response_structure, get_current_datetime)
-        elif name == 'tools':
+        elif name == "tools":
             # P6.S.3: 工具集(TravelPlanningTool 等)懒加载
             from agent.tools.extended import TravelPlanningTool
+
             _imported_modules[name] = TravelPlanningTool
     return _imported_modules.get(name)
 
@@ -73,6 +86,7 @@ def _get_module(name):
 @dataclass
 class AgentResponse:
     """智能体响应"""
+
     message: str
     conversation_id: str
     intent: str
@@ -88,6 +102,7 @@ class AgentResponse:
 @dataclass
 class EnhancedAgentResponse(AgentResponse):
     """增强版智能体响应"""
+
     rag_context: str = ""
     personalization_info: Dict = field(default_factory=dict)
     recommendations: List[Dict] = field(default_factory=list)
@@ -101,13 +116,15 @@ class GreenAgent:
         knowledge_base_path: str = None,
         use_vector_db: bool = False,
         enable_rag: bool = True,
-        use_llm: bool = True
+        use_llm: bool = True,
     ):
-        IntentRecognizer, IntentType, IntentResult = _get_module('intent')
-        ResponseGenerator, ResponseContext = _get_module('response')
-        KnowledgeManager = _get_module('knowledge')
-        ShortTermMemory, LongTermMemory = _get_module('memory')
-        UserProfileManager, get_profile_updater, PersonalizedRecommendationEngine = _get_module('profile')
+        IntentRecognizer, IntentType, IntentResult = _get_module("intent")
+        ResponseGenerator, ResponseContext = _get_module("response")
+        KnowledgeManager = _get_module("knowledge")
+        ShortTermMemory, LongTermMemory = _get_module("memory")
+        UserProfileManager, get_profile_updater, PersonalizedRecommendationEngine = _get_module(
+            "profile"
+        )
 
         self.intent_recognizer = IntentRecognizer()
         self.response_generator = ResponseGenerator(use_llm=use_llm)
@@ -123,6 +140,7 @@ class GreenAgent:
             self._init_rag_engine(knowledge_base_path)
 
         from memory.short_term import get_short_term_memory
+
         self.short_term_memory = get_short_term_memory()
         self.long_term_memory = LongTermMemory()
         self.profile_manager = UserProfileManager()
@@ -131,15 +149,17 @@ class GreenAgent:
 
         try:
             from utils.web_search import WebSearcher
+
             self.web_searcher = WebSearcher()
         except Exception as e:
             print(f"   - 网络搜索模块加载失败: {e}")
             self.web_searcher = None
 
         from agent.conversation_store import get_conversation_store
+
         self.conversation_store = get_conversation_store()
         self.active_conversations = self.conversation_store._conversations  # 兼容旧代码
-        self.user_conversations = self.conversation_store._user_index      # 兼容旧代码
+        self.user_conversations = self.conversation_store._user_index  # 兼容旧代码
         self.use_vector_db = use_vector_db
 
         # LangGraph 支持
@@ -148,22 +168,23 @@ class GreenAgent:
         if self.use_langgraph:
             try:
                 from agent.langgraph_agent import LangGraphAgent
+
                 self.langgraph_agent = LangGraphAgent(
                     knowledge_base_path=knowledge_base_path,
                     use_vector_db=use_vector_db,
                     enable_rag=enable_rag,
-                    use_llm=use_llm
+                    use_llm=use_llm,
                 )
-                print(f"   - LangGraph 模式: 已启用")
+                print("   - LangGraph 模式: 已启用")
             except Exception as e:
                 print(f"   - LangGraph 模式: 启用失败 ({e})")
                 self.use_langgraph = False
 
-        print(f"绿色低碳智能体初始化完成")
+        print("绿色低碳智能体初始化完成")
         print(f"   - 知识库: {len(self.knowledge_manager.get_all_documents())} 篇文档")
         print(f"   - RAG 引擎: {'已启用' if self.rag_enabled else '未启用'}")
         print(f"   - LLM 支持: {'已启用' if use_llm else '未启用'}")
-        print(f"   - 个性化推荐: 已启用")
+        print("   - 个性化推荐: 已启用")
         print(f"   - LangGraph: {'已启用' if self.use_langgraph else '未启用'}")
 
     def _init_rag_engine(self, knowledge_base_path: str):
@@ -191,7 +212,7 @@ class GreenAgent:
             self.rag_engine = RAGEngine(config)
             if self.rag_engine.initialize(knowledge_base_path):
                 self.rag_enabled = True
-                print(f"[OK] RAG 引擎初始化成功")
+                print("[OK] RAG 引擎初始化成功")
         except Exception as e:
             _logger.warning(f"RAG 引擎初始化失败: {e}")
             self.rag_enabled = False
@@ -213,15 +234,10 @@ class GreenAgent:
             "current_step": current_step,
             "total_steps": len(questions),
             "questions": questions if not onboarding_completed else [],
-            "progress_percentage": int((current_step / len(questions)) * 100) if questions else 100
+            "progress_percentage": int((current_step / len(questions)) * 100) if questions else 100,
         }
 
-    def process_onboarding_answer(
-        self,
-        user_id: str,
-        step: int,
-        answer: Any
-    ) -> Dict[str, Any]:
+    def process_onboarding_answer(self, user_id: str, step: int, answer: Any) -> Dict[str, Any]:
         """处理引导问题的回答"""
         questions = self.profile_manager.get_onboarding_questions()
 
@@ -245,7 +261,9 @@ class GreenAgent:
             self.profile_manager.update_basic_info(user_id, {"region": answer})
         elif field == "eco_knowledge":
             level_map = {"low": "beginner", "medium": "intermediate", "high": "advanced"}
-            self.profile_manager.update_eco_profile(user_id, {"knowledge_level": level_map.get(answer, "intermediate")})
+            self.profile_manager.update_eco_profile(
+                user_id, {"knowledge_level": level_map.get(answer, "intermediate")}
+            )
         else:
             self.profile_manager.update_basic_info(user_id, {field: answer})
 
@@ -264,14 +282,14 @@ class GreenAgent:
             return {
                 "success": True,
                 "completed": True,
-                "message": "太好了！你已经完成了初始设置。现在让我们开始吧！"
+                "message": "太好了！你已经完成了初始设置。现在让我们开始吧！",
             }
 
         return {
             "success": True,
             "completed": False,
             "next_step": next_step,
-            "next_question": next_question
+            "next_question": next_question,
         }
 
     def start_onboarding(self, user_id: str) -> Dict[str, Any]:
@@ -285,7 +303,7 @@ class GreenAgent:
             "started": True,
             "total_steps": len(questions),
             "first_question": questions[0] if questions else None,
-            "welcome_message": self._generate_onboarding_welcome()
+            "welcome_message": self._generate_onboarding_welcome(),
         }
 
     def _generate_onboarding_welcome(self) -> str:
@@ -325,14 +343,20 @@ class GreenAgent:
                 "family_type": user_info.get("family_type") if user_info else None,
             },
             "eco_profile": {
-                "knowledge_level": self._estimate_knowledge_level(user_info) if user_info else "intermediate",
+                "knowledge_level": self._estimate_knowledge_level(user_info)
+                if user_info
+                else "intermediate",
                 "behavior_stage": "意向",
-                "awareness_level": user_info.get("eco_awareness", "medium") if user_info else "medium",
+                "awareness_level": user_info.get("eco_awareness", "medium")
+                if user_info
+                else "medium",
                 "primary_interests": user_info.get("interests", []) if user_info else [],
                 "action_history": [],
                 "completed_actions": [],
             },
-            "communication_style": self._detect_communication_style(user_info) if user_info else "balanced",
+            "communication_style": self._detect_communication_style(user_info)
+            if user_info
+            else "balanced",
             "preferences": {
                 "content_depth": "balanced",
                 "response_length": "medium",
@@ -356,6 +380,7 @@ class GreenAgent:
         if account_id:
             try:
                 from auth.account_manager import AccountManager
+
                 account_mgr = AccountManager()
                 account_mgr.link_user_profile(account_id, user_id)
             except Exception as e:
@@ -378,8 +403,8 @@ class GreenAgent:
         """检测沟通风格偏好"""
         age_str = user_info.get("age_group", "26-35")
         try:
-            if isinstance(age_str, str) and '-' in age_str:
-                age = int(age_str.split('-')[0])
+            if isinstance(age_str, str) and "-" in age_str:
+                age = int(age_str.split("-")[0])
             else:
                 age = int(age_str)
         except (ValueError, TypeError):
@@ -395,10 +420,7 @@ class GreenAgent:
     # ========== 个性化聊天 (RAG + 推荐) ==========
 
     def chat_enhanced(
-        self,
-        user_id: str,
-        message: str,
-        conversation_id: str = None
+        self, user_id: str, message: str, conversation_id: str = None
     ) -> EnhancedAgentResponse:
         """增强版聊天 - 使用 RAG 和个性化推荐"""
 
@@ -415,12 +437,13 @@ class GreenAgent:
                 timestamp=langgraph_response.timestamp,
                 personalization_info=langgraph_response.personalization_info,
                 recommendations=langgraph_response.recommendations,
-                rag_context=langgraph_response.metadata.get("rag_context", "")
+                rag_context=langgraph_response.metadata.get("rag_context", ""),
+                tool_result=getattr(langgraph_response, "tool_result", None),  # P6.S.23
             )
 
-        IntentRecognizer, IntentType, IntentResult = _get_module('intent')
-        ResponseGenerator, ResponseContext = _get_module('response')
-        get_current_datetime = _get_module('helpers')[1]
+        IntentRecognizer, IntentType, IntentResult = _get_module("intent")
+        ResponseGenerator, ResponseContext = _get_module("response")
+        get_current_datetime = _get_module("helpers")[1]
 
         conversation_id = self._manage_conversation(user_id, conversation_id)
         conversation = self.active_conversations[conversation_id]
@@ -435,6 +458,7 @@ class GreenAgent:
         # P6.S.20: 记录意图分布 + 活跃 user
         try:
             from observability.metrics import get_metrics_collector
+
             get_metrics_collector().record_intent(intent_result.intent.value)
             if user_id and user_id != "anonymous":
                 get_metrics_collector().record_user_activity(user_id)
@@ -445,7 +469,10 @@ class GreenAgent:
         # 不进 RAG,避免 LLM 拿到无关"出行"知识文档后瞎答
         if intent_result.intent == IntentType.TRAVEL_PLANNING:
             travel_resp = self._handle_travel_planning(
-                user_id, message, conversation_id, intent_result,
+                user_id,
+                message,
+                conversation_id,
+                intent_result,
             )
             return EnhancedAgentResponse(
                 message=travel_resp.message,
@@ -458,6 +485,13 @@ class GreenAgent:
                 personalization_info={},
                 recommendations=[],
                 profile_updates={},
+                tool_result=travel_resp.tool_result,  # P6.S.23: 透出 tool_result 给前端渲染地图
+            )
+
+        # P6.S.23: 位置查询早返 — 调 best_location() 直接答 city,不让 LLM 瞎说
+        if intent_result.intent == IntentType.LOCATION_QUERY:
+            return self._handle_location_query(
+                user_id, message, conversation_id
             )
 
         # 检查是否配置了任何 API Key
@@ -475,12 +509,16 @@ class GreenAgent:
             for key, _ in api_providers
         )
 
-        if not user_profile.get("onboarding_completed", False) and conversation.turn_count > 3 and not has_api_config:
+        if (
+            not user_profile.get("onboarding_completed", False)
+            and conversation.turn_count > 3
+            and not has_api_config
+        ):
             return EnhancedAgentResponse(
                 message="我们还没完成初始设置，这样我无法为你提供最佳服务。让我们先完成设置吧！",
                 conversation_id=conversation_id,
                 intent="onboarding_reminder",
-                timestamp=get_current_datetime()
+                timestamp=get_current_datetime(),
             )
 
         # P6.S.10: 意图门控 — 非知识/咨询类意图跳过 RAG
@@ -508,9 +546,7 @@ class GreenAgent:
             rag_context = "\n\n".join(context_parts)
 
         message_analysis = self.dynamic_updater.analyze_message(
-            user_id, message,
-            intent_result.intent.value,
-            intent_result.entities
+            user_id, message, intent_result.intent.value, intent_result.entities
         )
 
         profile_updates = self._apply_dynamic_updates(user_id, message_analysis)
@@ -519,18 +555,26 @@ class GreenAgent:
         if profile_updates:
             try:
                 from agent.cache import get_query_cache
+
                 cleared = get_query_cache().invalidate(user_id)
                 if cleared > 0:
                     import logging
+
                     logging.getLogger(__name__).info(
                         "[GreenAgent] QueryCache.invalidate user=%s cleared=%d (因画像更新)",
-                        user_id, cleared,
+                        user_id,
+                        cleared,
                     )
             except Exception as e:
                 import logging
-                logging.getLogger(__name__).warning("[GreenAgent] QueryCache.invalidate 异常(非致命): %s", e)
 
-        self.profile_manager.record_interaction(user_id, self._map_intent_to_interaction(intent_result))
+                logging.getLogger(__name__).warning(
+                    "[GreenAgent] QueryCache.invalidate 异常(非致命): %s", e
+                )
+
+        self.profile_manager.record_interaction(
+            user_id, self._map_intent_to_interaction(intent_result)
+        )
 
         recent_memories = self._get_recent_memories(user_id)
         # P4-B.4: 真正的语义+时间召回,覆盖默认的"最近 3 条"
@@ -545,6 +589,7 @@ class GreenAgent:
                 ]
         except Exception as e:
             import logging
+
             logging.getLogger(__name__).warning("[GreenAgent] 记忆召回失败: %s", e)
 
         conversation_history = self.short_term_memory.get_conversation_history(conversation_id)
@@ -571,7 +616,7 @@ class GreenAgent:
                     "category": r.category,
                     "reason": r.reason,
                     "carbon_saving": r.estimated_carbon_saving,
-                    "examples": r.examples
+                    "examples": r.examples,
                 }
                 for r in recs
             ]
@@ -580,46 +625,56 @@ class GreenAgent:
         retrieved_knowledge = []
         if rag_results:
             for r in rag_results:
-                retrieved_knowledge.append({
-                    "title": r.metadata.get("title", ""),
-                    "content": r.content,
-                    "source": r.metadata.get("source", ""),
-                    "category": r.metadata.get("category", "")
-                })
+                retrieved_knowledge.append(
+                    {
+                        "title": r.metadata.get("title", ""),
+                        "content": r.content,
+                        "source": r.metadata.get("source", ""),
+                        "category": r.metadata.get("category", ""),
+                    }
+                )
 
         context = ResponseContext(
             user_profile=user_profile,
             conversation_history=conversation_history,
             retrieved_knowledge=retrieved_knowledge,
             recent_memories=recent_memories,
-            intent_type=intent_result.suggested_response_type
+            intent_type=intent_result.suggested_response_type,
         )
 
         # P6.S.11: LLM_MOCK 状态变化时清缓存,避免 mock 响应被锁住
         try:
             import logging
+
             prev = getattr(self, "_last_llm_mock_state", None)
             cur = os.getenv("LLM_MOCK", "auto").strip().lower() in ("true", "1", "yes", "on")
             if prev is not None and prev != cur:
                 from agent.cache import get_query_cache
+
                 cleared = get_query_cache().invalidate(user_id)
                 if cleared > 0:
                     logging.getLogger(__name__).info(
                         "[GreenAgent] LLM_MOCK 状态变更 (%s→%s),清 user=%s 缓存 cleared=%d",
-                        prev, cur, user_id, cleared,
+                        prev,
+                        cur,
+                        user_id,
+                        cleared,
                     )
             self._last_llm_mock_state = cur
         except Exception as e:
             import logging
+
             logging.getLogger(__name__).debug("[GreenAgent] LLM_MOCK 状态检测异常(非致命): %s", e)
 
         # P6.C: Query Cache — 命中时复用 message + suggestions,跳过 LLM 调用
         cached_response = None
         try:
             from agent.cache import get_query_cache
+
             cached_response = get_query_cache().get(message, user_id, user_profile)
         except Exception as e:
             import logging
+
             logging.getLogger(__name__).warning("[GreenAgent] QueryCache.get 异常(非致命): %s", e)
 
         if cached_response:
@@ -635,14 +690,20 @@ class GreenAgent:
             # 写缓存(失败不致命)
             try:
                 from agent.cache import get_query_cache
+
                 get_query_cache().set(
-                    message, user_id, user_profile,
+                    message,
+                    user_id,
+                    user_profile,
                     response_data["message"],
                     response_data.get("suggestions", []),
                 )
             except Exception as e:
                 import logging
-                logging.getLogger(__name__).warning("[GreenAgent] QueryCache.set 异常(非致命): %s", e)
+
+                logging.getLogger(__name__).warning(
+                    "[GreenAgent] QueryCache.set 异常(非致命): %s", e
+                )
 
         self._save_conversation(conversation_id, user_id, message, response_data["message"])
         self.profile_manager.update_conversation_count(user_id)
@@ -650,18 +711,23 @@ class GreenAgent:
         # P4-B.1: 接入记忆整合器(短→长)
         try:
             from memory.consolidation import get_consolidator
+
             consolidator = get_consolidator()
             consolidator.update_conversation_activity(conversation_id)
             consolidator.update_message_count(conversation_id, count=2)
             consolidated = consolidator.consolidate(user_id, conversation_id)
             if consolidated > 0:
                 import logging
+
                 logging.getLogger(__name__).info(
                     "[GreenAgent] 记忆整合: user=%s conv=%s saved=%d",
-                    user_id, conversation_id, consolidated,
+                    user_id,
+                    conversation_id,
+                    consolidated,
                 )
         except Exception as e:
             import logging
+
             logging.getLogger(__name__).warning("[GreenAgent] 记忆整合失败(非致命): %s", e)
 
         return EnhancedAgentResponse(
@@ -675,21 +741,92 @@ class GreenAgent:
             timestamp=get_current_datetime(),
             rag_context=rag_context,
             personalization_info=personalization_ctx,
-            recommendations=recommendations
+            recommendations=recommendations,
         )
 
     def _map_intent_to_interaction(self, intent_result) -> str:
         """映射意图到交互类型"""
-        IntentType = _get_module('intent')[1]
+        IntentType = _get_module("intent")[1]
         mapping = {
             IntentType.KNOWLEDGE_QUERY: "question",
             IntentType.ADVICE_REQUEST: "question",
             IntentType.ACTION_REPORT: "action",
             IntentType.FEEDBACK: "feedback",
             IntentType.SUGGESTION_ACCEPT: "accept",
-            IntentType.SUGGESTION_REJECT: "reject"
+            IntentType.SUGGESTION_REJECT: "reject",
         }
         return mapping.get(intent_result.intent, "question")
+
+    def _handle_location_query(
+        self, user_id: str, message: str, conversation_id: str
+    ) -> "EnhancedAgentResponse":
+        """P6.S.23: 位置查询早返 — 调 best_location() 直接答 city,不让 LLM 瞎说
+
+        三层 fallback: 浏览器定位 → IP 反查 → 画像默认 → 失败兜底
+        """
+        from utils.geolocate import best_location
+
+        get_current_datetime = _get_module("helpers")[1]
+
+        try:
+            geo = best_location(handler=self, user_id=user_id)
+        except Exception as e:
+            import logging
+
+            logging.getLogger(__name__).warning("[LocationQuery] best_location 失败: %s", e)
+            geo = None
+
+        if geo is None:
+            msg = (
+                "📍 我目前**没有拿到你的位置信息**。\n\n"
+                "可以试试以下方式:\n"
+                "1. 在浏览器顶部的位置权限弹窗里点「允许」,我就能拿到精确位置\n"
+                "2. 在聊天里直接告诉我你的城市(如「我在上海」),我会记住\n"
+                "3. 完成 onboarding 时填写所在城市,作为默认 fallback"
+            )
+            location_dict = {"source": "none", "city": "", "region": "", "country": "中国"}
+        else:
+            city = geo.city or "未知城市"
+            region = geo.region or ""
+            source = geo.source
+            source_label = {
+                "browser": "浏览器授权定位",
+                "ip": "IP 反查",
+                "profile": "画像默认",
+                "none": "无定位数据",
+            }.get(source, source)
+            region_suffix = f"({region})" if region and region != city else ""
+            msg = (
+                f"📍 你现在在 **{city}**{region_suffix}\n\n"
+                f"定位来源: {source_label}"
+                + (f" · 精度: {geo.accuracy or '城市级'}" if getattr(geo, "accuracy", None) else "")
+            )
+            location_dict = geo.to_dict() if hasattr(geo, "to_dict") else {"city": city, "region": region, "source": source}
+
+        # P6.S.23: 即便没拿到 location,也要把意图正确写回对话,避免循环
+        try:
+            self._save_conversation(conversation_id, user_id, message, msg)
+        except Exception:
+            pass
+
+        return EnhancedAgentResponse(
+            message=msg,
+            conversation_id=conversation_id,
+            intent="location_query",
+            suggestions=[
+                f"{location_dict.get('city') or '你所在城市'} 的低碳出行建议",
+                "附近的新能源补贴",
+                "本地的最新环保政策",
+            ],
+            knowledge_refs=[],
+            memory_hints=[],
+            profile_updates={},
+            timestamp=get_current_datetime(),
+            rag_context="",
+            personalization_info={"location": location_dict},
+            recommendations=[],
+            tool_result={"location": location_dict},
+        )
 
     def _apply_dynamic_updates(self, user_id: str, analysis: Dict) -> Dict:
         """应用动态更新"""
@@ -707,8 +844,7 @@ class GreenAgent:
             signal = analysis["knowledge_signals"][0]
             if signal.get("confidence", 0) > 0.5:
                 self.profile_manager.update_eco_profile(
-                    user_id,
-                    {"knowledge_level": signal.get("level", "intermediate")}
+                    user_id, {"knowledge_level": signal.get("level", "intermediate")}
                 )
                 updates["knowledge_updated"] = signal.get("level")
 
@@ -716,8 +852,7 @@ class GreenAgent:
             indicator = analysis["behavior_indicators"][0]
             if indicator.get("confidence", 0) > 0.6:
                 self.profile_manager.update_eco_profile(
-                    user_id,
-                    {"behavior_stage": indicator.get("stage", "意向")}
+                    user_id, {"behavior_stage": indicator.get("stage", "意向")}
                 )
                 updates["stage_changed"] = indicator.get("stage")
 
@@ -725,9 +860,7 @@ class GreenAgent:
             for action in analysis["action_reports"]:
                 if action.get("sentiment") == "positive":
                     self.profile_manager.update_preference_learning(
-                        user_id,
-                        action=action.get("type"),
-                        accepted=True
+                        user_id, action=action.get("type"), accepted=True
                     )
 
         return updates
@@ -739,10 +872,10 @@ class GreenAgent:
         intent_result,
         rag_context: str,
         personalization: Dict,
-        strategy: Dict
+        strategy: Dict,
     ) -> Dict:
         """生成个性化响应"""
-        IntentType = _get_module('intent')[1]
+        IntentType = _get_module("intent")[1]
 
         knowledge_level = personalization.get("knowledge_level", "intermediate")
         knowledge_level_cn = personalization.get("knowledge_level_chinese", "了解")
@@ -755,22 +888,22 @@ class GreenAgent:
                 working_memory_text = ""
                 try:
                     from memory.working import get_working_memory
+
                     wm = get_working_memory()
                     working_memory_text = wm.snapshot_for_prompt(user_id)
                 except Exception:
                     pass
                 llm_response = self.response_generator.generate_with_llm(
-                    message, context, rag_context, working_memory=working_memory_text,
+                    message,
+                    context,
+                    rag_context,
+                    working_memory=working_memory_text,
                 )
             except Exception as e:
                 print(f"LLM生成失败，回退到模板: {e}")
 
         if llm_response:
-            return {
-                "message": llm_response,
-                "suggestions": [],
-                "response_type": "llm_generated"
-            }
+            return {"message": llm_response, "suggestions": [], "response_type": "llm_generated"}
 
         # 回退到模板生成
         base_response = self.response_generator.generate_response(message, context)
@@ -780,9 +913,9 @@ class GreenAgent:
 
         if rag_context:
             if intent_result.intent == IntentType.KNOWLEDGE_QUERY:
-                prefix = f"根据我的知识库，"
+                prefix = "根据我的知识库，"
                 if knowledge_level == "beginner":
-                    prefix += f"让我用简单的话解释：\n\n"
+                    prefix += "让我用简单的话解释：\n\n"
                 else:
                     prefix += "\n\n"
                 # 只取首 N 字 + 略去的提示
@@ -813,12 +946,12 @@ class GreenAgent:
         return {
             "message": "\n\n".join(response_parts),
             "suggestions": base_response.get("suggestions", []),
-            "response_type": base_response.get("response_type", "general")
+            "response_type": base_response.get("response_type", "general"),
         }
 
     def _generate_prefix(self, intent_result, personalization: Dict) -> str:
         """生成响应前缀"""
-        IntentType = _get_module('intent')[1]
+        IntentType = _get_module("intent")[1]
         basic_summary = personalization.get("basic_info_summary", "")
         confirmed_interests = personalization.get("confirmed_interests", [])
 
@@ -836,7 +969,7 @@ class GreenAgent:
 
     def _generate_suffix(self, intent_result, personalization: Dict) -> str:
         """生成响应后缀"""
-        IntentType = _get_module('intent')[1]
+        IntentType = _get_module("intent")[1]
         behavior_stage = personalization.get("behavior_stage", "意向")
 
         if intent_result.intent in [IntentType.KNOWLEDGE_QUERY, IntentType.ADVICE_REQUEST]:
@@ -845,7 +978,7 @@ class GreenAgent:
                 "意向": "有什么想法吗？我可以帮你分析！",
                 "准备": "准备行动了吗？有什么问题随时问！",
                 "行动": "继续坚持！你的努力很棒！",
-                "维持": "你是低碳达人！有什么新想法吗？"
+                "维持": "你是低碳达人！有什么新想法吗？",
             }
             return stage_tips.get(behavior_stage, "")
 
@@ -860,21 +993,52 @@ class GreenAgent:
         若提取不到 origin/destination,降级为 advice(让用户补充)
         P6.S.22: 用 3 层 fallback 解析用户真实位置(origin 不再是字面量" 当前位置")
         """
-        import re
         from utils.helpers import get_current_datetime
 
-        TravelPlanningTool = _get_module('tools')
+        TravelPlanningTool = _get_module("tools")
 
         # 1) 提取 origin / destination(P6.S.3 + S.4 改进)
         import re as _re
 
         # P6.S.4: 时间/代词/动词白名单,避免被误判为 origin
         NON_LOC_WORDS = {
-            "我", "你", "他", "她", "我们", "我明天", "你明天",
-            "今天", "明天", "后天", "大后天", "今天要", "明天要", "我明天要", "你明天要",
-            "现在", "之后", "再", "马上", "等下", "等一会儿",
-            "请", "麻烦", "想", "要", "想从", "要去", "要带", "准备",
-            "我等", "我马上", "我先", "我现", "我准", "下午", "上午", "晚上"
+            "我",
+            "你",
+            "他",
+            "她",
+            "我们",
+            "我明天",
+            "你明天",
+            "今天",
+            "明天",
+            "后天",
+            "大后天",
+            "今天要",
+            "明天要",
+            "我明天要",
+            "你明天要",
+            "现在",
+            "之后",
+            "再",
+            "马上",
+            "等下",
+            "等一会儿",
+            "请",
+            "麻烦",
+            "想",
+            "要",
+            "想从",
+            "要去",
+            "要带",
+            "准备",
+            "我等",
+            "我马上",
+            "我先",
+            "我现",
+            "我准",
+            "下午",
+            "上午",
+            "晚上",
         }
         NON_LOC_SUBSTR = ["要", "想", "准备", "马上", "等", "坐", "去", "我", "你"]
 
@@ -894,7 +1058,7 @@ class GreenAgent:
         destination = None
 
         # 模式 1: "从A到B" 或 "从A去B" — 都有明确出发地
-        m = _re.search(r'从\s*([^到去,,,?？\s]{2,15})\s*[到去]\s*([^,,,?？\s]{2,15})', message)
+        m = _re.search(r"从\s*([^到去,,,?？\s]{2,15})\s*[到去]\s*([^,,,?？\s]{2,15})", message)
         if m:
             cand_o = m.group(1).strip()
             if _is_valid_origin(cand_o):
@@ -903,7 +1067,9 @@ class GreenAgent:
 
         # 模式 2: "A到B" 或 "A去B" (无"从")
         if not origin:
-            for m in _re.finditer(r'([^到去,,,?？\s]{3,15})\s*[到去]\s*([^,,,?？\s]{2,15})', message):
+            for m in _re.finditer(
+                r"([^到去,,,?？\s]{3,15})\s*[到去]\s*([^,,,?？\s]{2,15})", message
+            ):
                 if _is_valid_origin(m.group(1).strip()):
                     origin = m.group(1).strip()
                     destination = m.group(2).strip()
@@ -911,7 +1077,7 @@ class GreenAgent:
 
         # 模式 3: "去A" / "到A" — 只有目的地,出发地默认"当前位置"
         if not origin and not destination:
-            m = _re.search(r'(?:去|到)\s*([^,,,?？\s]{2,15})', message)
+            m = _re.search(r"(?:去|到)\s*([^,,,?？\s]{2,15})", message)
             if m:
                 origin = "当前位置"
                 destination = m.group(1).strip()
@@ -919,25 +1085,44 @@ class GreenAgent:
         # 清理 destination 尾部的修饰词(长的先匹配,避免 "最环保" 被 "怎么走" 漏掉)
         if destination:
             for tail in [
-                "怎么走最环保", "怎么坐最环保", "最环保的方式", "低碳出行", "环保出行", "绿色出行",
-                "怎么走", "怎么坐", "怎么去", "怎么",
-                "几点出发", "多久到", "多久", "多长",
-                "最环保", "最绿色", "最省时", "最快",
-                "出行", "规划", "路线", "坐公交", "坐地铁", "打车",
+                "怎么走最环保",
+                "怎么坐最环保",
+                "最环保的方式",
+                "低碳出行",
+                "环保出行",
+                "绿色出行",
+                "怎么走",
+                "怎么坐",
+                "怎么去",
+                "怎么",
+                "几点出发",
+                "多久到",
+                "多久",
+                "多长",
+                "最环保",
+                "最绿色",
+                "最省时",
+                "最快",
+                "出行",
+                "规划",
+                "路线",
+                "坐公交",
+                "坐地铁",
+                "打车",
             ]:
                 if destination.endswith(tail):
-                    destination = destination[:-len(tail)].strip()
+                    destination = destination[: -len(tail)].strip()
                     break  # 一次只剥一个,重新进入下一轮
             # 也清掉"去/到"尾巴
             for tail in ["去", "到"]:
                 if destination.endswith(tail):
-                    destination = destination[:-len(tail)].strip()
+                    destination = destination[: -len(tail)].strip()
 
         # 清理 origin 同理
         if origin and origin != "当前位置":
             for tail in ["出发", "出发地"]:
                 if origin.endswith(tail):
-                    origin = origin[:-len(tail)].strip()
+                    origin = origin[: -len(tail)].strip()
 
         # 2) 提取不到完整信息 — 返澄清问题
         if not origin or not destination:
@@ -948,9 +1133,9 @@ class GreenAgent:
                 suggestions=[
                     "从家到公司怎么走",
                     "从北京西单到国贸,坐地铁多久",
-                    "从公司到机场,最环保的方式"
+                    "从公司到机场,最环保的方式",
                 ],
-                timestamp=get_current_datetime()
+                timestamp=get_current_datetime(),
             )
 
         # 2) 调工具
@@ -963,23 +1148,72 @@ class GreenAgent:
                 conversation_id=conversation_id,
                 intent="travel_planning",
                 suggestions=["试试其它交通方式", "查询附近公交站"],
-                timestamp=get_current_datetime()
+                timestamp=get_current_datetime(),
             )
 
         # 3) 格式化响应
         if not result.success:
-            # 工具调用失败(可能没高德 API key) — 降级给 RAG 建议
+            # 工具调用失败(可能没高德 API key / 限流 / 解析失败) — 降级给 RAG 知识库
+            # P6.S.26 fix:
+            # 1) 把 error 透传到 tool_result,前端能区分"无 key"vs"限流"vs"无路线"
+            # 2) 高德 QPS 限流时,回退到 RAG 知识库检索真实出行建议(避免 LLM 自由生成幻觉)
+            error_text = result.error or "路线查询失败"
+            error_category = "missing_api_key" if "GAODE_API_KEY" in error_text else "no_route"
+
+            fallback_message = ""
+            rag_suggestions: List[str] = []
+            try:
+                # 检测高德限流 — 走 RAG 知识库
+                # P6.S.26 fix: 检测 "QPS 配额耗尽" / "CUQPS" / "限流" 关键词
+                is_rate_limited = (
+                    "QPS" in error_text
+                    or "CUQPS" in error_text
+                    or "限流" in error_text
+                    or "QUOTA" in error_text.upper()
+                )
+                if is_rate_limited:
+                    # 从知识库找真实出行建议(guide/ 出差/通勤/北京出行 等)
+                    rag_query = f"{origin}到{destination} 低碳出行建议"
+                    try:
+                        rag_results = self._retrieve_knowledge(rag_query, intent_result)
+                    except Exception:
+                        rag_results = []
+                    if rag_results:
+                        # 取前 2 条,每条摘 200 字
+                        snippets = []
+                        for k in rag_results[:2]:
+                            title = k.get("title", "出行建议")
+                            content = (k.get("content", "") or "")[:200]
+                            if content:
+                                snippets.append(f"📚 {title}: {content}…")
+                        if snippets:
+                            fallback_message = "\n\n".join(snippets)
+                            rag_suggestions = [k.get("title", "") for k in rag_results[:3]]
+                    error_category = "rate_limited"
+            except Exception:
+                # 知识库查询失败不阻塞
+                pass
+
+            if not fallback_message:
+                fallback_message = (
+                    f"💡 既然你要去 **{destination}**,以下是一些通用建议:\n"
+                    f"• 优先选公交/地铁(碳排约为私家车的 1/5)\n"
+                    f"• 短途(<5km) 骑行或步行最环保\n"
+                    f"• 长途选高铁优于飞机(碳排约 1/4)"
+                )
+
             return AgentResponse(
-                message=f"⚠️ {result.error or '路线查询失败'}\n\n"
-                        f"💡 既然你要去 **{destination}**,以下是一些通用建议:\n"
-                        f"• 优先选公交/地铁(碳排约为私家车的 1/5)\n"
-                        f"• 短途(<5km) 骑行或步行最环保\n"
-                        f"• 长途选高铁优于飞机(碳排约 1/4)",
+                message=f"⚠️ {error_text}\n\n{fallback_message}",
                 conversation_id=conversation_id,
                 intent="travel_planning",
-                suggestions=["查询附近公交站", "推荐低碳餐厅", "电动车充电桩位置"],
-                tool_result={"origin": origin, "destination": destination, "error": result.error},
-                timestamp=get_current_datetime()
+                suggestions=rag_suggestions or ["查询附近公交站", "推荐低碳餐厅", "电动车充电桩位置"],
+                tool_result={
+                    "origin": origin,
+                    "destination": destination,
+                    "error": error_text,
+                    "error_category": error_category,
+                },
+                timestamp=get_current_datetime(),
             )
 
         # 4) 成功 — 格式化路线
@@ -991,22 +1225,22 @@ class GreenAgent:
 
         # P6.S.15: 给短途(<3km)补一个步行选项
         try:
-            distance_km = min(
-                (r.get("distance_km") or 99) for r in routes
-            ) if routes else 0
+            distance_km = min((r.get("distance_km") or 99) for r in routes) if routes else 0
         except Exception:
             distance_km = 0
         if 0 < distance_km <= 5 and not any(r.get("type") == "步行" for r in routes):
             # 步行 5km/h 估算
             walking_min = int(distance_km * 12)  # 5km/h = 12 min/km
-            routes.append({
-                "type": "步行",
-                "line": "全程步行",
-                "distance_km": distance_km,
-                "duration_min": walking_min,
-                "carbon_kg": 0.0,
-                "cost_yuan": 0,
-            })
+            routes.append(
+                {
+                    "type": "步行",
+                    "line": "全程步行",
+                    "distance_km": distance_km,
+                    "duration_min": walking_min,
+                    "carbon_kg": 0.0,
+                    "cost_yuan": 0,
+                }
+            )
 
         # 格式化路线(注意:实际 key 是 'type' 不是 'mode')
         route_lines = []
@@ -1049,34 +1283,38 @@ class GreenAgent:
         # P6.S.15: 评分修正(实际是 0-1,要显示成 0-10 直观)
         rec_text = ""
         if recommended:
-            score_raw = recommended.get('score', 0)
+            score_raw = recommended.get("score", 0)
             score_10 = round(float(score_raw) * 10, 1)  # 0.577 → 5.8
             # 构造详细理由
-            bd = recommended.get('score_breakdown', {})
+            bd = recommended.get("score_breakdown", {})
             reason_parts = []
-            if bd.get('carbon', 0) > 0.7:
+            if bd.get("carbon", 0) > 0.7:
                 reason_parts.append("碳排最低")
-            if bd.get('cost', 0) > 0.7:
+            if bd.get("cost", 0) > 0.7:
                 reason_parts.append("性价比高")
-            if bd.get('duration', 0) > 0.7:
+            if bd.get("duration", 0) > 0.7:
                 reason_parts.append("用时最短")
-            if bd.get('weather', 0) > 0.7:
+            if bd.get("weather", 0) > 0.7:
                 reason_parts.append("天气适宜")
             reason = "、".join(reason_parts) if reason_parts else "综合最优"
-            if recommended.get('weather_note'):
+            if recommended.get("weather_note"):
                 reason += f" ({recommended['weather_note']})"
-            rec_text = (f"\n\n🌟 **推荐:{recommended.get('type', recommended.get('mode', '?'))}** "
-                        f"(综合评分 {score_10}/10)\n"
-                        f"理由: {reason}")
+            rec_text = (
+                f"\n\n🌟 **推荐:{recommended.get('type', recommended.get('mode', '?'))}** "
+                f"(综合评分 {score_10}/10)\n"
+                f"理由: {reason}"
+            )
 
         # 天气(注意:实际 key 是 'temp_c' 不是 'temp')
         weather_text = ""
         if weather:
             w = weather
-            weather_text = (f"\n\n🌤️ 天气:{w.get('description', '?')}, "
-                            f"温度 {w.get('temp_c', w.get('temp', '?'))}°C, "
-                            f"骑行适宜度 {'✅' if w.get('cycling_ok', True) else '⚠️ 不建议'}"
-                            + (f" {w.get('note', '')}" if w.get('note') else ""))
+            weather_text = (
+                f"\n\n🌤️ 天气:{w.get('description', '?')}, "
+                f"温度 {w.get('temp_c', w.get('temp', '?'))}°C, "
+                f"骑行适宜度 {'✅' if w.get('cycling_ok', True) else '⚠️ 不建议'}"
+                + (f" {w.get('note', '')}" if w.get("note") else "")
+            )
 
         # P6.S.15: 多因素评分权重提示
         weight_text = ""
@@ -1111,17 +1349,17 @@ class GreenAgent:
             suggestions=[
                 "查询附近公交站",
                 f"推荐 {destination} 附近的低碳餐厅",
-                "电动车充电桩位置"
+                "电动车充电桩位置",
             ],
             tool_result=data,  # 完整结构化数据给前端用
-            timestamp=get_current_datetime()
+            timestamp=get_current_datetime(),
         )
 
-    def chat(self, user_id: str, message: str, conversation_id: str = None) -> 'AgentResponse':
+    def chat(self, user_id: str, message: str, conversation_id: str = None) -> "AgentResponse":
         """处理用户对话（基础版）"""
-        IntentRecognizer, IntentType, IntentResult = _get_module('intent')
-        ResponseGenerator, ResponseContext = _get_module('response')
-        get_current_datetime = _get_module('helpers')[1]
+        IntentRecognizer, IntentType, IntentResult = _get_module("intent")
+        ResponseGenerator, ResponseContext = _get_module("response")
+        get_current_datetime = _get_module("helpers")[1]
 
         conversation_id = self._manage_conversation(user_id, conversation_id)
         conversation = self.active_conversations[conversation_id]
@@ -1132,14 +1370,14 @@ class GreenAgent:
 
         # P6.S.3: 出行规划走工具调用(高德地图 + 天气 + 碳排对比)
         if intent_result.intent == IntentType.TRAVEL_PLANNING:
-            return self._handle_travel_planning(
-                user_id, message, conversation_id, intent_result
-            )
+            return self._handle_travel_planning(user_id, message, conversation_id, intent_result)
 
         if self.web_searcher and self.web_searcher.is_realtime_query(message):
             realtime_response = self.web_searcher.get_realtime_response(message)
 
-            self._update_memories(user_id, conversation_id, message, intent_result, realtime_response)
+            self._update_memories(
+                user_id, conversation_id, message, intent_result, realtime_response
+            )
             self._increment_conversation_count(user_id)
             self._save_conversation(conversation_id, user_id, message, realtime_response)
 
@@ -1148,7 +1386,7 @@ class GreenAgent:
                 conversation_id=conversation_id,
                 intent="realtime_query",
                 suggestions=["给我更多低碳生活建议", "推荐一些环保行动"],
-                timestamp=get_current_datetime()
+                timestamp=get_current_datetime(),
             )
 
         retrieved_knowledge = self._retrieve_knowledge(message, intent_result)
@@ -1161,26 +1399,33 @@ class GreenAgent:
             conversation_history=conversation_history,
             retrieved_knowledge=retrieved_knowledge,
             recent_memories=recent_memories,
-            intent_type=intent_result.suggested_response_type
+            intent_type=intent_result.suggested_response_type,
         )
 
         # P6.S.5: 优先用 LLM(若可用),失败回退到模板
         response_data = None
         if self.use_llm and self.response_generator:
             try:
-                rag_context_str = "\n".join(
-                    k.get("content", "")[:500] for k in retrieved_knowledge[:3]
-                ) if retrieved_knowledge else ""
+                rag_context_str = (
+                    "\n".join(k.get("content", "")[:500] for k in retrieved_knowledge[:3])
+                    if retrieved_knowledge
+                    else ""
+                )
                 # P6.S.5 final: 强制 MockLLMClient(若 .env 启 LLM_MOCK 或 server 启动时设过)
                 # 直接构造 MockLLMClient 跳过工厂,避免 _build_prompt + llm.chat hang
                 if os.getenv("LLM_MOCK", "auto").strip().lower() in ("true", "1", "yes", "on"):
                     from llm.client import MockLLMClient
+
                     mock = MockLLMClient()
                     # 用 RAG 摘要作为 system context
                     last_user_msg = message
-                    augmented_msg = f"{last_user_msg}\n\n[知识库参考资料]:\n{rag_context_str[:1000]}"
+                    augmented_msg = (
+                        f"{last_user_msg}\n\n[知识库参考资料]:\n{rag_context_str[:1000]}"
+                    )
                     mock_resp = mock.chat([{"role": "user", "content": augmented_msg}])
-                    llm_text = mock_resp.content if hasattr(mock_resp, "content") else str(mock_resp)
+                    llm_text = (
+                        mock_resp.content if hasattr(mock_resp, "content") else str(mock_resp)
+                    )
                 else:
                     llm_text = self.response_generator.generate_with_llm(
                         message, context, rag_context_str
@@ -1190,7 +1435,7 @@ class GreenAgent:
                         "message": llm_text,
                         "suggestions": [],
                         "knowledge_refs": [k.get("title", "") for k in retrieved_knowledge[:3]],
-                        "response_type": "llm_generated"
+                        "response_type": "llm_generated",
                     }
             except Exception as e:
                 print(f"[P6.S.5] LLM 失败,回退模板: {e}", flush=True)
@@ -1207,12 +1452,14 @@ class GreenAgent:
         # P4-B.1: 接入记忆整合器(短→长)
         try:
             from memory.consolidation import get_consolidator
+
             consolidator = get_consolidator()
             consolidator.update_conversation_activity(conversation_id)
             consolidator.update_message_count(conversation_id, count=2)
             consolidator.consolidate(user_id, conversation_id)
         except Exception as e:
             import logging
+
             logging.getLogger(__name__).warning("[GreenAgent] 记忆整合失败(非致命): %s", e)
 
         return AgentResponse(
@@ -1223,7 +1470,7 @@ class GreenAgent:
             knowledge_refs=response_data["knowledge_refs"],
             memory_hints=recent_memories,
             profile_updates=profile_updates,
-            timestamp=get_current_datetime()
+            timestamp=get_current_datetime(),
         )
 
     # ========== 辅助方法 ==========
@@ -1253,11 +1500,13 @@ class GreenAgent:
         """
         try:
             from utils.geolocate import best_location
+
             geo = best_location(handler=self, user_id=user_id)
             if geo and geo.city:
                 return geo.city
         except Exception as e:
             import logging
+
             logging.getLogger(__name__).debug("[P6.S.22] resolve location: %s", e)
         return "北京"
 
@@ -1312,7 +1561,9 @@ class GreenAgent:
                 break
         return semantic[:limit]
 
-    def _update_memories(self, user_id, conversation_id, user_message, intent_result, response_message):
+    def _update_memories(
+        self, user_id, conversation_id, user_message, intent_result, response_message
+    ):
         """更新记忆系统"""
         updates = {}
 
@@ -1320,13 +1571,13 @@ class GreenAgent:
             conversation_id=conversation_id,
             role="user",
             content=user_message,
-            metadata={"intent": intent_result.intent.value}
+            metadata={"intent": intent_result.intent.value},
         )
         self.short_term_memory.add_message(
             conversation_id=conversation_id,
             role="assistant",
             content=response_message,
-            metadata={"intent": intent_result.intent.value}
+            metadata={"intent": intent_result.intent.value},
         )
 
         key_info = self._extract_key_info(user_message, intent_result)
@@ -1336,7 +1587,7 @@ class GreenAgent:
                 user_id=user_id,
                 content=key_info["content"],
                 memory_type=key_info["type"],
-                importance=key_info.get("importance", 0.5)
+                importance=key_info.get("importance", 0.5),
             )
             updates["new_memory"] = key_info["type"]
 
@@ -1344,31 +1595,27 @@ class GreenAgent:
 
     def _extract_key_info(self, message: str, intent_result) -> Optional[Dict]:
         """提取关键信息用于记忆"""
-        IntentType = _get_module('intent')[1]
+        IntentType = _get_module("intent")[1]
 
         if intent_result.intent == IntentType.ACTION_REPORT:
             return {
                 "content": f"用户报告: {message[:100]}",
                 "type": "action_report",
-                "importance": 0.7
+                "importance": 0.7,
             }
         elif intent_result.intent == IntentType.ADVICE_REQUEST:
             return {
                 "content": f"用户感兴趣: {message[:100]}",
                 "type": "interest",
-                "importance": 0.6
+                "importance": 0.6,
             }
         elif intent_result.intent == IntentType.FEEDBACK:
-            return {
-                "content": f"用户反馈: {message[:100]}",
-                "type": "feedback",
-                "importance": 0.8
-            }
+            return {"content": f"用户反馈: {message[:100]}", "type": "feedback", "importance": 0.8}
         return None
 
     def _update_user_profile(self, user_id: str, intent_result, updates: Dict):
         """更新用户画像"""
-        IntentType = _get_module('intent')[1]
+        IntentType = _get_module("intent")[1]
 
         if intent_result.intent == IntentType.KNOWLEDGE_QUERY:
             self.profile_manager.record_interaction(user_id, "question")
@@ -1422,8 +1669,13 @@ class GreenAgent:
         stats = profile.get("statistics", {})
         # 只对数值字段求和，排除字典类型的 topic_interactions
         numeric_fields = [
-            "total_conversations", "total_messages", "questions_asked",
-            "actions_reported", "feedback_given", "suggestions_accepted", "suggestions_rejected"
+            "total_conversations",
+            "total_messages",
+            "questions_asked",
+            "actions_reported",
+            "feedback_given",
+            "suggestions_accepted",
+            "suggestions_rejected",
         ]
         total = sum(stats.get(field, 0) for field in numeric_fields)
 
@@ -1435,11 +1687,36 @@ class GreenAgent:
             return "high"
 
     def get_knowledge_stats(self) -> Dict[str, Any]:
-        """获取知识库统计"""
+        """获取知识库统计
+
+        P6.S.23 修复: 此前 `total_documents` 来自 `KnowledgeManager.documents`
+        (内存静态 KB,可能 0);前端用户看到"知识条目=0"以为是 RAG 数字。
+        现在优先用 RAG 向量库的 vector_store_count,前端展示的"知识条目"
+        才是用户实际能召回的语料数。
+        """
         stats = self.knowledge_manager.get_stats()
+        # 静态 markdown 文件数(用于 P1 的"知识库文件数"展示)
+        stats["knowledge_base_files"] = stats.get("total_documents", 0)
+
         if self.rag_enabled and self.rag_engine:
-            stats["rag_enabled"] = True
-            stats["rag_stats"] = self.rag_engine.get_stats()
+            try:
+                rag_stats = self.rag_engine.get_stats()
+                stats["rag_enabled"] = True
+                stats["rag_stats"] = rag_stats
+                # P6.S.23: 主数字用 RAG 实际块数(150 doc),而不是 0 的内存 KB
+                stats["total_documents"] = (
+                    rag_stats.get("vector_store_count", 0)
+                    + rag_stats.get("bm25_doc_count", 0)
+                )
+            except Exception as e:
+                # Bug12: ChromaDB collection 丢失/异常时降级,不让 /api/knowledge/stats 500
+                import logging
+                logging.getLogger(__name__).warning(
+                    "[GreenAgent] RAG stats 失败(降级返回静态 KB): %s", e
+                )
+                stats["rag_enabled"] = False
+                stats["rag_error"] = str(e)[:200]
+                # 保持 total_documents = 静态 KB 文档数(已从 knowledge_manager 拿)
         else:
             stats["rag_enabled"] = False
         return stats
@@ -1465,24 +1742,20 @@ class GreenAgent:
             "memories": memories,
             "preferences": preferences,
             "learned_interests": learned_interests,
-            "export_time": datetime.now().isoformat()
+            "export_time": datetime.now().isoformat(),
         }
 
 
 if __name__ == "__main__":
     from pathlib import Path
+
     project_root = Path(__file__).parent.parent.parent
 
-    agent = GreenAgent(
-        knowledge_base_path=str(project_root / "knowledge_base"),
-        enable_rag=True
-    )
+    agent = GreenAgent(knowledge_base_path=str(project_root / "knowledge_base"), enable_rag=True)
 
-    user_id = agent.register_user({
-        "age_group": "26-35",
-        "region": "北京",
-        "interests": ["低碳出行", "节能减排"]
-    })
+    user_id = agent.register_user(
+        {"age_group": "26-35", "region": "北京", "interests": ["低碳出行", "节能减排"]}
+    )
     print(f"\n注册成功，用户ID: {user_id}")
 
     onboarding = agent.start_onboarding(user_id)

@@ -10,4 +10,10 @@ def register_policy_routes(registry) -> None:
         result = handler.policy_updater.check_updates()
         handler.send_json(result)
 
-    registry.add_route("POST", "/api/policy/check-updates", policy_check_updates, auth_required=True, description="检查政策更新(写操作,触发爬取)")
+    registry.add_route(
+        "POST",
+        "/api/policy/check-updates",
+        policy_check_updates,
+        auth_required=True,
+        description="检查政策更新(写操作,触发爬取)",
+    )

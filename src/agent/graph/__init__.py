@@ -13,14 +13,9 @@ from .nodes import (
     update_profile,
     generate_recommendations,
     generate_response,
-    handle_error
+    handle_error,
 )
-from .graph import (
-    create_agent_graph,
-    get_agent_graph,
-    ReActAgentGraph,
-    get_react_graph
-)
+from .graph import create_agent_graph, get_agent_graph, ReActAgentGraph, get_react_graph
 
 __all__ = [
     "AgentState",
@@ -39,5 +34,5 @@ __all__ = [
     "create_agent_graph",
     "get_agent_graph",
     "ReActAgentGraph",
-    "get_react_graph"
+    "get_react_graph",
 ]

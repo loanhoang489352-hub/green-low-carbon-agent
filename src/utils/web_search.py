@@ -5,14 +5,12 @@
 
 import sys
 import json
-import re
-from urllib.parse import quote, urlencode
+from urllib.parse import quote
 from urllib.request import urlopen, Request
 from urllib.error import URLError, HTTPError
-from datetime import datetime
 
 # 添加项目根目录
-project_root = __file__.rsplit('/', 2)[0] if '/' in __file__ else __file__.rsplit('\\', 2)[0]
+project_root = __file__.rsplit("/", 2)[0] if "/" in __file__ else __file__.rsplit("\\", 2)[0]
 if project_root not in sys.path:
     sys.path.insert(0, project_root)
 
@@ -22,19 +20,43 @@ class WebSearcher:
 
     # 实时信息关键词
     REALTIME_KEYWORDS = [
-        "油价", "油价调整", "今日油价", "汽油价格", "柴油价格",
-        "天气", "气温", "天气预报", "今天天气", "明天天气",
-        "空气质量", "PM2.5", "AQI",
-        "电价", "电费", "燃气价格", "天然气价格",
-        "新闻", "最新", "今天", "现在",
-        "汇率", "美元", "人民币汇率",
-        "股价", "股票", "上证", "深证",
-        "时间", "几点", "日期", "星期几",
+        "油价",
+        "油价调整",
+        "今日油价",
+        "汽油价格",
+        "柴油价格",
+        "天气",
+        "气温",
+        "天气预报",
+        "今天天气",
+        "明天天气",
+        "空气质量",
+        "PM2.5",
+        "AQI",
+        "电价",
+        "电费",
+        "燃气价格",
+        "天然气价格",
+        "新闻",
+        "最新",
+        "今天",
+        "现在",
+        "汇率",
+        "美元",
+        "人民币汇率",
+        "股价",
+        "股票",
+        "上证",
+        "深证",
+        "时间",
+        "几点",
+        "日期",
+        "星期几",
     ]
 
     def __init__(self):
         self.session_headers = {
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
         }
 
     def is_realtime_query(self, query: str) -> bool:
@@ -50,8 +72,8 @@ class WebSearcher:
         try:
             # 这里可以接入真实API，但为了简单返回已知信息
             return self._get_simulated_oil_price()
-        except Exception as e:
-            return f"抱歉，暂时无法获取油价信息。错误: str(e)"
+        except Exception:
+            return "抱歉，暂时无法获取油价信息。错误: str(e)"
 
     def _get_simulated_oil_price(self) -> str:
         """返回模拟油价数据（实际应该联网获取）"""
@@ -84,25 +106,50 @@ class WebSearcher:
 
     # 主要城市备用列表(Open-Meteo 支持中文名,这里保留作为 fallback)
     _CITY_CODES = {
-        "北京": "101010100", "上海": "101020100", "广州": "101280101",
-        "深圳": "101280601", "杭州": "101210101", "南京": "101190101",
-        "武汉": "101200101", "成都": "101270101", "西安": "101110101",
-        "天津": "101030100", "重庆": "101040100", "苏州": "101190401",
+        "北京": "101010100",
+        "上海": "101020100",
+        "广州": "101280101",
+        "深圳": "101280601",
+        "杭州": "101210101",
+        "南京": "101190101",
+        "武汉": "101200101",
+        "成都": "101270101",
+        "西安": "101110101",
+        "天津": "101030100",
+        "重庆": "101040100",
+        "苏州": "101190401",
     }
 
     # Open-Meteo WMO weathercode → 中文描述
     _WEATHER_CODE_CN = {
-        0: "晴", 1: "少云", 2: "多云", 3: "阴",
-        45: "雾", 48: "雾凇",
-        51: "毛毛雨", 53: "毛毛雨", 55: "毛毛雨",
-        56: "冻雨", 57: "冻雨",
-        61: "小雨", 63: "中雨", 65: "大雨",
-        66: "冻雨", 67: "冻雨",
-        71: "小雪", 73: "中雪", 75: "大雪",
+        0: "晴",
+        1: "少云",
+        2: "多云",
+        3: "阴",
+        45: "雾",
+        48: "雾凇",
+        51: "毛毛雨",
+        53: "毛毛雨",
+        55: "毛毛雨",
+        56: "冻雨",
+        57: "冻雨",
+        61: "小雨",
+        63: "中雨",
+        65: "大雨",
+        66: "冻雨",
+        67: "冻雨",
+        71: "小雪",
+        73: "中雪",
+        75: "大雪",
         77: "米雪",
-        80: "阵雨", 81: "阵雨", 82: "强阵雨",
-        85: "阵雪", 86: "强阵雪",
-        95: "雷暴", 96: "雷暴伴冰雹", 99: "强雷暴伴冰雹",
+        80: "阵雨",
+        81: "阵雨",
+        82: "强阵雨",
+        85: "阵雪",
+        86: "强阵雪",
+        95: "雷暴",
+        96: "雷暴伴冰雹",
+        99: "强雷暴伴冰雹",
     }
 
     def fetch_weather_from_api(self, city: str = "北京") -> str:
@@ -110,7 +157,9 @@ class WebSearcher:
         注:已从和风天气(403)切换到 Open-Meteo
         """
         # 1. geocode: 中文城市名 → 经纬度
-        geo_url = f"https://geocoding-api.open-meteo.com/v1/search?name={quote(city)}&count=1&language=zh"
+        geo_url = (
+            f"https://geocoding-api.open-meteo.com/v1/search?name={quote(city)}&count=1&language=zh"
+        )
         try:
             req = Request(geo_url, headers=self.session_headers)
             with urlopen(req, timeout=10) as resp:
@@ -137,7 +186,7 @@ class WebSearcher:
 
         cw = data.get("current_weather", {})
         if not cw:
-            return f"获取天气信息失败: 天气数据为空"
+            return "获取天气信息失败: 天气数据为空"
 
         # 取当前时刻对应的湿度(hourly 时间数组与 current.time 对齐)
         humidity = "?"
@@ -174,7 +223,7 @@ class WebSearcher:
 
     def _get_simulated_weather(self) -> str:
         """返回模拟天气数据"""
-        return f"""**今日天气预报**（北京，2026年4月11日，周六）：
+        return """**今日天气预报**（北京，2026年4月11日，周六）：
 
 - 天气：晴转多云
 - 气温：12°C ~ 24°C

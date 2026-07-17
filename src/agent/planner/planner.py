@@ -16,6 +16,7 @@ logger = logging.getLogger(__name__)
 @dataclass
 class PlanningResult:
     """规划结果"""
+
     tasks: List[Task]
     task_graph: TaskGraph
     success: bool
@@ -51,7 +52,9 @@ class Planner:
         """
         self._execution_callbacks[task_type] = executor
 
-    def plan(self, message: str, intent_type: str, context: Dict[str, Any] = None) -> PlanningResult:
+    def plan(
+        self, message: str, intent_type: str, context: Dict[str, Any] = None
+    ) -> PlanningResult:
         """
         执行规划
 
@@ -74,19 +77,10 @@ class Planner:
 
             self._current_graph = task_graph
 
-            return PlanningResult(
-                tasks=tasks,
-                task_graph=task_graph,
-                success=True
-            )
+            return PlanningResult(tasks=tasks, task_graph=task_graph, success=True)
 
         except Exception as e:
-            return PlanningResult(
-                tasks=[],
-                task_graph=TaskGraph(),
-                success=False,
-                error=str(e)
-            )
+            return PlanningResult(tasks=[], task_graph=TaskGraph(), success=False, error=str(e))
 
     def execute_next(self) -> Optional[Task]:
         """
@@ -99,8 +93,7 @@ class Planner:
             return None
 
         completed_ids = [
-            t.task_id for t in self._current_graph.tasks
-            if t.status == TaskStatus.COMPLETED
+            t.task_id for t in self._current_graph.tasks if t.status == TaskStatus.COMPLETED
         ]
 
         ready_tasks = self._current_graph.get_ready_tasks(completed_ids)
@@ -120,13 +113,16 @@ class Planner:
                 task.mark_failed(str(e))
                 logger.exception(
                     "[Planner] 任务执行失败: task_id=%s type=%s error=%s",
-                    task.task_id, task.task_type, e,
+                    task.task_id,
+                    task.task_type,
+                    e,
                 )
         else:
             # 没有注册执行器 — 显式记录而不是默默跳过
             logger.warning(
                 "[Planner] 任务无执行器,标记为 SKIPPED: task_id=%s type=%s",
-                task.task_id, task.task_type,
+                task.task_id,
+                task.task_type,
             )
             task.mark_skipped(reason="no_executor_registered")
 
@@ -141,10 +137,7 @@ class Planner:
         """
         if not self._current_graph:
             return PlanningResult(
-                tasks=[],
-                task_graph=TaskGraph(),
-                success=False,
-                error="No plan available"
+                tasks=[], task_graph=TaskGraph(), success=False, error="No plan available"
             )
 
         max_iterations = 100  # 防止无限循环
@@ -172,10 +165,10 @@ class Planner:
                     "type": t.task_type.value,
                     "status": t.status.value,
                     "result": t.result,
-                    "error": t.error
+                    "error": t.error,
                 }
                 for t in self._current_graph.tasks
-            }
+            },
         }
 
         failed_tasks = [
@@ -239,10 +232,7 @@ class ReActPlanner(Planner):
         self._observation_history: List[Dict[str, Any]] = []
 
     def plan_with_react(
-        self,
-        message: str,
-        intent_type: str,
-        context: Dict[str, Any] = None
+        self, message: str, intent_type: str, context: Dict[str, Any] = None
     ) -> PlanningResult:
         """
         使用ReAct模式规划
@@ -259,7 +249,7 @@ class ReActPlanner(Planner):
             reflection_task = Task(
                 task_type=TaskType.REFLECTION,
                 description="执行整体反思",
-                parameters={"tasks": result.tasks}
+                parameters={"tasks": result.tasks},
             )
 
             # 依赖于所有之前的任务
@@ -272,11 +262,7 @@ class ReActPlanner(Planner):
 
     def add_observation(self, action: str, result: Any, success: bool):
         """添加观察结果"""
-        self._observation_history.append({
-            "action": action,
-            "result": result,
-            "success": success
-        })
+        self._observation_history.append({"action": action, "result": result, "success": success})
 
     def should_replan(self) -> bool:
         """判断是否需要重新规划"""

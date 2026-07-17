@@ -7,6 +7,7 @@ trace_id 生成与上下文传递 (P5-B)
 - new_trace_id() 用 uuid4 hex[:12] 短 ID(全局唯一且可读)
 - with_trace() 上下文管理器(嵌套调用安全)
 """
+
 from contextvars import ContextVar
 from contextlib import contextmanager
 import uuid

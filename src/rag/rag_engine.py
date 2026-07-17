@@ -5,41 +5,45 @@ RAG 引擎 - 检索增强生成的核心引擎
 
 # Windows UTF-8 encoding setup - Only if not already wrapped (avoid duplicate wrapping)
 import sys
-if sys.platform == 'win32':
+
+if sys.platform == "win32":
     import io
-    if not isinstance(sys.stdout, io.TextIOWrapper) or sys.stdout.encoding != 'utf-8':
-        sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8', errors='replace')
-        sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding='utf-8', errors='replace')
+
+    if not isinstance(sys.stdout, io.TextIOWrapper) or sys.stdout.encoding != "utf-8":
+        sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8", errors="replace")
+        sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding="utf-8", errors="replace")
 
 from pathlib import Path
 
 script_path = Path(__file__).resolve()
 project_root = script_path.parent.parent.parent
-sys.path.insert(0, str(project_root / 'src'))
+sys.path.insert(0, str(project_root / "src"))
 
-from typing import List, Dict, Any, Optional, Tuple
+from typing import List, Dict, Any, Optional
 from dataclasses import dataclass
-import json
 import uuid
 import time
 import threading
 
-from .embedder import Embedder, create_embedder, SentenceTransformerEmbedder
+from .embedder import Embedder, create_embedder
 from .vector_store import VectorStore, Document, create_vector_store
-from .retriever import Retriever, SemanticRetriever, BM25Retriever, HybridRetriever, RetrievalResult
+from .retriever import Retriever, SemanticRetriever, HybridRetriever, RetrievalResult
 
 # P5-F: 模块级 logger
 try:
     from observability import get_logger
+
     _logger = get_logger("rag.engine")
 except Exception:
     import logging
+
     _logger = logging.getLogger("rag.engine")
 
 
 @dataclass
 class RAGConfig:
     """RAG 配置"""
+
     enabled: bool = True
     provider: str = "sentence-transformers"  # sentence-transformers, openai
     embedding_model: str = "paraphrase-multilingual-MiniLM-L12-v2"
@@ -79,10 +83,10 @@ class RAGEngine:
 
         # 索引统计
         self.stats = {
-            'total_documents': 0,
-            'last_index_time': None,
-            'total_queries': 0,
-            'avg_query_time_ms': 0
+            "total_documents": 0,
+            "last_index_time": None,
+            "total_queries": 0,
+            "avg_query_time_ms": 0,
         }
 
         # P5-H.C: 异步重建状态
@@ -118,8 +122,7 @@ class RAGEngine:
             # 1. 初始化嵌入器
             print("   - 初始化嵌入器...")
             self._embedder = create_embedder(
-                provider=self.config.provider,
-                model_name=self.config.embedding_model
+                provider=self.config.provider, model_name=self.config.embedding_model
             )
             _ = self._embedder.dimension  # 触发模型加载
 
@@ -128,7 +131,7 @@ class RAGEngine:
             self._vector_store = create_vector_store(
                 store_type=self.config.vector_store_type,
                 persist_directory=self.config.persist_directory,
-                collection_name=self.config.collection_name
+                collection_name=self.config.collection_name,
             )
 
             # 3. 初始化检索器
@@ -138,13 +141,13 @@ class RAGEngine:
                     vector_store=self._vector_store,
                     embedder=self._embedder,
                     bm25_documents=self._bm25_documents,
-                    semantic_weight=self.config.semantic_weight
+                    semantic_weight=self.config.semantic_weight,
                 )
             else:
                 self._retriever = SemanticRetriever(
                     vector_store=self._vector_store,
                     embedder=self._embedder,
-                    default_top_k=self.config.default_top_k
+                    default_top_k=self.config.default_top_k,
                 )
 
             # 4. 加载知识库
@@ -158,14 +161,12 @@ class RAGEngine:
         except Exception as e:
             print(f"[ERR] RAG 引擎初始化失败: {e}")
             import traceback
+
             traceback.print_exc()
             return False
 
     def load_knowledge_base(
-        self,
-        base_path: str,
-        categories: List[str] = None,
-        force_reload: bool = False
+        self, base_path: str, categories: List[str] = None, force_reload: bool = False
     ) -> int:
         """
         加载知识库文档
@@ -206,13 +207,13 @@ class RAGEngine:
 
             # 读取文档
             try:
-                with open(md_file, 'r', encoding='utf-8') as f:
+                with open(md_file, "r", encoding="utf-8") as f:
                     content = f.read()
 
                 # 解析 YAML front matter（如果有）
                 metadata = self._parse_metadata(content)
-                metadata['source'] = str(md_file.relative_to(base_path))
-                metadata['category'] = md_file.parent.name if len(md_file.parts) > 1 else 'root'
+                metadata["source"] = str(md_file.relative_to(base_path))
+                metadata["category"] = md_file.parent.name if len(md_file.parts) > 1 else "root"
 
                 # 分块
                 chunks = self._chunk_document(content, metadata)
@@ -220,19 +221,21 @@ class RAGEngine:
                 # 生成嵌入并添加
                 for chunk in chunks:
                     doc = Document(
-                        id=chunk['id'],
-                        content=chunk['content'],
-                        metadata=chunk['metadata'],
-                        embedding=None  # 稍后批量生成
+                        id=chunk["id"],
+                        content=chunk["content"],
+                        metadata=chunk["metadata"],
+                        embedding=None,  # 稍后批量生成
                     )
                     documents.append(doc)
 
                     # BM25 用分块后的内容
-                    self._bm25_documents.append({
-                        'id': chunk['id'],
-                        'content': chunk['content'],
-                        'metadata': chunk['metadata']
-                    })
+                    self._bm25_documents.append(
+                        {
+                            "id": chunk["id"],
+                            "content": chunk["content"],
+                            "metadata": chunk["metadata"],
+                        }
+                    )
 
             except Exception as e:
                 print(f"   [WARN]  读取失败 {md_file}: {e}")
@@ -260,81 +263,162 @@ class RAGEngine:
             self._retriever.update_bm25_documents(self._bm25_documents)
 
         # 更新统计
-        self.stats['total_documents'] = self._vector_store.count()
-        self.stats['last_index_time'] = time.strftime("%Y-%m-%d %H:%M:%S")
+        self.stats["total_documents"] = self._vector_store.count()
+        self.stats["last_index_time"] = time.strftime("%Y-%m-%d %H:%M:%S")
 
         print(f"   [OK] 知识库加载完成 ({self.stats['total_documents']} 个文档)")
 
-        return self.stats['total_documents']
+        return self.stats["total_documents"]
 
     def _parse_metadata(self, content: str) -> Dict[str, Any]:
         """解析 YAML front matter"""
         metadata = {}
 
-        if content.startswith('---'):
-            parts = content.split('---', 2)
+        if content.startswith("---"):
+            parts = content.split("---", 2)
             if len(parts) >= 3:
                 yaml_content = parts[1]
-                for line in yaml_content.strip().split('\n'):
-                    if ':' in line:
-                        key, value = line.split(':', 1)
+                for line in yaml_content.strip().split("\n"):
+                    if ":" in line:
+                        key, value = line.split(":", 1)
                         metadata[key.strip()] = value.strip()
 
         return metadata
 
     def _chunk_document(
+        self, content: str, metadata: Dict[str, Any], chunk_size: int = 1200, overlap: int = 150
+    ) -> List[Dict]:
+        """任务2: 二级分层切分 — MarkdownHeaderTextSplitter 绑标题层级
+        + RecursiveCharacterTextSplitter 字符递归子块。
+
+        优势(对比 P5 段落级切分):
+        1. 标题层级(H1/H2/H3)写入 metadata,检索时按 region/heading 软重排
+        2. 跨主题文档不再被粗暴切碎,语义边界完整
+        3. 子块 800 字符 + 100 overlap 平衡召回率与上下文
+
+        Args:
+            content: 原始 markdown 文本(含 front matter 也可)
+            metadata: 文档级 metadata(source/category 等),会与 header 合并
+            chunk_size: 字符递归子块目标大小(默认 800)
+            overlap: 字符递归子块重叠(默认 100)
+
+        Returns:
+            List[Dict],每个 {id, content, metadata(metadata 合并了 h1/h2/h3 标题)}
+        """
+        # 1) 移除 YAML front matter(避免污染切分)
+        if content.startswith("---"):
+            content = content.split("---", 2)[-1]
+        content = content.strip()
+        if not content:
+            return []
+
+        # 2) 兜底:导入失败或 markdown 极少时,退化到段落切分
+        try:
+            from langchain_text_splitters import (
+                MarkdownHeaderTextSplitter,
+                RecursiveCharacterTextSplitter,
+            )
+        except Exception as e:
+            _logger.warning("[RAG] langchain_text_splitters 不可用,退化段落切分: %s", e)
+            return self._chunk_document_fallback(content, metadata, chunk_size, overlap)
+
+        # 3) 第一级:按 H1-H3 标题切分(保留语义边界)
+        header_splitter = MarkdownHeaderTextSplitter(
+            headers_to_split_on=[
+                ("#", "h1"),
+                ("##", "h2"),
+                ("###", "h3"),
+            ],
+            strip_headers=False,  # 保留标题文本,作为子块开头
+        )
+        try:
+            md_header_splits = header_splitter.split_text(content)
+        except Exception as e:
+            _logger.warning("[RAG] MarkdownHeader 切分失败,退化段落: %s", e)
+            return self._chunk_document_fallback(content, metadata, chunk_size, overlap)
+
+        # 4) 第二级:对每个标题段做字符递归子切分
+        char_splitter = RecursiveCharacterTextSplitter(
+            chunk_size=chunk_size,
+            chunk_overlap=overlap,
+            separators=["\n\n", "\n", "。", "!", "?", "!", "?", ";", ";", ",", " ", ""],
+            length_function=len,
+        )
+
+        chunks: List[Dict] = []
+        for header_doc in md_header_splits:
+            # header_doc 是 langchain Document 对象,page_content + metadata
+            section_text = header_doc.page_content
+            header_meta = dict(header_doc.metadata or {})
+
+            # 5) 用字符递归切分(段落优先 → 句号 → 字)
+            try:
+                sub_docs = char_splitter.split_text(section_text)
+            except Exception as e:
+                _logger.warning("[RAG] RecursiveCharacter 切分失败: %s", e)
+                sub_docs = [section_text]
+
+            for sub in sub_docs:
+                sub = sub.strip()
+                if not sub:
+                    continue
+                # 合并 metadata:文档级 + 标题级
+                merged = metadata.copy()
+                merged.update(header_meta)
+                # 把 h1/h2/h3 加到 metadata 顶层,方便后续 region 软重排
+                # (不修改 key 名,直接保留 langchain 返回的 h1/h2/h3)
+                chunks.append(
+                    {
+                        "id": str(uuid.uuid4()),
+                        "content": sub,
+                        "metadata": merged,
+                    }
+                )
+
+        if not chunks:
+            # 兜底:整篇当成一块
+            return self._chunk_document_fallback(content, metadata, chunk_size, overlap)
+        return chunks
+
+    def _chunk_document_fallback(
         self,
         content: str,
         metadata: Dict[str, Any],
-        chunk_size: int = 500,
-        overlap: int = 50
+        chunk_size: int,
+        overlap: int,
     ) -> List[Dict]:
-        """将文档分块"""
+        """任务2: 二级切分不可用时的兜底 — 段落级切分(P5 旧逻辑)"""
         chunks = []
-
-        # 移除 front matter
-        if content.startswith('---'):
-            content = content.split('---', 2)[-1]
-
-        # 清理
-        content = content.strip()
-
-        # 按段落分割
-        paragraphs = [p.strip() for p in content.split('\n\n') if p.strip()]
-
+        paragraphs = [p.strip() for p in content.split("\n\n") if p.strip()]
         current_chunk = ""
         for para in paragraphs:
             if len(current_chunk) + len(para) <= chunk_size:
                 current_chunk += para + "\n\n"
             else:
                 if current_chunk:
-                    chunks.append({
-                        'id': str(uuid.uuid4()),
-                        'content': current_chunk.strip(),
-                        'metadata': metadata.copy()
-                    })
-
-                # 保持重叠
+                    chunks.append(
+                        {
+                            "id": str(uuid.uuid4()),
+                            "content": current_chunk.strip(),
+                            "metadata": metadata.copy(),
+                        }
+                    )
                 if overlap > 0 and len(para) > overlap:
                     current_chunk = para[-overlap:] + "\n\n" + para
                 else:
                     current_chunk = para + "\n\n"
-
-        # 最后一个块
         if current_chunk.strip():
-            chunks.append({
-                'id': str(uuid.uuid4()),
-                'content': current_chunk.strip(),
-                'metadata': metadata.copy()
-            })
-
+            chunks.append(
+                {
+                    "id": str(uuid.uuid4()),
+                    "content": current_chunk.strip(),
+                    "metadata": metadata.copy(),
+                }
+            )
         return chunks
 
     def retrieve(
-        self,
-        query: str,
-        top_k: int = None,
-        filter_metadata: Dict[str, Any] = None
+        self, query: str, top_k: int = None, filter_metadata: Dict[str, Any] = None
     ) -> List[RetrievalResult]:
         """
         检索相关文档
@@ -395,27 +479,29 @@ class RAGEngine:
         dropped = before_count - len(results)
         if dropped:
             import logging
+
             logging.getLogger(__name__).debug(
                 "[RAG] post_filter dropped=%d/%d (abs=%.4f rel=%.4f query='%s')",
-                dropped, before_count, abs_threshold, rel_threshold, query[:50],
+                dropped,
+                before_count,
+                abs_threshold,
+                rel_threshold,
+                query[:50],
             )
 
         # 第四阶段: 截断到 top_k
         results = results[:top_k]
 
         # 更新统计
-        self.stats['total_queries'] += 1
+        self.stats["total_queries"] += 1
         elapsed = (time.time() - start_time) * 1000
-        total_time = self.stats['avg_query_time_ms'] * (self.stats['total_queries'] - 1)
-        self.stats['avg_query_time_ms'] = (total_time + elapsed) / self.stats['total_queries']
+        total_time = self.stats["avg_query_time_ms"] * (self.stats["total_queries"] - 1)
+        self.stats["avg_query_time_ms"] = (total_time + elapsed) / self.stats["total_queries"]
 
         return results
 
     def get_context_for_generation(
-        self,
-        query: str,
-        top_k: int = 3,
-        include_metadata: bool = True
+        self, query: str, top_k: int = 3, include_metadata: bool = True
     ) -> str:
         """
         获取用于生成的上下文
@@ -437,42 +523,34 @@ class RAGEngine:
         for i, result in enumerate(results, 1):
             part = f"[来源 {i}]: {result.get_summary()}"
             if include_metadata and result.metadata:
-                source = result.metadata.get('source', '')
-                category = result.metadata.get('category', '')
+                source = result.metadata.get("source", "")
+                category = result.metadata.get("category", "")
                 if source:
                     part += f"\n    (来源: {source})"
             context_parts.append(part)
 
         return "\n\n".join(context_parts)
 
-    def get_retrieval_info(
-        self,
-        query: str,
-        top_k: int = 5
-    ) -> Dict[str, Any]:
+    def get_retrieval_info(self, query: str, top_k: int = 5) -> Dict[str, Any]:
         """获取检索信息（用于调试和展示）"""
         results = self.retrieve(query, top_k=top_k)
 
         return {
-            'query': query,
-            'results': [
+            "query": query,
+            "results": [
                 {
-                    'id': r.id,
-                    'content_preview': r.get_summary(100),
-                    'metadata': r.metadata,
-                    'score': round(r.score, 4)
+                    "id": r.id,
+                    "content_preview": r.get_summary(100),
+                    "metadata": r.metadata,
+                    "score": round(r.score, 4),
                 }
                 for r in results
             ],
-            'total_results': len(results),
-            'stats': self.stats
+            "total_results": len(results),
+            "stats": self.stats,
         }
 
-    def add_document(
-        self,
-        content: str,
-        metadata: Dict[str, Any] = None
-    ) -> bool:
+    def add_document(self, content: str, metadata: Dict[str, Any] = None) -> bool:
         """添加单个文档"""
         if not self.is_enabled:
             return False
@@ -483,26 +561,17 @@ class RAGEngine:
 
             embedding = self._embedder.encode(content)
 
-            doc = Document(
-                id=doc_id,
-                content=content,
-                metadata=metadata,
-                embedding=embedding
-            )
+            doc = Document(id=doc_id, content=content, metadata=metadata, embedding=embedding)
 
             self._vector_store.add([doc])
 
             # BM25
-            self._bm25_documents.append({
-                'id': doc_id,
-                'content': content,
-                'metadata': metadata
-            })
+            self._bm25_documents.append({"id": doc_id, "content": content, "metadata": metadata})
 
             if isinstance(self._retriever, HybridRetriever):
                 self._retriever.update_bm25_documents(self._bm25_documents)
 
-            self.stats['total_documents'] = self._vector_store.count()
+            self.stats["total_documents"] = self._vector_store.count()
             return True
 
         except Exception as e:
@@ -515,22 +584,25 @@ class RAGEngine:
         ChromaDB 已有索引时调用此方法,避免 hybrid_search 退化为纯语义
         """
         from rag.retriever import HybridRetriever
+
         base_path = Path(base_path)
         documents = []
         for md_file in base_path.rglob("*.md"):
             try:
-                with open(md_file, 'r', encoding='utf-8') as f:
+                with open(md_file, "r", encoding="utf-8") as f:
                     content = f.read()
                 metadata = self._parse_metadata(content)
-                metadata['source'] = str(md_file.relative_to(base_path))
-                metadata['category'] = md_file.parent.name if len(md_file.parts) > 1 else 'root'
+                metadata["source"] = str(md_file.relative_to(base_path))
+                metadata["category"] = md_file.parent.name if len(md_file.parts) > 1 else "root"
                 chunks = self._chunk_document(content, metadata)
                 for chunk in chunks:
-                    self._bm25_documents.append({
-                        'id': chunk['id'],
-                        'content': chunk['content'],
-                        'metadata': chunk['metadata'],
-                    })
+                    self._bm25_documents.append(
+                        {
+                            "id": chunk["id"],
+                            "content": chunk["content"],
+                            "metadata": chunk["metadata"],
+                        }
+                    )
                     documents.append(chunk)
             except Exception as e:
                 _logger.debug("[P6.S.21] BM25 populate skip %s: %s", md_file, e)
@@ -624,24 +696,24 @@ class RAGEngine:
             try:
                 content = md_file.read_text(encoding="utf-8")
                 metadata = self._parse_metadata(content)
-                metadata["source"] = (
-                    str(md_file.relative_to(base)) if base else str(md_file.name)
-                )
-                metadata["category"] = (
-                    md_file.parent.name if md_file.parent else "root"
-                )
+                metadata["source"] = str(md_file.relative_to(base)) if base else str(md_file.name)
+                metadata["category"] = md_file.parent.name if md_file.parent else "root"
                 for chunk in self._chunk_document(content, metadata):
-                    documents.append(Document(
-                        id=chunk["id"],
-                        content=chunk["content"],
-                        metadata=chunk["metadata"],
-                        embedding=None,
-                    ))
-                    bm25_new.append({
-                        "id": chunk["id"],
-                        "content": chunk["content"],
-                        "metadata": chunk["metadata"],
-                    })
+                    documents.append(
+                        Document(
+                            id=chunk["id"],
+                            content=chunk["content"],
+                            metadata=chunk["metadata"],
+                            embedding=None,
+                        )
+                    )
+                    bm25_new.append(
+                        {
+                            "id": chunk["id"],
+                            "content": chunk["content"],
+                            "metadata": chunk["metadata"],
+                        }
+                    )
             except Exception as e:
                 _logger.warning("[RAG] add_documents 读失败 %s: %s", md_file, e)
 
@@ -713,15 +785,15 @@ class RAGEngine:
         """获取统计信息"""
         return {
             **self.stats,
-            'vector_store_count': self._vector_store.count() if self._vector_store else 0,
-            'bm25_doc_count': len(self._bm25_documents),
-            'is_enabled': self.is_enabled,
-            'config': {
-                'provider': self.config.provider,
-                'embedding_model': self.config.embedding_model,
-                'vector_store_type': self.config.vector_store_type,
-                'hybrid_search': self.config.hybrid_search
-            }
+            "vector_store_count": self._vector_store.count() if self._vector_store else 0,
+            "bm25_doc_count": len(self._bm25_documents),
+            "is_enabled": self.is_enabled,
+            "config": {
+                "provider": self.config.provider,
+                "embedding_model": self.config.embedding_model,
+                "vector_store_type": self.config.vector_store_type,
+                "hybrid_search": self.config.hybrid_search,
+            },
         }
 
 

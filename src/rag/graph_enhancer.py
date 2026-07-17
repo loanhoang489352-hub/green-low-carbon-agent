@@ -5,19 +5,20 @@
 
 import sys
 from pathlib import Path
-from typing import Dict, List, Set, Tuple, Optional, Any
+from typing import Dict, List, Tuple, Any
 from collections import defaultdict, Counter
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 import math
 
 script_path = Path(__file__).resolve()
 project_root = script_path.parent.parent.parent
-sys.path.insert(0, str(project_root / 'src'))
+sys.path.insert(0, str(project_root / "src"))
 
 
 @dataclass
 class EntityScore:
     """实体评分"""
+
     name: str
     type: str
     importance: float = 0.0
@@ -30,6 +31,7 @@ class EntityScore:
 @dataclass
 class RelationWeight:
     """关系权重"""
+
     source: str
     target: str
     relation_type: str
@@ -44,16 +46,16 @@ class EntityDisambiguator:
     def __init__(self):
         # 常用多义词（需要消歧）
         self.ambiguous_terms = {
-            '碳': ['碳元素', '碳排放', '碳中和'],
-            '绿色': ['绿色出行', '绿色能源', '绿色建筑'],
-            '节能': ['节约能源', '节能技术', '节能减排'],
+            "碳": ["碳元素", "碳排放", "碳中和"],
+            "绿色": ["绿色出行", "绿色能源", "绿色建筑"],
+            "节能": ["节约能源", "节能技术", "节能减排"],
         }
 
         # 上下文特征词
         self.context_keywords = {
-            'emission': ['排放', '碳排放', '温室气体'],
-            'energy': ['能源', '电力', '节能'],
-            'travel': ['出行', '交通', '出行方式'],
+            "emission": ["排放", "碳排放", "温室气体"],
+            "energy": ["能源", "电力", "节能"],
+            "travel": ["出行", "交通", "出行方式"],
         }
 
     def disambiguate(self, entity: str, context: str) -> str:
@@ -118,14 +120,14 @@ class GraphScorer:
         incoming = defaultdict(set)
 
         for doc_id, doc_data in graph.items():
-            for entity_name in doc_data.get('entities', {}).keys():
+            for entity_name in doc_data.get("entities", {}).keys():
                 nodes.add(entity_name)
                 outgoing[entity_name]  # 初始化
 
-            for rel in doc_data.get('relations', []):
+            for rel in doc_data.get("relations", []):
                 # 关系格式: source:source_name -> target:target_name
-                source = rel.source.split(':')[-1] if ':' in rel.source else rel.source
-                target = rel.target.split(':')[-1] if ':' in rel.target else rel.target
+                source = rel.source.split(":")[-1] if ":" in rel.source else rel.source
+                target = rel.target.split(":")[-1] if ":" in rel.target else rel.target
 
                 if source and target:
                     outgoing[source].add(target)
@@ -154,9 +156,7 @@ class GraphScorer:
         return pagerank
 
     def calculate_importance(
-        self,
-        graph: Dict[str, Any],
-        pagerank: Dict[str, float] = None
+        self, graph: Dict[str, Any], pagerank: Dict[str, float] = None
     ) -> Dict[str, EntityScore]:
         """计算实体重要性
 
@@ -175,9 +175,9 @@ class GraphScorer:
         out_degree = Counter()
 
         for doc_id, doc_data in graph.items():
-            for rel in doc_data.get('relations', []):
-                source = rel.source.split(':')[-1] if ':' in rel.source else rel.source
-                target = rel.target.split(':')[-1] if ':' in rel.target else rel.target
+            for rel in doc_data.get("relations", []):
+                source = rel.source.split(":")[-1] if ":" in rel.source else rel.source
+                target = rel.target.split(":")[-1] if ":" in rel.target else rel.target
 
                 if source:
                     out_degree[source] += 1
@@ -201,7 +201,7 @@ class GraphScorer:
                 pagerank=pr,
                 degree=out_d + in_d,
                 in_degree=in_d,
-                out_degree=out_d
+                out_degree=out_d,
             )
 
         return importance
@@ -209,6 +209,7 @@ class GraphScorer:
     def _get_entity_type(self, name: str) -> str:
         """获取实体类型"""
         from rag.graphrag import EntityExtractor
+
         for etype, keywords in EntityExtractor.ENTITY_PATTERNS.items():
             if name in keywords:
                 return etype
@@ -221,19 +222,19 @@ class RelationWeightCalculator:
     def __init__(self):
         # 关系类型权重基数
         self.relation_base_weights = {
-            'causes': 1.0,
-            'reduces': 1.0,
-            'affects': 0.9,
-            'promotes': 0.9,
-            'achieves': 0.9,
-            'contains': 0.8,
-            'belongs_to': 0.8,
-            'is_type_of': 0.8,
-            'related_to': 0.6,
-            'co_occurs': 0.5,
-            'via': 0.7,
-            'adopts': 0.7,
-            'depends_on': 0.7,
+            "causes": 1.0,
+            "reduces": 1.0,
+            "affects": 0.9,
+            "promotes": 0.9,
+            "achieves": 0.9,
+            "contains": 0.8,
+            "belongs_to": 0.8,
+            "is_type_of": 0.8,
+            "related_to": 0.6,
+            "co_occurs": 0.5,
+            "via": 0.7,
+            "adopts": 0.7,
+            "depends_on": 0.7,
         }
 
     def calculate_weight(
@@ -241,7 +242,7 @@ class RelationWeightCalculator:
         relation_type: str,
         cooccurrence_count: int = 1,
         source_importance: float = 0.0,
-        target_importance: float = 0.0
+        target_importance: float = 0.0,
     ) -> float:
         """计算关系权重
 
@@ -269,9 +270,7 @@ class RelationWeightCalculator:
         return min(weight, 1.0)  # 最高不超过1.0
 
     def update_relation_weights(
-        self,
-        graph: Dict[str, Any],
-        entity_scores: Dict[str, EntityScore]
+        self, graph: Dict[str, Any], entity_scores: Dict[str, EntityScore]
     ) -> Dict[Tuple[str, str], float]:
         """更新图中所有关系的权重
 
@@ -287,7 +286,7 @@ class RelationWeightCalculator:
 
         # 统计共现次数
         for doc_id, doc_data in graph.items():
-            rels = doc_data.get('relations', [])
+            rels = doc_data.get("relations", [])
             for rel in rels:
                 source = rel.source
                 target = rel.target
@@ -296,18 +295,17 @@ class RelationWeightCalculator:
 
         # 计算权重
         for (source, target, rel_type), count in relation_counts.items():
-            src_name = source.split(':')[-1] if ':' in source else source
-            tgt_name = target.split(':')[-1] if ':' in target else target
+            src_name = source.split(":")[-1] if ":" in source else source
+            tgt_name = target.split(":")[-1] if ":" in target else target
 
-            src_importance = entity_scores.get(src_name, EntityScore(name=src_name, type='concept', importance=0)).importance
-            tgt_importance = entity_scores.get(tgt_name, EntityScore(name=tgt_name, type='concept', importance=0)).importance
+            src_importance = entity_scores.get(
+                src_name, EntityScore(name=src_name, type="concept", importance=0)
+            ).importance
+            tgt_importance = entity_scores.get(
+                tgt_name, EntityScore(name=tgt_name, type="concept", importance=0)
+            ).importance
 
-            weight = self.calculate_weight(
-                rel_type,
-                count,
-                src_importance,
-                tgt_importance
-            )
+            weight = self.calculate_weight(rel_type, count, src_importance, tgt_importance)
 
             relation_weights[(source, target)] = weight
 
@@ -322,11 +320,7 @@ class GraphEnhancer:
         self.scorer = GraphScorer()
         self.weight_calculator = RelationWeightCalculator()
 
-    def enhance(
-        self,
-        graph: Dict[str, Any],
-        preserve_scores: bool = True
-    ) -> Dict[str, Any]:
+    def enhance(self, graph: Dict[str, Any], preserve_scores: bool = True) -> Dict[str, Any]:
         """增强图谱
 
         Args:
@@ -348,36 +342,30 @@ class GraphEnhancer:
         # 4. 构建增强图谱
         enhanced_graph = {}
         for doc_id, doc_data in graph.items():
-            enhanced_doc = {
-                'entities': {},
-                'relations': []
-            }
+            enhanced_doc = {"entities": {}, "relations": []}
 
             # 增强实体
-            for entity_name, entity_data in doc_data.get('entities', {}).items():
+            for entity_name, entity_data in doc_data.get("entities", {}).items():
                 score = entity_scores.get(entity_name)
                 if score and preserve_scores:
-                    entity_data['importance'] = score.importance
-                    entity_data['pagerank'] = score.pagerank
-                    entity_data['degree'] = score.degree
-                enhanced_doc['entities'][entity_name] = entity_data
+                    entity_data["importance"] = score.importance
+                    entity_data["pagerank"] = score.pagerank
+                    entity_data["degree"] = score.degree
+                enhanced_doc["entities"][entity_name] = entity_data
 
             # 增强关系
-            for rel in doc_data.get('relations', []):
+            for rel in doc_data.get("relations", []):
                 key = (rel.source, rel.target)
                 weight = relation_weights.get(key, rel.weight)
                 rel.weight = weight
-                enhanced_doc['relations'].append(rel)
+                enhanced_doc["relations"].append(rel)
 
             enhanced_graph[doc_id] = enhanced_doc
 
         return enhanced_graph
 
     def get_top_entities(
-        self,
-        entity_scores: Dict[str, EntityScore],
-        top_k: int = 10,
-        entity_type: str = None
+        self, entity_scores: Dict[str, EntityScore], top_k: int = 10, entity_type: str = None
     ) -> List[EntityScore]:
         """获取最重要的实体
 
@@ -407,9 +395,9 @@ if __name__ == "__main__":
     # 测试实体消歧
     disambiguator = EntityDisambiguator()
     test_cases = [
-        ('碳', '碳排放导致温室气体增加'),
-        ('碳', '碳中和是中国的目标'),
-        ('节能', '我们需要节约用水'),
+        ("碳", "碳排放导致温室气体增加"),
+        ("碳", "碳中和是中国的目标"),
+        ("节能", "我们需要节约用水"),
     ]
 
     print("\n[Entity Disambiguation]")
@@ -421,14 +409,23 @@ if __name__ == "__main__":
     print("\n[PageRank Calculation]")
     scorer = GraphScorer()
     test_graph = {
-        'doc1': {
-            'entities': {
-                '碳排放': {'name': '碳排放', 'type': 'concept'},
-                '骑行': {'name': '骑行', 'type': 'action'},
+        "doc1": {
+            "entities": {
+                "碳排放": {"name": "碳排放", "type": "concept"},
+                "骑行": {"name": "骑行", "type": "action"},
             },
-            'relations': [
-                type('Relation', (), {'source': 'action:骑行', 'target': 'concept:碳排放', 'type': 'reduces', 'weight': 1.0})()
-            ]
+            "relations": [
+                type(
+                    "Relation",
+                    (),
+                    {
+                        "source": "action:骑行",
+                        "target": "concept:碳排放",
+                        "type": "reduces",
+                        "weight": 1.0,
+                    },
+                )()
+            ],
         }
     }
     pr = scorer.calculate_pagerank(test_graph)
@@ -437,7 +434,9 @@ if __name__ == "__main__":
     # 测试关系权重计算
     print("\n[Relation Weight Calculation]")
     calculator = RelationWeightCalculator()
-    weight = calculator.calculate_weight('reduces', cooccurrence_count=5, source_importance=0.8, target_importance=0.6)
+    weight = calculator.calculate_weight(
+        "reduces", cooccurrence_count=5, source_importance=0.8, target_importance=0.6
+    )
     print(f"  Weight for 'reduces' (count=5): {weight:.3f}")
 
     print("\n" + "=" * 60)

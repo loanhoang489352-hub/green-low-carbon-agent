@@ -3,6 +3,7 @@ MCP Registry — 集中管理所有 MCP client + 状态
 
 启动时根据配置连接外部 MCP server,把它们的 tool 注册到本地 ToolRegistry
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -102,13 +103,13 @@ class MCPRegistry:
         return configs
 
     async def connect_all_async(self, configs: List[MCPClientConfig]) -> None:
-        """P6.S.16: 同步连接(已非 async,保留 async 入口以兼容)
-        """
+        """P6.S.16: 同步连接(已非 async,保留 async 入口以兼容)"""
         for cfg in configs:
             client = MCPClient(cfg)
             self._clients[cfg.name] = client
             self._server_info[cfg.name] = MCPServerInfo(
-                name=cfg.name, status="connecting",
+                name=cfg.name,
+                status="connecting",
                 command=f"{cfg.command} {' '.join(cfg.args)}".strip(),
             )
             try:
@@ -151,7 +152,8 @@ class MCPRegistry:
                 tool_reg.register(adapter, meta, overwrite=True)
                 _logger.info(
                     "[MCPRegistry] 注册 MCP tool: %s (server=%s)",
-                    adapter.name, t.server_name,
+                    adapter.name,
+                    t.server_name,
                 )
             except Exception as e:
                 _logger.warning("[MCPRegistry] 注册 %s 失败: %s", t.name, e)
@@ -186,18 +188,20 @@ class MCPRegistry:
                     pass
 
         self._thread = threading.Thread(
-            target=_thread_main, name="mcp-registry", daemon=True,
+            target=_thread_main,
+            name="mcp-registry",
+            daemon=True,
         )
         self._thread.start()
         self._started = True
         # 等几秒让 connect 跑完
         import time
+
         deadline = time.time() + 8.0
         while time.time() < deadline:
             statuses = [info.status for info in self._server_info.values()]
             if statuses and (
-                "connected" in statuses
-                or all(s in ("error", "disabled") for s in statuses)
+                "connected" in statuses or all(s in ("error", "disabled") for s in statuses)
             ):
                 break
             time.sleep(0.2)
@@ -217,15 +221,17 @@ class MCPRegistry:
         """返所有 server 状态(给 debug 端点用)"""
         servers = []
         for name, info in self._server_info.items():
-            servers.append({
-                "name": name,
-                "status": info.status,
-                "command": info.command,
-                "tools_count": info.tools_count,
-                "error": info.error,
-                "connected_at": info.connected_at,
-                "server_info": info.server_info,
-            })
+            servers.append(
+                {
+                    "name": name,
+                    "status": info.status,
+                    "command": info.command,
+                    "tools_count": info.tools_count,
+                    "error": info.error,
+                    "connected_at": info.connected_at,
+                    "server_info": info.server_info,
+                }
+            )
         tools = [
             {"key": k, "server": v.server_name, "name": v.name, "description": v.description}
             for k, v in self._tools.items()

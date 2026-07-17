@@ -4,13 +4,14 @@ LangGraph 状态类型定义
 """
 
 from typing import TypedDict, Annotated, List, Dict, Any, Optional
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from langgraph.graph import add_messages
 from enum import Enum
 
 
 class IntentType(str, Enum):
     """意图类型枚举"""
+
     KNOWLEDGE_QUERY = "knowledge_query"
     ADVICE_REQUEST = "advice_request"
     ACTION_REPORT = "action_report"
@@ -22,20 +23,18 @@ class IntentType(str, Enum):
 @dataclass
 class Message:
     """消息结构"""
+
     role: str
     content: str
     timestamp: str = ""
 
     def to_dict(self) -> dict:
-        return {
-            "role": self.role,
-            "content": self.content,
-            "timestamp": self.timestamp
-        }
+        return {"role": self.role, "content": self.content, "timestamp": self.timestamp}
 
 
 class AgentState(TypedDict):
     """LangGraph 智能体状态"""
+
     user_id: str
     conversation_id: str
     turn_count: int
@@ -66,11 +65,7 @@ class AgentState(TypedDict):
     metadata: Dict[str, Any]
 
 
-def initial_state(
-    user_id: str,
-    conversation_id: str,
-    message: str
-) -> AgentState:
+def initial_state(user_id: str, conversation_id: str, message: str) -> AgentState:
     """创建初始状态"""
     from datetime import datetime
 
@@ -94,5 +89,5 @@ def initial_state(
         memory_hints=[],
         personalization_info={},
         error=None,
-        metadata={}
+        metadata={},
     )

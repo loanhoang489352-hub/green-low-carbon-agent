@@ -15,7 +15,7 @@ from json import JSONEncoder
 
 script_path = Path(__file__).resolve()
 project_root = script_path.parent.parent.parent
-sys.path.insert(0, str(project_root / 'src'))
+sys.path.insert(0, str(project_root / "src"))
 
 
 class GraphEncoder(JSONEncoder):
@@ -44,6 +44,7 @@ class GraphEncoder(JSONEncoder):
 @dataclass
 class GraphSnapshot:
     """图谱快照"""
+
     version: str
     created_at: str
     entity_count: int
@@ -82,11 +83,11 @@ class GraphPersistence:
 
             # 计算数据校验和
             data_str = json.dumps(serializable_graph, ensure_ascii=False, sort_keys=True)
-            checksum = hashlib.md5(data_str.encode('utf-8')).hexdigest()
+            checksum = hashlib.md5(data_str.encode("utf-8")).hexdigest()
 
             # 统计数据
-            entity_count = sum(len(d.get('entities', {})) for d in graph.values())
-            relation_count = sum(len(d.get('relations', [])) for d in graph.values())
+            entity_count = sum(len(d.get("entities", {})) for d in graph.values())
+            relation_count = sum(len(d.get("relations", [])) for d in graph.values())
 
             snapshot = GraphSnapshot(
                 version=version,
@@ -95,11 +96,11 @@ class GraphPersistence:
                 relation_count=relation_count,
                 document_count=len(graph),
                 checksum=checksum,
-                data=serializable_graph
+                data=serializable_graph,
             )
 
             # 保存到文件
-            with open(self.persist_path, 'w', encoding='utf-8') as f:
+            with open(self.persist_path, "w", encoding="utf-8") as f:
                 json.dump(asdict(snapshot), f, ensure_ascii=False, indent=2)
 
             self._snapshot = snapshot
@@ -124,7 +125,7 @@ class GraphPersistence:
             for key, value in asdict(obj).items():
                 result[key] = self._make_serializable(value)
             return result
-        elif hasattr(obj, '__dict__'):
+        elif hasattr(obj, "__dict__"):
             # 普通对象 -> dict
             return {k: self._make_serializable(v) for k, v in obj.__dict__.items()}
         else:
@@ -141,7 +142,7 @@ class GraphPersistence:
             return None
 
         try:
-            with open(self.persist_path, 'r', encoding='utf-8') as f:
+            with open(self.persist_path, "r", encoding="utf-8") as f:
                 data = json.load(f)
 
             snapshot = GraphSnapshot(**data)
@@ -171,12 +172,12 @@ class GraphPersistence:
 
         if self._snapshot:
             return {
-                'version': self._snapshot.version,
-                'created_at': self._snapshot.created_at,
-                'entity_count': self._snapshot.entity_count,
-                'relation_count': self._snapshot.relation_count,
-                'document_count': self._snapshot.document_count,
-                'checksum': self._snapshot.checksum
+                "version": self._snapshot.version,
+                "created_at": self._snapshot.created_at,
+                "entity_count": self._snapshot.entity_count,
+                "relation_count": self._snapshot.relation_count,
+                "document_count": self._snapshot.document_count,
+                "checksum": self._snapshot.checksum,
             }
         return None
 
@@ -200,7 +201,7 @@ class GraphPersistence:
 
         # 重新计算校验和
         data_str = json.dumps(graph, ensure_ascii=False, sort_keys=True)
-        checksum = hashlib.md5(data_str.encode('utf-8')).hexdigest()
+        checksum = hashlib.md5(data_str.encode("utf-8")).hexdigest()
 
         return checksum == self._snapshot.checksum
 
@@ -235,24 +236,21 @@ class IncrementalBuilder:
             relations: 关系列表
         """
         # 计算内容哈希
-        content_hash = hashlib.md5(content.encode('utf-8')).hexdigest()
+        content_hash = hashlib.md5(content.encode("utf-8")).hexdigest()
 
         # 检查是否有变化
         if self._doc_hashes.get(doc_id) == content_hash:
             return  # 没有变化，跳过
 
         # 更新图谱
-        self._graph[doc_id] = {
-            'entities': {},
-            'relations': relations
-        }
+        self._graph[doc_id] = {"entities": {}, "relations": relations}
 
         # 添加实体
         for entity in entities:
-            self._graph[doc_id]['entities'][entity.name] = {
-                'entity': entity,
-                'content': content[:200],  # 保存部分内容作为上下文
-                'source': doc_id
+            self._graph[doc_id]["entities"][entity.name] = {
+                "entity": entity,
+                "content": content[:200],  # 保存部分内容作为上下文
+                "source": doc_id,
             }
 
         # 更新哈希
@@ -389,14 +387,19 @@ if __name__ == "__main__":
     persistence = GraphPersistence("D:/绿色低碳智能体/data/test_graph.json")
 
     test_graph = {
-        'doc1': {
-            'entities': {
-                '碳排放': {'name': '碳排放', 'type': 'concept'},
-                '骑行': {'name': '骑行', 'type': 'action'},
+        "doc1": {
+            "entities": {
+                "碳排放": {"name": "碳排放", "type": "concept"},
+                "骑行": {"name": "骑行", "type": "action"},
             },
-            'relations': [
-                {'source': 'action:骑行', 'target': 'concept:碳排放', 'type': 'reduces', 'weight': 1.0}
-            ]
+            "relations": [
+                {
+                    "source": "action:骑行",
+                    "target": "concept:碳排放",
+                    "type": "reduces",
+                    "weight": 1.0,
+                }
+            ],
         }
     }
 
@@ -409,7 +412,7 @@ if __name__ == "__main__":
 
     print("\n[3] 增量构建器...")
     builder = IncrementalBuilder()
-    builder.update_document('doc1', 'content here', [], [])
+    builder.update_document("doc1", "content here", [], [])
     print(f"  Documents: {builder.get_document_ids()}")
 
     print("\n" + "=" * 60)

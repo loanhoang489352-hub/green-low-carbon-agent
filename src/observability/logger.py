@@ -11,9 +11,9 @@
 - 默认日志文件 data/logs/app.log,自动 mkdir
 - 不抛异常:文件创建失败时退化到纯 stdout
 """
+
 import json
 import logging
-import os
 import sys
 from datetime import datetime
 from pathlib import Path
@@ -26,12 +26,29 @@ class JSONFormatter(logging.Formatter):
     """JSON 单行格式化器,自动注入 trace_id"""
 
     DEFAULT_FIELDS = {
-        "name", "msg", "args", "levelname", "levelno",
-        "pathname", "filename", "module", "exc_info",
-        "exc_text", "stack_info", "lineno", "funcName",
-        "created", "msecs", "relativeCreated", "thread",
-        "threadName", "processName", "process", "message",
-        "asctime", "taskName",
+        "name",
+        "msg",
+        "args",
+        "levelname",
+        "levelno",
+        "pathname",
+        "filename",
+        "module",
+        "exc_info",
+        "exc_text",
+        "stack_info",
+        "lineno",
+        "funcName",
+        "created",
+        "msecs",
+        "relativeCreated",
+        "thread",
+        "threadName",
+        "processName",
+        "process",
+        "message",
+        "asctime",
+        "taskName",
     }
 
     def format(self, record: logging.LogRecord) -> str:

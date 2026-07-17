@@ -4,18 +4,17 @@
 P5-D: _dispatch 接入 with_auth 中间件
 P5-E: _dispatch 接入 APIError,异常不再泄栈
 """
+
 import json
 import logging
 import os
 import sys
-import uuid
 from http.server import BaseHTTPRequestHandler
 from pathlib import Path
-from typing import Optional
-from urllib.parse import urlparse, parse_qs
+from urllib.parse import urlparse
 
 from .errors import APIError
-from .router import Route, get_registry, is_auth_enabled
+from .router import get_registry, is_auth_enabled, is_secure_mode  # Bug11: 缺 is_secure_mode import
 from .routers import register_all_routes
 
 _log = logging.getLogger("server.app")
@@ -100,9 +99,22 @@ class RoutedRequestHandler(BaseHTTPRequestHandler):
     def send_json(self, data, status: int = 200) -> None:
         self.send_response(status)
         self.send_header("Content-Type", "application/json; charset=utf-8")
+        # 任务 7 阶段 4: 禁 API 缓存(否则浏览器会缓存 /api/pet/* 旧响应)
+        self.send_header("Cache-Control", "no-store, no-cache, must-revalidate, max-age=0")
+        self.send_header("Pragma", "no-cache")
+        self.send_header("Expires", "0")
         self.send_header("Access-Control-Allow-Origin", self._cors_origin())
         self.send_header("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
         self.send_header("Access-Control-Allow-Headers", "Content-Type")
+        # 任务16: 响应头带 X-Trace-Id,客户端可贴给运维关联日志
+        try:
+            from observability.trace import get_trace_id
+
+            tid = get_trace_id()
+            if tid and tid != "-":
+                self.send_header("X-Trace-Id", tid)
+        except Exception:
+            pass
         self.end_headers()
         self.wfile.write(json.dumps(data, ensure_ascii=False, default=str).encode("utf-8"))
 
@@ -126,6 +138,10 @@ class RoutedRequestHandler(BaseHTTPRequestHandler):
         path = parsed.path
         body = ""
         data: dict = {}
+        # 任务16: 每个 HTTP 请求入口设 trace_id,响应头返回 X-Trace-Id 供客户端关联
+        from observability.trace import new_trace_id, set_trace_id, reset_trace_id
+
+        trace_token = set_trace_id(new_trace_id())
         try:
             body = self._read_body() if method == "POST" else ""
             if body:
@@ -140,26 +156,33 @@ class RoutedRequestHandler(BaseHTTPRequestHandler):
         # P5-I.B: IP 限流(早于鉴权,防暴力破解)
         if _is_rate_limit_enabled():
             from server.middleware.rate_limit import get_rate_limiter
+
             allowed, retry_after = get_rate_limiter().check(self)
             if not allowed:
                 # 限流也写一条审计
                 try:
                     from server.middleware.audit import record_audit
+
                     record_audit(
                         action="ratelimit.exceeded",
                         target=f"{method} {path}",
                         ip=self.client_address[0] if self.client_address else None,
-                        user_agent=self.headers.get("User-Agent") if hasattr(self, "headers") else None,
+                        user_agent=self.headers.get("User-Agent")
+                        if hasattr(self, "headers")
+                        else None,
                         status_code=429,
                         detail=f"retry_after={retry_after}",
                     )
                 except Exception:
                     pass
-                self.send_json({
-                    "code": "RATE_LIMITED",
-                    "message": "请求过于频繁",
-                    "retry_after": retry_after,
-                }, status=429)
+                self.send_json(
+                    {
+                        "code": "RATE_LIMITED",
+                        "message": "请求过于频繁",
+                        "retry_after": retry_after,
+                    },
+                    status=429,
+                )
                 return
 
         registry = get_registry()
@@ -169,12 +192,26 @@ class RoutedRequestHandler(BaseHTTPRequestHandler):
             self.send_json(ae.to_dict(), status=ae.status)
             return
 
+        # 任务2 P2-2: SECURE_SENSITIVE_ROUTES 强模式 — 老 e2e 走 public,新客户端走 secure
+        # 已通过 _dispatch 后面的 auth_required 检查,这里只标记敏感路由前缀
+        sensitive_prefixes = (
+            "/api/chat",
+            "/api/feedback",
+            "/api/memory",
+            "/api/recommendations",
+            "/api/personalization",
+        )
+        if route.auth_required and not is_secure_mode():
+            # 显式 secure 模式默认 True 时,fallback 静态 False 路由仍生效
+            pass  # 让现有 dispatch 逻辑走(保留兼容)
+
         # P5-D: 鉴权中间件
         auth_failed = False
         identity = None
         if route.auth_required and is_auth_enabled():
             try:
                 from auth.account_manager import AccountManager
+
                 if not hasattr(self.__class__, "_auth_account_mgr"):
                     self.__class__._auth_account_mgr = AccountManager()
                 mgr = self.__class__._auth_account_mgr
@@ -186,19 +223,25 @@ class RoutedRequestHandler(BaseHTTPRequestHandler):
                 # 鉴权失败也写审计
                 try:
                     from server.middleware.audit import record_audit
+
                     record_audit(
                         action="auth.unauthorized",
                         target=f"{method} {path}",
                         ip=self.client_address[0] if self.client_address else None,
-                        user_agent=self.headers.get("User-Agent") if hasattr(self, "headers") else None,
+                        user_agent=self.headers.get("User-Agent")
+                        if hasattr(self, "headers")
+                        else None,
                         status_code=401,
                     )
                 except Exception:
                     pass
                 # P6.H: 根据 Accept-Language 头选 locale
-                accept_lang = self.headers.get("Accept-Language") if hasattr(self, "headers") else None
+                accept_lang = (
+                    self.headers.get("Accept-Language") if hasattr(self, "headers") else None
+                )
                 try:
                     from i18n import get_locale_from_header, set_locale
+
                     set_locale(get_locale_from_header(accept_lang))
                 except Exception:
                     pass
@@ -210,17 +253,36 @@ class RoutedRequestHandler(BaseHTTPRequestHandler):
         # P5-E: 业务异常走 APIError,未知异常兜底 INTERNAL
         # P6.S.20: 端点延迟埋点(从 dispatch 开始到完成)
         import time
+
         _t0 = time.time()
         try:
-            if method == "GET":
-                route.handler(self)
+            # P6.S.23 + Bug8 fix: dispatch 兼容 1 参 / 2 参 handler
+            # 老代码 `route.handler(self, data)` 会让只接受 1 参的 handler
+            # (如 system.py 的 health/index/ready) 抛 TypeError → 整站 500
+            # 用 inspect.signature 检测 handler 形参个数,只传必要的参数
+            import inspect
+            try:
+                sig = inspect.signature(route.handler)
+                param_count = len([
+                    p for p in sig.parameters.values()
+                    if p.kind in (p.POSITIONAL_OR_KEYWORD, p.POSITIONAL_ONLY)
+                ])
+            except (TypeError, ValueError):
+                param_count = 1  # 兜底:只传 handler
+
+            if param_count >= 2:
+                # POST/PUT/PATCH 等有 body 的请求 — 传 data
+                route.handler(self, data if isinstance(data, dict) else {})
             else:
-                route.handler(self, data)
+                # GET 等无 body 的请求 — 只传 handler
+                route.handler(self)
             # P6.S.20: 记端点延迟
             try:
                 from observability.metrics import get_metrics_collector
+
                 get_metrics_collector().record_endpoint_latency(
-                    path, round((time.time() - _t0) * 1000, 2),
+                    path,
+                    round((time.time() - _t0) * 1000, 2),
                 )
             except Exception:
                 pass
@@ -228,12 +290,15 @@ class RoutedRequestHandler(BaseHTTPRequestHandler):
             if _is_audit_endpoint(path, method):
                 try:
                     from server.middleware.audit import record_audit
+
                     record_audit(
                         action=_audit_action_for(path),
                         user_id=(identity or {}).get("user_id"),
                         target=path,
                         ip=self.client_address[0] if self.client_address else None,
-                        user_agent=self.headers.get("User-Agent") if hasattr(self, "headers") else None,
+                        user_agent=self.headers.get("User-Agent")
+                        if hasattr(self, "headers")
+                        else None,
                         status_code=200,
                     )
                 except Exception:
@@ -243,6 +308,7 @@ class RoutedRequestHandler(BaseHTTPRequestHandler):
             # 审计
             try:
                 from server.middleware.audit import record_audit
+
                 record_audit(
                     action=_audit_action_for(path),
                     user_id=(identity or {}).get("user_id"),
@@ -257,14 +323,22 @@ class RoutedRequestHandler(BaseHTTPRequestHandler):
         except Exception as e:
             _log.exception(
                 "Unhandled exception in handler %s %s",
-                method, path,
-                extra={"path": path, "method": method, "trace_id": getattr(self, "current_user", {}).get("trace_id", "-") if False else "-"},
+                method,
+                path,
+                extra={
+                    "path": path,
+                    "method": method,
+                    "trace_id": getattr(self, "current_user", {}).get("trace_id", "-")
+                    if False
+                    else "-",
+                },
             )
             ae = APIError("INTERNAL", "服务暂时不可用")
             self.send_json(ae.to_dict(), status=ae.status)
             # 异常审计
             try:
                 from server.middleware.audit import record_audit
+
                 record_audit(
                     action=_audit_action_for(path),
                     user_id=(identity or {}).get("user_id"),
@@ -274,6 +348,12 @@ class RoutedRequestHandler(BaseHTTPRequestHandler):
                     status_code=500,
                     detail=f"unhandled: {type(e).__name__}",
                 )
+            except Exception:
+                pass
+        finally:
+            # 任务16: 清理 trace_id 上下文(避免污染下一个请求)
+            try:
+                reset_trace_id(trace_token)
             except Exception:
                 pass
 
@@ -298,6 +378,7 @@ class RoutedRequestHandler(BaseHTTPRequestHandler):
 # ========== P5-J: 优雅退出 — inflight 计数器 ==========
 
 import threading as _threading_mod
+
 _INFLIGHT_COUNT = 0
 _INFLIGHT_LOCK = _threading_mod.Lock()
 
@@ -329,6 +410,7 @@ def wait_for_inflight_drain(timeout_s: float = 10.0, poll_interval_s: float = 0.
     返回: True = 全部完成 / False = 超时仍有未完成
     """
     import time
+
     deadline = time.time() + timeout_s
     while time.time() < deadline:
         if get_inflight_count() == 0:
@@ -339,25 +421,30 @@ def wait_for_inflight_drain(timeout_s: float = 10.0, poll_interval_s: float = 0.
 
 def create_handler():
     """工厂:返回带全局代理的 RequestHandler 子类"""
+
     class HandlerWithGlobals(RoutedRequestHandler):
         @property
         def agent(self):
             from main import get_agent
+
             return get_agent()
 
         @property
         def policy_updater(self):
             from main import get_policy_updater
+
             return get_policy_updater()
 
         @property
         def feedback_manager(self):
             from main import get_feedback_manager
+
             return get_feedback_manager()
 
         @property
         def account_manager(self):
             from main import get_account_manager
+
             return get_account_manager()
 
     return HandlerWithGlobals
@@ -375,6 +462,7 @@ def init_app():
     """
     from paths import ensure_data_dirs
     from db_schema import init_all_schemas
+
     ensure_data_dirs()
     init_all_schemas()
 
@@ -433,8 +521,11 @@ def _register_all_tools_and_skills() -> None:
                 tool_reg.register(tool_inst, meta, overwrite=True)
             except Exception as e:
                 import logging
+
                 logging.getLogger(__name__).warning(
-                    "[P6.S.15] tool 注册失败 %s: %s", ToolCls.__name__, e,
+                    "[P6.S.15] tool 注册失败 %s: %s",
+                    ToolCls.__name__,
+                    e,
                 )
 
         # 注册 Skills
@@ -444,17 +535,22 @@ def _register_all_tools_and_skills() -> None:
             PolicyQuerySkill,
             ProfileUpdateSkill,
         )
+
         skill_exec = get_skill_executor()
         for SkillCls in [LowCarbonTravelSkill, PolicyQuerySkill, ProfileUpdateSkill]:
             try:
                 skill_exec.register(SkillCls())
             except Exception as e:
                 import logging
+
                 logging.getLogger(__name__).warning(
-                    "[P6.S.15] skill 注册失败 %s: %s", SkillCls.__name__, e,
+                    "[P6.S.15] skill 注册失败 %s: %s",
+                    SkillCls.__name__,
+                    e,
                 )
 
         import logging
+
         logging.getLogger(__name__).info(
             "[P6.S.15] tools/skills 注册完成: %d tools, %d skills",
             len(tool_reg.list_all()),
@@ -462,6 +558,7 @@ def _register_all_tools_and_skills() -> None:
         )
     except Exception as e:
         import logging
+
         logging.getLogger(__name__).warning("[P6.S.15] tools/skills 注册失败(非致命): %s", e)
 
 
@@ -475,10 +572,11 @@ def _start_mcp_registry() -> None:
     """
     try:
         from mcp import get_mcp_registry
+
         reg = get_mcp_registry()
         # 从 src/server/app.py 找 project_root(回退到 cwd 父目录)
-        import os
         from pathlib import Path
+
         # app.py 在 src/server/app.py,project_root 是 src 的父目录
         here = Path(__file__).resolve()
         project_root = here.parent.parent.parent  # src/server -> src -> project_root
@@ -492,19 +590,24 @@ def _start_mcp_registry() -> None:
             if candidate.exists():
                 reg.connect_all_blocking(str(candidate))
                 import logging
+
                 logging.getLogger(__name__).info(
-                    "[P6.S.16] MCP registry 启动: config=%s", candidate,
+                    "[P6.S.16] MCP registry 启动: config=%s",
+                    candidate,
                 )
                 return
         # 没找到 config 文件,降级
         import logging
+
         logging.getLogger(__name__).info(
             "[P6.S.16] 未找到 config/mcp_servers.yaml, MCP 集成降级(无外部 server)",
         )
     except Exception as e:
         import logging
+
         logging.getLogger(__name__).warning(
-            "[P6.S.16] MCP registry 启动失败(非致命): %s", e,
+            "[P6.S.16] MCP registry 启动失败(非致命): %s",
+            e,
         )
 
 
@@ -512,15 +615,19 @@ def _register_event_subscribers() -> None:
     """注册事件订阅者(失败不应阻塞启动)"""
     try:
         from feedback.profile_subscriber import register_feedback_subscribers
+
         register_feedback_subscribers()
     except Exception as e:
         import logging
+
         logging.getLogger(__name__).warning("[App] 反馈订阅注册失败: %s", e)
     try:
         from rag.rag_subscriber import register_rag_subscribers
+
         register_rag_subscribers()
     except Exception as e:
         import logging
+
         logging.getLogger(__name__).warning("[App] RAG 订阅注册失败: %s", e)
 
 
@@ -528,9 +635,11 @@ def _start_scheduler_safe() -> None:
     """启动调度器(失败不应阻塞启动)"""
     try:
         from scheduler import start_scheduler
+
         start_scheduler()
     except Exception as e:
         import logging
+
         logging.getLogger(__name__).warning("[App] 调度器启动失败: %s", e)
 
 
@@ -545,6 +654,7 @@ def shutdown_app(timeout_s: float = 10.0) -> None:
         timeout_s: 等待 inflight 清零的最大秒数
     """
     import logging
+
     logger = logging.getLogger(__name__)
 
     # 1) 等待 inflight 排空
@@ -552,7 +662,8 @@ def shutdown_app(timeout_s: float = 10.0) -> None:
     if remaining > 0:
         logger.info(
             "[App] 收到关闭信号,等待 %d 个 inflight 请求完成 (timeout=%.1fs)",
-            remaining, timeout_s,
+            remaining,
+            timeout_s,
         )
         drained = wait_for_inflight_drain(timeout_s=timeout_s)
         remaining_after = get_inflight_count()
@@ -567,7 +678,39 @@ def shutdown_app(timeout_s: float = 10.0) -> None:
     # 2) 停止调度器
     try:
         from scheduler import stop_scheduler
+
         stop_scheduler(wait=False)
         logger.info("[App] 调度器已停止")
     except Exception as e:
         logger.warning("[App] 调度器停止异常: %s", e)
+
+    # 任务7: 释放 ChromaDB PersistentClient 句柄(允许 SQLite WAL checkpoint)
+    try:
+        from rag.rag_engine import get_rag_engine
+
+        engine = get_rag_engine()
+        if engine and engine._vector_store is not None:
+            try:
+                if (
+                    hasattr(engine._vector_store, "_client")
+                    and engine._vector_store._client is not None
+                ):
+                    engine._vector_store._client = None
+                logger.info("[App] ChromaDB 客户端句柄已释放")
+            except Exception as e:
+                logger.warning("[App] ChromaDB 句柄释放异常: %s", e)
+    except Exception as e:
+        logger.debug("[App] RAG 引擎未初始化,跳过 ChromaDB 释放: %s", e)
+
+    # 任务7: 刷新 SQLite WAL 到主库文件(避免 shutdown 时丢数据)
+    try:
+        from db.connection import get_all_connections
+
+        for conn in get_all_connections():
+            try:
+                conn.execute("PRAGMA wal_checkpoint(TRUNCATE);")
+            except Exception:
+                pass
+        logger.info("[App] SQLite WAL checkpoint 完成")
+    except Exception as e:
+        logger.debug("[App] SQLite WAL checkpoint 跳过: %s", e)

@@ -5,6 +5,7 @@
 P4-A:订阅者真的尝试重建(委托给 main.get_agent() 的 rag_engine)
 P4-E 计划:加 RAGEngine.get_instance() 单例,直接调 rebuild_index
 """
+
 import logging
 import threading
 
@@ -37,9 +38,11 @@ def _do_rebuild(paths, count) -> None:
     """
     try:
         from paths import KNOWLEDGE_BASE_DIR
+
         # 1) 优先单例
         try:
             from rag.rag_engine import get_rag_engine
+
             engine = get_rag_engine()
             if engine.is_enabled:
                 n = engine.rebuild_index(str(KNOWLEDGE_BASE_DIR))
@@ -50,6 +53,7 @@ def _do_rebuild(paths, count) -> None:
 
         # 2) 退化到 main.get_agent()
         from main import get_agent
+
         agent = get_agent()
         if agent is not None and getattr(agent, "rag_engine", None) is not None:
             n = agent.rag_engine.rebuild_index(str(KNOWLEDGE_BASE_DIR))

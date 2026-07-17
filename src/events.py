@@ -2,6 +2,7 @@
 轻量级事件总线
 用于解耦模块通信(如知识库更新 → RAG 重载、反馈 → 画像回流)
 """
+
 import logging
 import threading
 from collections import defaultdict
@@ -13,6 +14,7 @@ logger = logging.getLogger(__name__)
 
 class EventType(str, Enum):
     """事件类型枚举"""
+
     KNOWLEDGE_UPDATED = "knowledge.updated"
     KB_DOC_ADDED = "knowledge.doc_added"
     KB_DOC_REMOVED = "knowledge.doc_removed"

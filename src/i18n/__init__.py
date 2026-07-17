@@ -17,6 +17,7 @@ i18n 模块 — P6.H
     # 头检测(从 Accept-Language 解析)
     locale = get_locale_from_header("en-US,zh-CN;q=0.9")  # → "en"
 """
+
 from __future__ import annotations
 
 import os
@@ -100,7 +101,6 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "error.rate_limited": "请求过于频繁",
         "error.llm_unavailable": "LLM 服务暂不可用",
         "error.validation": "输入校验失败",
-
         # 健康检查
         "health.ok": "正常",
         "health.degraded": "降级",
@@ -110,19 +110,16 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "health.check.scheduler": "调度器",
         "health.check.metrics": "LLM 指标",
         "health.check.disk_space": "磁盘空间",
-
         # 系统提示词片段
         "prompt.system.role": "你是绿色低碳智能体,一个专注于帮助用户实践低碳生活的助手。",
         "prompt.user_focus": "关注用户当前关心的环保话题",
         "prompt.carbon_saving": "优先推荐碳减排效果明显的行动",
-
         # 行为阶段
         "stage.no_intent": "无意向",
         "stage.intent": "意向",
         "stage.preparation": "准备",
         "stage.action": "行动",
         "stage.maintenance": "维持",
-
         # Web UI
         "ui.title": "绿色低碳智能体",
         "ui.chat_placeholder": "请输入您想了解的环保话题...",
@@ -140,7 +137,6 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "error.rate_limited": "Too many requests",
         "error.llm_unavailable": "LLM service unavailable",
         "error.validation": "Validation failed",
-
         # 健康检查
         "health.ok": "OK",
         "health.degraded": "Degraded",
@@ -150,19 +146,16 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "health.check.scheduler": "Scheduler",
         "health.check.metrics": "LLM Metrics",
         "health.check.disk_space": "Disk Space",
-
         # 系统提示词片段
         "prompt.system.role": "You are the Green Low-Carbon Agent, a helpful assistant focused on low-carbon lifestyle.",
         "prompt.user_focus": "Focus on user's current environmental concern",
         "prompt.carbon_saving": "Prioritize actions with significant carbon reduction",
-
         # 行为阶段
         "stage.no_intent": "No Intent",
         "stage.intent": "Intent",
         "stage.preparation": "Preparation",
         "stage.action": "Action",
         "stage.maintenance": "Maintenance",
-
         # Web UI
         "ui.title": "Green Low-Carbon Agent",
         "ui.chat_placeholder": "Ask about environmental topics...",

@@ -5,7 +5,10 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>绿色低碳智能体</title>
     <!-- P6.L: Web UI i18n(浮动切换器 + data-i18n 替换 + fetch Accept-Language 注入) -->
-    <script src="/i18n.js"></script>
+    <script src="/i18n.js?v=18"></script>
+    <!-- P6.S.24 + Bug15: 移除 Leaflet CDN(unpkg.com 国内屏蔽),改用国内高德静态地图代理 -->
+    <!-- P6.S.24 + Bug18: ?v=18 强制浏览器重载,避免渲染旧版 -->
+    <script src="/travel-map.js?v=18"></script>
     <style>
         * {
             margin: 0;
@@ -53,11 +56,14 @@
             right: 0;
             bottom: 0;
             background: rgba(0, 0, 0, 0.6);
-            display: flex !important;
+            display: none;  /* Bug9: 默认隐藏,需 JS 显式调 showOnboardingModal() 才显示 */
             justify-content: center;
             align-items: center;
             z-index: 9999 !important;
             padding: 20px;
+        }
+        .modal-overlay.show {
+            display: flex !important;  /* 显式 .show 类才显示 */
         }
 
         .modal {
@@ -1174,6 +1180,324 @@
             font-style: italic;
         }
 
+        /* ============ P6.S.23: 新增 UI 组件 ============ */
+
+        /* 消息时间戳 */
+        .message-timestamp {
+            font-size: 11px;
+            color: #9ca3af;
+            margin-left: auto;
+            padding-left: 10px;
+        }
+        .user-timestamp {
+            display: block;
+            text-align: right;
+            margin-top: 4px;
+        }
+
+        /* 位置标签 */
+        .location-tag {
+            display: inline-block;
+            margin-top: 6px;
+            padding: 2px 8px;
+            background: #e0f2fe;
+            color: #075985;
+            border-radius: 10px;
+            font-size: 11px;
+        }
+        .location-tag .location-src {
+            color: #0369a1;
+            font-weight: 500;
+        }
+
+        /* 出行卡片(P6.S.24 占位,PR-2 升级为 Leaflet 地图) */
+        .travel-card {
+            margin-top: 12px;
+            padding: 12px;
+            background: linear-gradient(135deg, #f0fdf9 0%, #ecfeff 100%);
+            border: 1px solid #a7f3d0;
+            border-radius: 12px;
+        }
+        .travel-card-title {
+            font-size: 13px;
+            font-weight: 600;
+            color: #065f46;
+            margin-bottom: 4px;
+        }
+        .travel-card-sub {
+            font-size: 12px;
+            color: #6b7280;
+            margin-bottom: 8px;
+        }
+        .travel-card-routes {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 6px;
+        }
+        .travel-route {
+            background: white;
+            border: 1px solid #e5e7eb;
+            border-radius: 8px;
+            padding: 8px;
+            font-size: 12px;
+        }
+        .travel-route.recommended {
+            border-color: #11998e;
+            background: #ecfdf5;
+            position: relative;
+        }
+        /* P6.S.24 + Bug7: 卡片可点击,focused 状态高亮 */
+        .travel-route {
+            cursor: pointer;
+            transition: all 0.2s;
+            user-select: none;
+        }
+        .travel-route:hover {
+            border-color: #11998e;
+            box-shadow: 0 2px 8px rgba(17, 153, 142, 0.2);
+            transform: translateY(-1px);
+        }
+        .travel-route.focused {
+            border-color: #11998e;
+            background: #ecfdf5;
+            box-shadow: 0 0 0 2px rgba(17, 153, 142, 0.3);
+        }
+        .travel-route:focus {
+            outline: 2px solid #11998e;
+            outline-offset: 2px;
+        }
+        /* 降级提示(无 polyline 时显示) */
+        .travel-map-fallback {
+            margin: 8px 0;
+            padding: 12px;
+            background: #fffbeb;
+            border: 1px solid #fde68a;
+            border-radius: 8px;
+            font-size: 12px;
+            color: #92400e;
+            text-align: center;
+        }
+        /* P6.S.24 + Bug13: SVG 路线图 — 永远能渲染的兜底 */
+        .travel-svg-map {
+            position: relative;
+            width: 100%;
+            background: #f0f9ff;
+            border-radius: 8px;
+            overflow: hidden;
+            border: 1px solid #dbeafe;
+        }
+        .travel-svg-map svg {
+            display: block;
+            width: 100%;
+            height: 320px;
+            background: linear-gradient(135deg, #f0f9ff 0%, #e0f2fe 100%);
+        }
+        .travel-svg-map svg path {
+            transition: all 0.2s;
+        }
+        .travel-svg-map svg path:hover {
+            stroke-width: 6 !important;
+            opacity: 1 !important;
+            cursor: pointer;
+        }
+        .travel-svg-legend {
+            padding: 6px 12px;
+            font-size: 11px;
+            color: #6b7280;
+            background: #f8fafc;
+            border-top: 1px solid #e2e8f0;
+            text-align: center;
+        }
+        /* P6.S.24 + Bug15: 高德静态地图作底图(真实道路/建筑) */
+        .travel-staticmap-wrap {
+            position: relative;
+            width: 100%;
+            height: 320px;
+            background: #e0f2fe;
+        }
+        .travel-staticmap-bg {
+            position: absolute;
+            top: 0; left: 0;
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+            display: block;
+        }
+        .travel-overlay-svg {
+            position: absolute;
+            top: 0; left: 0;
+            width: 100%;
+            height: 100%;
+            pointer-events: none;  /* 不阻挡底图交互 */
+        }
+        .travel-overlay-svg path {
+            pointer-events: auto;  /* 路线可 hover */
+            transition: all 0.2s;
+        }
+        .travel-overlay-svg path:hover {
+            stroke-width: 7 !important;
+            opacity: 1 !important;
+        }
+        .travel-overlay-svg g.svg-markers {
+            pointer-events: auto;  /* marker 可点击 */
+        }
+        .travel-route-head {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 4px;
+        }
+        .travel-route-mode {
+            font-weight: 600;
+            color: #11998e;
+        }
+        .travel-route-badge {
+            font-size: 10px;
+            background: #11998e;
+            color: white;
+            padding: 1px 6px;
+            border-radius: 8px;
+        }
+        .travel-route-stats {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 4px 8px;
+            color: #6b7280;
+        }
+        .travel-route-stats .carbon-stat {
+            color: #11998e;
+            font-weight: 500;
+        }
+        .travel-card-weather {
+            margin-top: 8px;
+            font-size: 11px;
+            color: #6b7280;
+        }
+
+        /* P6.S.24: Leaflet 地图容器 + 标记样式 */
+        .travel-map-placeholder {
+            margin: 8px 0;
+            min-height: 200px;
+            background: #f3f4f6;
+            border-radius: 8px;
+            overflow: hidden;
+            position: relative;
+        }
+        /* P6.S.24 + Bug7: 加载中 / 错误态 */
+        .travel-map-loading,
+        .travel-map-error {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            min-height: 200px;
+            padding: 16px;
+            text-align: center;
+            font-size: 13px;
+            color: #6b7280;
+            background: #f3f4f6;
+        }
+        .travel-map-error {
+            color: #b91c1c;
+            background: #fef2f2;
+        }
+        .travel-leaflet-map {
+            width: 100%;
+            height: 280px;
+            border-radius: 8px;
+        }
+        .travel-marker {
+            background: transparent !important;
+            border: none !important;
+        }
+        .travel-marker-pin {
+            width: 28px;
+            height: 28px;
+            line-height: 28px;
+            text-align: center;
+            border-radius: 50%;
+            color: white;
+            font-weight: 700;
+            font-size: 13px;
+            box-shadow: 0 2px 6px rgba(0, 0, 0, 0.3);
+        }
+        .travel-marker-start .travel-marker-pin {
+            background: #11998e;
+        }
+        .travel-marker-end .travel-marker-pin {
+            background: #ef4444;
+        }
+        /* 响应式:小屏地图高度降低 */
+        @media (max-width: 600px) {
+            .travel-leaflet-map {
+                height: 200px;
+            }
+        }
+
+        /* 重试按钮 */
+        .retry-btn {
+            margin-top: 8px;
+            padding: 6px 14px;
+            background: #fff;
+            border: 1px solid #11998e;
+            color: #11998e;
+            border-radius: 16px;
+            font-size: 12px;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+        .retry-btn:hover {
+            background: #11998e;
+            color: white;
+        }
+
+        /* 发送按钮 loading spinner */
+        .send-btn .spinner {
+            display: inline-block;
+            width: 14px;
+            height: 14px;
+            border: 2px solid rgba(255,255,255,0.3);
+            border-top-color: white;
+            border-radius: 50%;
+            animation: spin 0.8s linear infinite;
+        }
+        .send-btn:disabled {
+            cursor: wait;
+            opacity: 0.7;
+        }
+
+        /* 快捷按钮修复 — 文本不截断 + 移动端纵向 */
+        .quick-btn {
+            max-width: 100%;
+            min-width: 0;
+            white-space: normal;
+            text-align: center;
+            line-height: 1.3;
+            word-break: break-word;
+        }
+        @media (max-width: 600px) {
+            .quick-actions {
+                flex-direction: column;
+                align-items: stretch;
+            }
+            .quick-btn {
+                width: 100%;
+            }
+            .travel-card-routes {
+                grid-template-columns: 1fr;
+            }
+            .message.user .message-content,
+            .message.assistant .message-content {
+                max-width: 92%;
+            }
+        }
+
+        /* 反馈按钮在触屏设备上始终可见(原代码 hover-only,移动端无法操作) */
+        @media (hover: none) {
+            .message-feedback {
+                opacity: 1 !important;
+            }
+        }
+
         /* 隐藏状态 */
         .hidden {
             display: none !important;
@@ -1236,20 +1560,42 @@
             z-index: 100;
         }
 
-        /* API Key 设置 */
+        /* API Key 设置 — Bug10: 移到 header 内联,不再 fixed */
         .api-key-btn {
-            position: fixed;
-            top: 20px;
-            right: 20px;
+            display: inline-flex;
+            align-items: center;
+            gap: 4px;
             background: white;
-            border: none;
-            padding: 8px 15px;
-            border-radius: 20px;
-            font-size: 12px;
+            border: 1px solid #d1d5db;
             color: #11998e;
+            padding: 6px 14px;
+            border-radius: 16px;
+            font-size: 13px;
+            font-weight: 500;
             cursor: pointer;
-            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
-            z-index: 100;
+            box-shadow: 0 2px 6px rgba(0,0,0,0.08);
+            transition: all 0.2s;
+        }
+        .api-key-btn:hover {
+            border-color: #11998e;
+            background: #f0fdf9;
+        }
+
+        /* Bug10: header 右侧动作区,统一放语言切换 + 设置 */
+        .top-right-actions {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            margin-left: 12px;
+        }
+        .top-right-actions #lang-switcher {
+            position: static !important;  /* 覆盖 i18n.js 的 fixed */
+            background: white !important;
+            border: 1px solid #d1d5db !important;
+            border-radius: 16px !important;
+            padding: 4px 10px !important;
+            box-shadow: 0 2px 6px rgba(0,0,0,0.08) !important;
+            z-index: auto !important;
         }
 
         .api-key-modal {
@@ -1437,6 +1783,7 @@
     </style>
 </head>
 <body>
+    <!-- 资源预加载 + 进度 + 弱网兜底(阶段4) -->
     <!-- Onboarding 模态框 - 欢迎页 -->
     <div class="modal-overlay" id="onboarding-modal">
         <div class="modal">
@@ -1792,6 +2139,10 @@
                     <div>对话轮次</div>
                 </div>
             </div>
+            <!-- Bug10: header 右上动作区(语言 + 设置) -->
+            <div class="top-right-actions">
+                <button class="api-key-btn" type="button" onclick="showApiKeyModal()">⚙️ 设置</button>
+            </div>
         </div>
 
         <!-- 标签页 -->
@@ -1858,8 +2209,7 @@
         <span id="indicator-text">个性化已启用</span>
     </div>
 
-    <!-- API Key 设置按钮 -->
-    <button class="api-key-btn" onclick="showApiKeyModal()">⚙️ 设置</button>
+    <!-- Bug10: API Key 设置按钮已移入 .header .top-right-actions -->
 
     <!-- API Key 设置弹窗 -->
     <div class="api-key-modal hidden" id="api-key-modal">
@@ -2019,6 +2369,42 @@
             }
         ];
 
+        // ============ P6.S.23: 工具函数 ============
+
+        // P6.S.23: XSS 转义 — 所有 innerHTML 拼接用户/后端可控数据前必过此函数
+        // 覆盖: & < > " ' / 反引号
+        function escapeHtml(s) {
+            if (s == null) return '';
+            return String(s)
+                .replace(/&/g, '&amp;')
+                .replace(/</g, '&lt;')
+                .replace(/>/g, '&gt;')
+                .replace(/"/g, '&quot;')
+                .replace(/'/g, '&#39;')
+                .replace(/`/g, '&#96;');
+        }
+
+        // P6.S.23: 安全的 innerHTML setter(整段先转义再允许少量白名单标签)
+        // 用法: safeHtml(userInput) 或 safeHtml`<b>${userInput}</b>`(后者不安全,推荐前者)
+        function safeHtml(s) {
+            return escapeHtml(s);
+        }
+
+        // P6.S.23: 生成稳定的 userId — 弃用 Math.random().toString(36).substr()(MDN deprecated)
+        // 统一入口,避免 5 处不同实现
+        function createUserId(prefix) {
+            const p = prefix || 'user';
+            // crypto.randomUUID 在现代浏览器(Chrome 92+/Safari 15.4+/Firefox 95+)全支持
+            // 兼容老浏览器降级
+            let rand;
+            if (window.crypto && typeof window.crypto.randomUUID === 'function') {
+                rand = window.crypto.randomUUID().replace(/-/g, '').slice(0, 8);
+            } else {
+                rand = Math.random().toString(36).slice(2, 10);
+            }
+            return `${p}_${Date.now()}_${rand}`;
+        }
+
         // 初始化
         document.addEventListener('DOMContentLoaded', function() {
             console.log('[DEBUG] DOMContentLoaded 触发');
@@ -2027,23 +2413,17 @@
             console.log('[DEBUG] userId:', userId);
             console.log('[DEBUG] isRegistered:', isRegistered);
 
-            // 检查是否已注册（用户已完成设置）
+            // Bug9: 不再自动弹引导 — 用户主动点"立即注册"或"开始设置"才显示
+            hideOnboardingModal();
             if (isRegistered) {
-                // 已注册用户，不显示引导模态框
-                const modal = document.getElementById('onboarding-modal');
-                if (modal) {
-                    modal.style.display = 'none';
-                    modal.style.visibility = 'hidden';
-                }
-                console.log('[DEBUG] 已注册用户，隐藏引导模态框');
+                console.log('[DEBUG] 已注册用户,无需 onboarding');
             } else {
-                // 未注册用户，显示引导模态框
-                console.log('[DEBUG] 新用户，显示引导模态框');
+                console.log('[DEBUG] 新用户,默认不弹引导,等用户主动点击');
             }
 
             // 确保有用户ID
             if (!userId) {
-                userId = 'user_' + Date.now() + '_' + Math.random().toString(36).substr(2, 6);
+                userId = createUserId('user');
                 localStorage.setItem('green_agent_user_id', userId);
                 console.log('[DEBUG] 自动生成userId:', userId);
             }
@@ -2118,8 +2498,7 @@
 
                 // 隐藏模态框
                 const modal = document.getElementById('onboarding-modal');
-                modal.style.display = 'none';
-                modal.style.visibility = 'hidden';
+hideOnboardingModal();
 
                 showPersonalizationIndicator('个性化设置已完成');
             });
@@ -2323,8 +2702,7 @@
 
                 // 直接隐藏模态框
                 const modal = document.getElementById('onboarding-modal');
-                modal.style.display = 'none';
-                modal.style.visibility = 'hidden';
+hideOnboardingModal();
 
                 showPersonalizationIndicator('个性化设置已完成');
 
@@ -2339,13 +2717,12 @@
             } catch (error) {
                 console.error('[Onboarding] 注册失败:', error);
                 // 即使 API 失败，也允许跳过继续使用
-                userId = 'guest_' + Math.random().toString(36).substr(2, 8);
+                userId = createUserId('guest');
                 isRegistered = true;
                 localStorage.setItem('green_agent_user_id', userId);
                 // 直接隐藏模态框
                 const modal = document.getElementById('onboarding-modal');
-                modal.style.display = 'none';
-                modal.style.visibility = 'hidden';
+hideOnboardingModal();
                 console.log('[Onboarding] 使用访客模式继续, userId:', userId);
             }
         }
@@ -2359,9 +2736,8 @@
                     console.error('[Onboarding] 找不到 modal 元素');
                     return;
                 }
-                modal.style.display = 'none';
-                modal.style.visibility = 'hidden';
-                userId = 'anonymous_' + Math.random().toString(36).substr(2, 8);
+hideOnboardingModal();
+                userId = createUserId('anonymous');
                 isRegistered = true;
                 localStorage.setItem('green_agent_user_id', userId);
                 console.log('[Onboarding] 跳过引导，使用匿名用户:', userId);
@@ -2382,11 +2758,15 @@
             }, 3000);
         }
 
-        // 显示注册弹窗
+        // Bug9: 显示 onboarding 弹窗 — 需显式调,不再默认弹出
         function showOnboardingModal() {
             const modal = document.getElementById('onboarding-modal');
-            modal.style.display = 'flex';
-            modal.style.visibility = 'visible';
+            if (modal) modal.classList.add('show');
+        }
+        // Bug9: 隐藏 onboarding 弹窗
+        function hideOnboardingModal() {
+            const modal = document.getElementById('onboarding-modal');
+            if (modal) modal.classList.remove('show');
         }
 
         // 标签页切换
@@ -2406,44 +2786,70 @@
             });
         });
 
-        // 发送消息
-        async function sendMessage() {
+        // P6.S.23: 发送消息 — 加 loading + retry button + 传新参数给 addMessage
+        // M3: 防双击,按钮转 spinner
+        // M4: 错误消息末尾追加"🔄 重试"按钮
+        // S6 + C3: 透传 toolResult + location 给 addMessage
+        let _isSending = false;
+        let _lastUserMessage = null;
+        async function sendMessage(retryMessage) {
+            if (_isSending) {
+                console.log('[Chat] 已在发送中,忽略重复点击');
+                return;
+            }
             const input = document.getElementById('message-input');
-            const message = input.value.trim();
+            const message = (retryMessage != null ? retryMessage : input.value).trim();
 
-            console.log('[Chat] sendMessage 被调用, message:', message);
+            console.log('[Chat] sendMessage 被调用, message:', message, 'retry:', !!retryMessage);
             console.log('[Chat] isRegistered:', isRegistered, 'userId:', userId, 'accountId:', accountId);
 
             if (!message) {
-                console.log('[Chat] 消息为空，直接返回');
+                console.log('[Chat] 消息为空,直接返回');
                 return;
             }
 
-            input.value = '';
-            input.style.height = 'auto';
+            // P6.S.23: 错误重试时不重置 input.value
+            if (retryMessage == null) {
+                input.value = '';
+                input.style.height = 'auto';
+            }
 
             document.getElementById('welcome').classList.add('hidden');
 
+            // 重试时,先把上一次失败的用户消息移除(用 retryMessage 替换)
+            if (retryMessage != null) {
+                // 找到末尾 user + error 消息并删除,让重试从干净状态开始
+                const allMessages = document.querySelectorAll('#chat-container .message');
+                for (let i = allMessages.length - 1; i >= 0; i--) {
+                    if (allMessages[i].classList.contains('assistant')) {
+                        allMessages[i].remove();
+                        break;
+                    }
+                }
+            }
             addMessage('user', message);
             messageCount++;
             updateStats();
+            _lastUserMessage = message;
 
             showTypingIndicator('正在思考...');
+            _isSending = true;
+            setSendButtonLoading(true);
 
             // 设置超时
             const controller = new AbortController();
             const timeoutId = setTimeout(() => {
-                console.log('[Chat] 请求超时，取消请求');
+                console.log('[Chat] 请求超时,取消请求');
                 controller.abort();
             }, 60000); // 60秒超时
 
             try {
-                // 优先使用账号ID（已登录），否则使用临时用户ID
+                // 优先使用账号ID(已登录),否则使用临时用户ID
                 const effectiveUserId = accountId || userId;
                 const endpoint = isRegistered ? '/api/chat/enhanced' : '/api/chat';
                 console.log('[Chat] 发送请求到:', endpoint, 'userId:', effectiveUserId);
 
-                // 逐步更新状态，让用户知道进度
+                // 逐步更新状态,让用户知道进度
                 updateTypingStatus('正在思考...');
 
                 // P6.S.22: 浏览器定位(若已授权) — 加进请求体,server 优先用
@@ -2492,9 +2898,20 @@
                 // 短暂显示完成状态后移除
                 setTimeout(() => {
                     removeTypingIndicator();
+                    _isSending = false;
+                    setSendButtonLoading(false);
                 }, 300);
 
-                addMessage('assistant', data.message, data.suggestions, data.knowledge_refs, data.recommendations);
+                // P6.S.23: 透传 toolResult(出行)+ location(定位标签)给 addMessage
+                addMessage(
+                    'assistant',
+                    data.message,
+                    data.suggestions,
+                    data.knowledge_refs,
+                    data.recommendations,
+                    data.tool_result || null,
+                    data.location || null
+                );
                 messageCount++;
                 updateStats();
 
@@ -2508,17 +2925,171 @@
 
             } catch (error) {
                 removeTypingIndicator();
+                _isSending = false;
+                setSendButtonLoading(false);
                 console.error('[Chat] 请求失败:', error);
-                // 改进错误提示
-                let errorMsg = '抱歉，发生了错误。';
+                // 改进错误提示 + 末尾追加"🔄 重试"按钮(P6.S.23 M4)
+                let errorMsg = '抱歉,发生了错误。';
                 if (error.name === 'AbortError') {
-                    errorMsg = '请求超时，服务器响应时间过长。请稍后再试，或检查API Key是否有效。';
-                } else if (error.message.includes('Failed to fetch') || error.message.includes('NetworkError')) {
-                    errorMsg = '无法连接到服务器，请确保服务已启动。';
+                    errorMsg = '请求超时,服务器响应时间过长。请稍后再试,或检查API Key是否有效。';
+                } else if (error.message && (error.message.includes('Failed to fetch') || error.message.includes('NetworkError'))) {
+                    errorMsg = '无法连接到服务器,请确保服务已启动。';
                 } else {
-                    errorMsg = '抱歉，发生了错误：' + error.message;
+                    errorMsg = '抱歉,发生了错误:' + (error.message || '未知错误');
                 }
-                addMessage('assistant', errorMsg, [], [], []);
+                addMessage('assistant', errorMsg, [], [], [], null, null);
+                // P6.S.23: 错误消息后追加"🔄 重试"按钮
+                const lastAssistant = document.querySelectorAll('#chat-container .message.assistant');
+                if (lastAssistant.length > 0) {
+                    const retryBtn = document.createElement('button');
+                    retryBtn.className = 'retry-btn';
+                    retryBtn.type = 'button';
+                    retryBtn.innerHTML = '🔄 重试';
+                    retryBtn.setAttribute('data-retry', _lastUserMessage);
+                    lastAssistant[lastAssistant.length - 1].querySelector('.message-content').appendChild(retryBtn);
+                }
+            }
+        }
+
+        // P6.S.23: 发送按钮 loading 状态切换
+        function setSendButtonLoading(isLoading) {
+            const sendBtn = document.querySelector('.send-btn');
+            if (!sendBtn) return;
+            if (isLoading) {
+                sendBtn.disabled = true;
+                sendBtn.innerHTML = '<span class="spinner"></span>';
+            } else {
+                sendBtn.disabled = false;
+                sendBtn.innerHTML = '➤';
+            }
+        }
+
+        // P6.S.23: 事件委托 — chat-container 上一处 click listener
+        // 接管: .suggestion-btn(data-suggestion)/ .retry-btn(data-retry)/
+        //      .feedback-btn(data-fb+data-msg-id) / .reason-cancel-btn / .reason-submit-btn
+        // 好处: 完全消除内联 onclick(原代码 30+ 处),也消除 XSS 转义不全的隐患
+        function setupChatContainerDelegation() {
+            const container = document.getElementById('chat-container');
+            if (!container || container.__delegateBound) return;
+            container.__delegateBound = true;
+
+            container.addEventListener('click', function(e) {
+                const target = e.target.closest(
+                    '.suggestion-btn, .retry-btn, .feedback-btn, .reason-cancel-btn, .reason-submit-btn'
+                );
+                if (!target) return;
+
+                // suggestion: 发送用户输入
+                if (target.classList.contains('suggestion-btn')) {
+                    e.preventDefault();
+                    const text = target.getAttribute('data-suggestion');
+                    if (text) sendQuickMessage(text);
+                    return;
+                }
+
+                // retry: 重新发送
+                if (target.classList.contains('retry-btn')) {
+                    e.preventDefault();
+                    const msg = target.getAttribute('data-retry');
+                    if (msg) sendMessage(msg);
+                    return;
+                }
+
+                // feedback
+                if (target.classList.contains('feedback-btn')) {
+                    e.preventDefault();
+                    const fb = target.getAttribute('data-fb');
+                    const msgId = target.getAttribute('data-msg-id');
+                    if (fb === 'like' || fb === 'dislike') {
+                        submitFeedback(fb, msgId);
+                    } else if (fb === 'comment') {
+                        showCommentBox(msgId);
+                    }
+                    return;
+                }
+
+                // P6.S.24 + Bug7: 出行卡片点击 — 切换地图聚焦
+                if (target.classList.contains('travel-route')) {
+                    e.preventDefault();
+                    const msgId = target.getAttribute('data-message-id');
+                    const routeIdx = parseInt(target.getAttribute('data-route-index') || '0', 10);
+                    if (msgId && !isNaN(routeIdx)) {
+                        selectTravelRoute(msgId, routeIdx);
+                    }
+                    return;
+                }
+
+                // feedback 弹窗按钮
+                if (target.classList.contains('reason-cancel-btn')) {
+                    e.preventDefault();
+                    const type = target.getAttribute('data-fb-cancel');
+                    const msgId = target.getAttribute('data-msg-id');
+                    if (type === 'dislike') hideDislikeReasonBox(msgId);
+                    else if (type === 'comment') hideCommentBox(msgId);
+                    return;
+                }
+                if (target.classList.contains('reason-submit-btn')) {
+                    e.preventDefault();
+                    const type = target.getAttribute('data-fb-submit');
+                    const msgId = target.getAttribute('data-msg-id');
+                    if (type === 'dislike') submitDislikeReason(msgId);
+                    else if (type === 'comment') submitComment(msgId);
+                    return;
+                }
+            });
+        }
+        // DOMContentLoaded 时挂一次
+        document.addEventListener('DOMContentLoaded', setupChatContainerDelegation);
+
+        // P6.S.24 + Bug7: 点击出行卡片切换地图聚焦
+        // - 更新 .focused class 视觉
+        // - 调 renderTravelMap 重新画(只高亮该路线,其他灰色)
+        function selectTravelRoute(messageId, routeIndex) {
+            console.log('[TravelRoute] select', messageId, routeIndex);
+            const card = document.getElementById('travel-card-' + messageId);
+            if (!card) return;
+            // 更新 .focused class
+            card.querySelectorAll('.travel-route').forEach(el => {
+                el.classList.remove('focused');
+            });
+            const targetCard = card.querySelector('.travel-route[data-route-index="' + routeIndex + '"]');
+            if (targetCard) targetCard.classList.add('focused');
+            // 更新 data-focus-index
+            const mapPlaceholder = card.querySelector('.travel-map-placeholder');
+            if (!mapPlaceholder) {
+                console.warn('[TravelRoute] no mapPlaceholder in card', messageId);
+                return;
+            }
+            mapPlaceholder.setAttribute('data-focus-index', String(routeIndex));
+            // Bug18 fix: 优先用卡片上保存的 toolResult(data-tool-result 属性),fallback 到全局缓存
+            let toolResult = null;
+            try {
+                const dataAttr = card.getAttribute('data-tool-result');
+                if (dataAttr) {
+                    toolResult = JSON.parse(dataAttr);
+                }
+            } catch (e) {
+                console.warn('[TravelRoute] parse data-tool-result failed:', e);
+            }
+            if (!toolResult) {
+                toolResult = window.__currentTravelToolResult;
+            }
+            if (!toolResult) {
+                console.error('[TravelRoute] no toolResult available, 缓存丢失');
+                return;
+            }
+            // 重新渲染地图
+            if (typeof window.renderTravelMap === 'function') {
+                window.renderTravelMap(mapPlaceholder, toolResult, routeIndex);
+                console.log('[TravelRoute] re-rendered map, focusIndex:', routeIndex);
+            }
+        }
+
+        // P6.S.24 + Bug7: 缓存最近一次出行 toolResult(供 selectTravelRoute 用)
+        // addMessage 调 renderTravelMap 时也写这里
+        function _cacheToolResult(toolResult) {
+            if (toolResult && toolResult.routes) {
+                window.__currentTravelToolResult = toolResult;
             }
         }
 
@@ -2529,47 +3100,87 @@
             }
         }
 
-        // 发送快捷消息
+        // P6.S.23: 发送快捷消息 — 加去重 + 隐藏 welcome
+        // 防止"短期/国内出行"按钮重复点击发 2 次,以及欢迎消息一直显示
+        let lastSentQuickMessage = null;
         function sendQuickMessage(message) {
-            document.getElementById('message-input').value = message;
+            if (message == null || message === '') return;
+            if (message === lastSentQuickMessage) {
+                console.log('[QuickBtn] 重复点击,已忽略:', message);
+                return;
+            }
+            lastSentQuickMessage = message;
+            const welcomeEl = document.getElementById('welcome');
+            if (welcomeEl) welcomeEl.style.display = 'none';
+            const input = document.getElementById('message-input');
+            input.value = message;
             sendMessage();
         }
 
-        // 添加消息到聊天区
-        function addMessage(role, content, suggestions = [], knowledgeRefs = [], recommendations = []) {
+        // P6.S.23: 添加消息到聊天区 — XSS 转义 + 接收 toolResult(出行)+ location(定位标签)
+        // 关键改造:
+        //  1) 所有用户/后端可控字段(r.action / s / knowledgeRefs / location 等)走 escapeHtml
+        //  2) suggestions 改事件委托 + data-suggestion,避免 XSS(原 onclick 拼接只转单引号不全)
+        //  3) toolResult 存在且含 routes 时,渲染出行卡片(P6.S.24: 占位)
+        //  4) location 存在时,在助手消息右上角加"📍 {city} · {source}"小标签
+        function addMessage(role, content, suggestions = [], knowledgeRefs = [], recommendations = [], toolResult = null, location = null) {
             const container = document.getElementById('chat-container');
 
             const messageDiv = document.createElement('div');
             messageDiv.className = `message ${role}`;
 
             const avatar = role === 'user' ? '🙂' : '🌱';
-            const messageId = 'msg_' + Date.now() + '_' + Math.random().toString(36).substr(2, 6);
+            const messageId = 'msg_' + Date.now() + '_' + (window.crypto?.randomUUID?.().replace(/-/g, '').slice(0, 6) || Math.random().toString(36).slice(2, 8));
+
+            // P6.S.23: 时间戳(消息气泡右上角,11px 灰字)
+            const now = new Date();
+            const timeStr = now.toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' });
+
+            // P6.S.23: location 标签(只在 assistant 消息且后端返了 location 时显示)
+            let locationTagHtml = '';
+            if (location && role === 'assistant' && location.city) {
+                const srcLabel = {
+                    browser: '浏览器定位',
+                    ip: 'IP 定位',
+                    profile: '画像默认',
+                    none: '未定位',
+                }[location.source] || location.source || '未知';
+                locationTagHtml = `<div class="location-tag" title="定位来源: ${escapeHtml(srcLabel)}">📍 ${escapeHtml(location.city)}${location.region && location.region !== location.city ? ' · ' + escapeHtml(location.region) : ''} · <span class="location-src">${escapeHtml(srcLabel)}</span></div>`;
+            }
 
             let recommendationsHtml = '';
             if (recommendations && recommendations.length > 0 && role === 'assistant') {
                 recommendationsHtml = `
                     <div class="recommendations">
-                        <div class="recommendations-title">💡 为你推荐：</div>
+                        <div class="recommendations-title">💡 为你推荐:</div>
                         ${recommendations.map((r, idx) => `
                             <div class="recommendation-item">
-                                <div class="recommendation-action">${r.action}</div>
+                                <div class="recommendation-action">${escapeHtml(r.action)}</div>
                                 <div class="recommendation-meta">
-                                    <span class="recommendation-category">${r.category}</span>
-                                    <span class="recommendation-carbon">${r.carbon_saving || ''}</span>
+                                    <span class="recommendation-category">${escapeHtml(r.category || '')}</span>
+                                    <span class="recommendation-carbon">${escapeHtml(r.carbon_saving || '')}</span>
                                 </div>
-                                ${r.examples && r.examples.length > 0 ? `<div class="recommendation-example">例如：${r.examples[0]}</div>` : ''}
+                                ${r.examples && r.examples.length > 0 ? `<div class="recommendation-example">例如:${escapeHtml(r.examples[0])}</div>` : ''}
                             </div>
                         `).join('')}
                     </div>
                 `;
             }
 
+            // P6.S.23: suggestion 改事件委托 — 渲染时不拼接 onclick
+            // 用 .suggestion-btn class + data-suggestion 属性,外层 chat-container 委托 click
             let suggestionsHtml = '';
-            if (suggestions.length > 0 && role === 'assistant') {
+            const seenSuggestions = new Set();
+            const dedupedSuggestions = (suggestions || []).filter(s => {
+                if (s == null || seenSuggestions.has(s)) return false;
+                seenSuggestions.add(s);
+                return true;
+            });
+            if (dedupedSuggestions.length > 0 && role === 'assistant') {
                 suggestionsHtml = `
                     <div class="suggestions">
-                        <div class="suggestions-title">你可以尝试：</div>
-                        ${suggestions.map(s => `<button class="suggestion-btn" onclick="sendQuickMessage('${s.replace(/'/g, "\\'")}')">${s}</button>`).join('')}
+                        <div class="suggestions-title">你可以尝试:</div>
+                        ${dedupedSuggestions.map(s => `<button type="button" class="suggestion-btn" data-suggestion="${escapeHtml(s)}">${escapeHtml(s)}</button>`).join('')}
                     </div>
                 `;
             }
@@ -2578,7 +3189,74 @@
             if (knowledgeRefs && knowledgeRefs.length > 0 && role === 'assistant') {
                 knowledgeRefHtml = `
                     <div class="knowledge-ref">
-                        📚 参考: ${knowledgeRefs.join(', ')}
+                        📚 参考: ${knowledgeRefs.map(k => escapeHtml(typeof k === 'string' ? k : (k.title || k.name || JSON.stringify(k)))).join(', ')}
+                    </div>
+                `;
+            }
+
+            // P6.S.24 + Bug7 fix: 出行卡片 — 卡片可点击切换地图,含 polyline 时调 Leaflet
+            let travelCardHtml = '';
+            let hasMapPolyline = false;
+            if (role === 'assistant' && toolResult && toolResult.routes && toolResult.routes.length > 0) {
+                const routes = toolResult.routes;
+                const recommended = toolResult.recommended;
+                // 检测是否有 polyline(决定是否走 Leaflet 地图路径)
+                hasMapPolyline = routes.some(r => r && r.polyline);
+                // Bug7 fix: 找推荐方案索引(用于默认聚焦)
+                let recommendedIdx = -1;
+                routes.forEach((r, i) => {
+                    if (recommended && (r === recommended || r.type === recommended.type)) {
+                        recommendedIdx = i;
+                    }
+                });
+                const focusIdx = recommendedIdx >= 0 ? recommendedIdx : 0;
+                travelCardHtml = `
+                    <div class="travel-card" id="travel-card-${messageId}" data-tool-result='${escapeHtml(JSON.stringify(toolResult))}'>
+                        <div class="travel-card-title">🚲 出行方案对比</div>
+                        <div class="travel-card-sub">${escapeHtml(toolResult.origin || '起点')} → ${escapeHtml(toolResult.destination || '终点')}</div>
+                        ${hasMapPolyline
+                            ? '<div class="travel-map-placeholder" data-travel-map="1" data-message-id="' + messageId + '" data-focus-index="' + focusIdx + '" aria-label="出行路线地图加载中"></div>'
+                            : '<div class="travel-map-fallback" data-message-id="' + messageId + '">🗺️ 暂无地理坐标数据,以下为方案对比</div>'}
+                        <div class="travel-card-routes">
+                            ${routes.slice(0, 4).map((r, i) => {
+                                const isRec = recommended && (r === recommended || r.type === recommended.type);
+                                const dist = (r.distance_km || 0).toFixed(1);
+                                const dur = Math.round(r.duration_min || 0);
+                                const carbon = (r.carbon_kg || 0).toFixed(2);
+                                const cost = (r.cost_yuan || 0).toFixed(1);
+                                const isFocus = i === focusIdx;
+                                return `
+                                <div class="travel-route ${isRec ? 'recommended' : ''} ${isFocus ? 'focused' : ''}"
+                                     data-mode="${escapeHtml(r.type || '')}"
+                                     data-route-index="${i}"
+                                     data-message-id="${messageId}"
+                                     role="button"
+                                     tabindex="0"
+                                     aria-label="查看 ${escapeHtml(r.type || '')} 方案">
+                                    <div class="travel-route-head">
+                                        <span class="travel-route-mode">${escapeHtml(r.type || '方案' + (i+1))}</span>
+                                        ${isRec ? '<span class="travel-route-badge">推荐</span>' : ''}
+                                    </div>
+                                    <div class="travel-route-stats">
+                                        <span title="距离">📏 ${dist}km</span>
+                                        <span title="时长">⏱️ ${dur}min</span>
+                                        <span title="费用">💰 ¥${cost}</span>
+                                        <span title="碳排放" class="carbon-stat">🌱 ${carbon}kg CO₂</span>
+                                    </div>
+                                </div>`;
+                            }).join('')}
+                        </div>
+                        ${toolResult.weather ? (() => {
+                            // P6.S.26 fix: 兼容后端两种字段命名(description/temp_c 优先,desc/temp 兜底)
+                            const w = toolResult.weather;
+                            const desc = w.description ?? w.desc ?? '';
+                            const temp = (w.temp_c ?? w.temp);
+                            const tempStr = (temp !== undefined && temp !== null) ? temp + '°C' : '';
+                            const humi = (w.humidity !== undefined && w.humidity !== null) ? `💧${w.humidity}%` : '';
+                            const wind = (w.wind_kph !== undefined && w.wind_kph !== null) ? `💨${w.wind_kph}km/h` : '';
+                            const extras = [tempStr, humi, wind].filter(Boolean).join(' ');
+                            return `<div class="travel-card-weather">🌤️ ${escapeHtml(desc)} ${escapeHtml(extras)}</div>`;
+                        })() : ''}
                     </div>
                 `;
             }
@@ -2588,46 +3266,51 @@
             if (role === 'assistant') {
                 feedbackHtml = `
                     <div class="message-feedback" id="feedback-${messageId}" data-msg-id="${messageId}">
-                        <button class="feedback-btn like-btn" onclick="submitFeedback('like', '${messageId}')" title="有帮助">
+                        <button type="button" class="feedback-btn like-btn" data-fb="like" data-msg-id="${messageId}" title="有帮助">
                             <span>👍</span> <span class="fb-count" data-type="like">0</span>
                         </button>
-                        <button class="feedback-btn dislike-btn" onclick="submitFeedback('dislike', '${messageId}')" title="没帮助">
+                        <button type="button" class="feedback-btn dislike-btn" data-fb="dislike" data-msg-id="${messageId}" title="没帮助">
                             <span>👎</span> <span class="fb-count" data-type="dislike">0</span>
                         </button>
-                        <button class="feedback-btn comment-btn" onclick="showCommentBox('${messageId}')" title="评论">
+                        <button type="button" class="feedback-btn comment-btn" data-fb="comment" data-msg-id="${messageId}" title="评论">
                             💬 <span class="fb-count" data-type="comment">0</span>
                         </button>
+                        <span class="message-timestamp">${escapeHtml(timeStr)}</span>
                     </div>
                     <div class="dislike-reason-box hidden" id="reason-box-${messageId}">
-                        <p>请选择原因：</p>
+                        <p>请选择原因:</p>
                         <label><input type="radio" name="reason-${messageId}" value="inaccurate"> 不准确</label>
                         <label><input type="radio" name="reason-${messageId}" value="irrelevant"> 不相关</label>
                         <label><input type="radio" name="reason-${messageId}" value="too_complex"> 太复杂</label>
                         <label><input type="radio" name="reason-${messageId}" value="harmful"> 有害信息</label>
                         <label><input type="radio" name="reason-${messageId}" value="other"> 其他</label>
-                        <textarea id="reason-extra-${messageId}" placeholder="补充说明（可选）..."></textarea>
+                        <textarea id="reason-extra-${messageId}" placeholder="补充说明(可选)..."></textarea>
                         <div class="reason-actions">
-                            <button class="reason-cancel-btn" onclick="hideDislikeReasonBox('${messageId}')">取消</button>
-                            <button class="reason-submit-btn" onclick="submitDislikeReason('${messageId}')">提交</button>
+                            <button type="button" class="reason-cancel-btn" data-fb-cancel="dislike" data-msg-id="${messageId}">取消</button>
+                            <button type="button" class="reason-submit-btn" data-fb-submit="dislike" data-msg-id="${messageId}">提交</button>
                         </div>
                     </div>
                     <div class="comment-box hidden" id="comment-box-${messageId}">
-                        <p>请输入您的反馈意见：</p>
+                        <p>请输入您的反馈意见:</p>
                         <textarea id="comment-text-${messageId}" placeholder="请输入您的反馈意见..."></textarea>
                         <div class="comment-actions">
-                            <button class="reason-cancel-btn" onclick="hideCommentBox('${messageId}')">取消</button>
-                            <button class="reason-submit-btn" onclick="submitComment('${messageId}')">发送</button>
+                            <button type="button" class="reason-cancel-btn" data-fb-cancel="comment" data-msg-id="${messageId}">取消</button>
+                            <button type="button" class="reason-submit-btn" data-fb-submit="comment" data-msg-id="${messageId}">发送</button>
                         </div>
                     </div>
                 `;
+            } else {
+                feedbackHtml = `<span class="message-timestamp user-timestamp">${escapeHtml(timeStr)}</span>`;
             }
 
             messageDiv.innerHTML = `
                 <div class="message-avatar">${avatar}</div>
                 <div class="message-content">
                     ${formatContent(content)}
+                    ${locationTagHtml}
                     ${knowledgeRefHtml}
                     ${recommendationsHtml}
+                    ${travelCardHtml}
                     ${suggestionsHtml}
                     ${feedbackHtml}
                 </div>
@@ -2636,20 +3319,40 @@
             container.appendChild(messageDiv);
             container.scrollTop = container.scrollHeight;
 
+            // P6.S.24 + Bug7 fix: 如果出行卡片有 polyline,调 Leaflet 渲染地图
+            if (role === 'assistant' && hasMapPolyline && toolResult && typeof window.renderTravelMap === 'function') {
+                const mapPlaceholder = messageDiv.querySelector('.travel-map-placeholder');
+                if (mapPlaceholder) {
+                    // 从 data 属性读 focus index(默认推荐方案)
+                    const focusIdx = parseInt(mapPlaceholder.getAttribute('data-focus-index') || '0', 10);
+                    // P6.S.24 Bug7: 缓存 toolResult,供 selectTravelRoute 切换时复用
+                    if (typeof _cacheToolResult === 'function') {
+                        _cacheToolResult(toolResult);
+                    }
+                    try {
+                        window.renderTravelMap(mapPlaceholder, toolResult, focusIdx);
+                    } catch (e) {
+                        console.error('[Chat] renderTravelMap 失败:', e);
+                    }
+                }
+            }
+
             // 如果是助手消息，获取反馈数量
             if (role === 'assistant') {
                 updateFeedbackCounts(messageId);
             }
         }
 
-        // 格式化内容
+        // P6.S.23: 格式化内容 — 先转义再标记化,避免 XSS
+        // LLM 偶尔会塞 <script>/<img onerror>,此处只允许 **加粗** 简单 markdown
         function formatContent(content) {
-            return content
+            if (content == null) return '';
+            const escaped = escapeHtml(String(content));
+            return escaped
                 .replace(/\n\n/g, '</p><p>')
                 .replace(/\n/g, '<br>')
-                .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
-                .replace(/^/, '<p>')
-                .replace(/$/, '</p>');
+                .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
+                .replace(/^(.*)/s, '<p>$1</p>');
         }
 
         // 显示反馈成功提示
@@ -2982,7 +3685,7 @@
             showFeedbackToast('已退出登录' + (username ? '，再见 ' + username : ''), 'success');
 
             // 重置用户ID为临时ID
-            userId = 'user_' + Date.now() + '_' + Math.random().toString(36).substr(2, 6);
+            userId = createUserId('user');
             localStorage.setItem('green_agent_user_id', userId);
         }
 
@@ -3318,18 +4021,35 @@
             document.getElementById('msg-count').textContent = messageCount;
         }
 
-        // 加载知识库统计
+        // P6.S.23: 加载知识库统计 — 优先用 RAG vector_store_count,知识库文件数作副标题
+        // 解决"知识条目=0"问题:之前 data.total_documents 是 0 内存静态 KB,现在用 RAG 数字
         async function loadKnowledgeStats() {
             try {
                 const response = await fetch('/api/knowledge/stats');
                 const data = await response.json();
-                document.getElementById('doc-count').textContent = data.total_documents || 0;
 
-                if (data.rag_enabled) {
-                    document.getElementById('header-subtitle').textContent = 'RAG + 个性化已启用';
+                // P6.S.23: 优先 RAG 实际块数(通常 150);降级到 knowledge_base_files;最后 0
+                let totalDocs = 0;
+                let subtitle = '你的个性化低碳生活助手';
+                if (data.rag_enabled && data.rag_stats) {
+                    totalDocs = (data.rag_stats.vector_store_count || 0) + (data.rag_stats.bm25_doc_count || 0);
+                    subtitle = `RAG 已启用 · ${data.rag_stats.vector_store_count || 0} 向量 + ${data.rag_stats.bm25_doc_count || 0} BM25`;
+                } else if (data.total_documents) {
+                    totalDocs = data.total_documents;
+                    subtitle = '仅静态知识库';
                 }
+                document.getElementById('doc-count').textContent = totalDocs;
+                document.getElementById('header-subtitle').textContent = subtitle;
+                document.getElementById('header-subtitle').title = `知识库文件 ${data.knowledge_base_files || 0} 个`;
             } catch (error) {
                 console.error('Error loading stats:', error);
+                const el = document.getElementById('doc-count');
+                if (el) {
+                    el.textContent = '?';
+                    el.title = '加载失败,点击重试';
+                    el.style.cursor = 'pointer';
+                    el.onclick = () => loadKnowledgeStats();
+                }
             }
         }
 
@@ -3348,16 +4068,16 @@
 
                 container.innerHTML = policies.map(policy => `
                     <div class="policy-card">
-                        <h3>${policy.title}</h3>
+                        <h3>${escapeHtml(policy.title)}</h3>
                         <div class="policy-meta">
-                            <span>📅 ${policy.publish_date || '未知日期'}</span>
-                            <span>🏛️ ${policy.source || '未知来源'}</span>
-                            <span>🏷️ ${policy.category || '其他'}</span>
+                            <span>📅 ${escapeHtml(policy.publish_date || '未知日期')}</span>
+                            <span>🏛️ ${escapeHtml(policy.source || '未知来源')}</span>
+                            <span>🏷️ ${escapeHtml(policy.category || '其他')}</span>
                         </div>
-                        <p class="policy-summary">${policy.summary || '暂无摘要'}</p>
+                        <p class="policy-summary">${escapeHtml(policy.summary || '暂无摘要')}</p>
                         ${policy.key_points && policy.key_points.length > 0 ? `
                             <div class="policy-tags">
-                                ${policy.key_points.map(point => `<span class="policy-tag">${point}</span>`).join('')}
+                                ${policy.key_points.map(point => `<span class="policy-tag">${escapeHtml(point)}</span>`).join('')}
                             </div>
                         ` : ''}
                     </div>
@@ -3495,19 +4215,19 @@
                         <h3>🎯 个性化画像</h3>
                         <div class="profile-item">
                             <span class="profile-label">环保认知</span>
-                            <span class="profile-badge">${getKnowledgeLevelText(knowledgeLevel)}</span>
+                            <span class="profile-badge">${escapeHtml(getKnowledgeLevelText(knowledgeLevel))}</span>
                         </div>
                         <div class="profile-item">
                             <span class="profile-label">行为阶段</span>
-                            <span class="profile-badge">${behaviorStage}</span>
+                            <span class="profile-badge">${escapeHtml(behaviorStage)}</span>
                         </div>
                         <div class="profile-item">
                             <span class="profile-label">沟通风格</span>
-                            <span class="profile-value">${getCommunicationStyleText(ctx.communication_style)}</span>
+                            <span class="profile-value">${escapeHtml(getCommunicationStyleText(ctx.communication_style))}</span>
                         </div>
                         <div class="profile-item">
                             <span class="profile-label">基本信息</span>
-                            <span class="profile-value">${ctx.basic_info_summary || '新用户'}</span>
+                            <span class="profile-value">${escapeHtml(ctx.basic_info_summary || '新用户')}</span>
                         </div>
 
                         <div class="profile-progress">
@@ -3536,21 +4256,21 @@
                         <h3>📊 交互统计</h3>
                         <div class="profile-item">
                             <span class="profile-label">对话轮次</span>
-                            <span class="profile-value">${ctx.conversation_count || 0}</span>
+                            <span class="profile-value">${escapeHtml(String(ctx.conversation_count || 0))}</span>
                         </div>
                         <div class="profile-item">
                             <span class="profile-label">建议采纳率</span>
-                            <span class="profile-value">${Math.round((ctx.suggestion_acceptance_rate || 0.5) * 100)}%</span>
+                            <span class="profile-value">${escapeHtml(String(Math.round((ctx.suggestion_acceptance_rate || 0.5) * 100)))}%</span>
                         </div>
                     </div>
 
                     <div class="profile-card">
-                        <h3>💡 关注领域 ${interestIcons}</h3>
+                        <h3>💡 关注领域 ${escapeHtml(interestIcons)}</h3>
                         ${interests.length > 0 ? `
                             <div class="interests-list">
-                                ${interests.map(i => `<span class="interest-tag">${getInterestName(i)}</span>`).join('')}
+                                ${interests.map(i => `<span class="interest-tag">${escapeHtml(getInterestName(i))}</span>`).join('')}
                             </div>
-                        ` : '<p style="color: #9ca3af; font-size: 14px;">继续对话，我会学习你的兴趣</p>'}
+                        ` : '<p style="color: #9ca3af; font-size: 14px;">继续对话,我会学习你的兴趣</p>'}
                     </div>
 
                     <div class="profile-card">
@@ -3704,8 +4424,7 @@
                     // 隐藏 onboarding 弹窗
                     const modal = document.getElementById('onboarding-modal');
                     if (modal) {
-                        modal.style.display = 'none';
-                        modal.style.visibility = 'hidden';
+                        hideOnboardingModal();
                     }
                 }
 

@@ -8,17 +8,19 @@ from pathlib import Path
 
 script_path = Path(__file__).resolve()
 project_root = script_path.parent.parent.parent
-sys.path.insert(0, str(project_root / 'src'))
+sys.path.insert(0, str(project_root / "src"))
 
-from typing import List, Optional, Union
+from typing import List, Union
 import numpy as np
 
 # P5-F: 模块级 logger
 try:
     from observability import get_logger
+
     _logger = get_logger("rag.embedder")
 except Exception:
     import logging
+
     _logger = logging.getLogger("rag.embedder")
 
 
@@ -82,8 +84,9 @@ class SentenceTransformerEmbedder(Embedder):
 
         try:
             from sentence_transformers import SentenceTransformer
+
             print(f"[嵌入器] 正在加载模型: {self.model_name}")
-            print(f"[嵌入器] 首次使用需要下载模型（约100MB），请耐心等待...")
+            print("[嵌入器] 首次使用需要下载模型（约100MB），请耐心等待...")
             self._model = SentenceTransformer(self.model_name)
             new_dim = self._model.get_sentence_embedding_dimension()
             self._dimension = new_dim
@@ -93,11 +96,11 @@ class SentenceTransformerEmbedder(Embedder):
             # 检查是否只是部分失败（模型已加载但获取维度失败）
             if self._model is not None:
                 self._dimension = 384
-                print(f"[嵌入器] 使用备用维度: 384")
+                print("[嵌入器] 使用备用维度: 384")
             else:
                 self._use_fallback = True
                 self._dimension = 384  # 默认维度
-                print(f"[嵌入器] 使用简单嵌入作为备用方案")
+                print("[嵌入器] 使用简单嵌入作为备用方案")
 
     def _encode_impl(self, texts: List[str]) -> np.ndarray:
         """使用 sentence-transformers 编码"""
@@ -139,6 +142,7 @@ class OpenAIEmbedder(Embedder):
         """初始化 OpenAI 客户端"""
         try:
             from openai import OpenAI
+
             self._client = OpenAI(api_key=self.api_key)
             self._dimension = 1536 if "3-small" in self.model else 3072
             print(f"[OK] OpenAI 嵌入模型初始化完成 (维度: {self._dimension})")
@@ -153,10 +157,7 @@ class OpenAIEmbedder(Embedder):
 
         embeddings = []
         for text in texts:
-            response = self._client.embeddings.create(
-                model=self.model,
-                input=text
-            )
+            response = self._client.embeddings.create(model=self.model, input=text)
             embeddings.append(response.data[0].embedding)
 
         return np.array(embeddings)
@@ -165,7 +166,7 @@ class OpenAIEmbedder(Embedder):
 def create_embedder(
     provider: str = "sentence-transformers",
     model_name: str = "paraphrase-multilingual-MiniLM-L12-v2",
-    api_key: str = None
+    api_key: str = None,
 ) -> Embedder:
     """工厂函数：创建嵌入器"""
     if provider == "openai":

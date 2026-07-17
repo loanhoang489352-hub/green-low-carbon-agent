@@ -6,6 +6,7 @@
 - JSON 结构化日志(observability.logger)
 - LLM 调用指标聚合(observability.metrics)
 """
+
 from observability.trace import (
     new_trace_id,
     get_trace_id,
@@ -23,9 +24,18 @@ from observability.metrics import (
 
 __all__ = [
     # trace
-    "new_trace_id", "get_trace_id", "set_trace_id", "reset_trace_id", "with_trace",
+    "new_trace_id",
+    "get_trace_id",
+    "set_trace_id",
+    "reset_trace_id",
+    "with_trace",
     # logger
-    "JSONFormatter", "setup_logging", "get_logger",
+    "JSONFormatter",
+    "setup_logging",
+    "get_logger",
     # metrics
-    "MetricsCollector", "CallRecord", "get_metrics_collector", "reset_metrics_collector",
+    "MetricsCollector",
+    "CallRecord",
+    "get_metrics_collector",
+    "reset_metrics_collector",
 ]

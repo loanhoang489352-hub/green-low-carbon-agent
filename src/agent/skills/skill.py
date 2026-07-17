@@ -9,16 +9,18 @@ from dataclasses import dataclass, field
 
 import sys
 from pathlib import Path
+
 script_path = Path(__file__).resolve()
 project_root = script_path.parent.parent.parent
-sys.path.insert(0, str(project_root / 'src'))
+sys.path.insert(0, str(project_root / "src"))
 
-from agent.tools.base import BaseTool, ToolResult, ToolStatus
+from agent.tools.base import BaseTool, ToolResult
 
 
 @dataclass
 class SkillContext:
     """Skill 执行上下文"""
+
     user_id: str = ""
     conversation_id: str = ""
     message: str = ""
@@ -66,7 +68,7 @@ class Skill(ABC):
             "name": self.name,
             "description": self.description,
             "category": self.category,
-            "tools": [t.name for t in self.tools]
+            "tools": [t.name for t in self.tools],
         }
 
     def get_tool_schemas(self) -> List[Dict[str, Any]]:
@@ -103,10 +105,7 @@ class SkillExecutor:
         """执行 Skill"""
         skill = self._skills.get(skill_name)
         if not skill:
-            return ToolResult(
-                success=False,
-                error=f"Skill {skill_name} 不存在"
-            )
+            return ToolResult(success=False, error=f"Skill {skill_name} 不存在")
         return skill.execute(context)
 
     def get_all_schemas(self) -> List[Dict[str, Any]]:

@@ -12,32 +12,28 @@ from llm import LLMResponse
 # P5-B: 可观测性 — trace_id + 结构化日志 + 指标
 from observability import (
     new_trace_id,
-    get_trace_id,
     get_logger,
     get_metrics_collector,
 )
 
 # Windows UTF-8 encoding setup - Only if not already wrapped (avoid duplicate wrapping)
-if sys.platform == 'win32':
+if sys.platform == "win32":
     import io
-    if not isinstance(sys.stdout, io.TextIOWrapper) or sys.stdout.encoding != 'utf-8':
-        sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8', errors='replace')
-        sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding='utf-8', errors='replace')
 
-import json
+    if not isinstance(sys.stdout, io.TextIOWrapper) or sys.stdout.encoding != "utf-8":
+        sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8", errors="replace")
+        sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding="utf-8", errors="replace")
+
 import time
-import ssl
 import random
 import math
-import ssl
 import urllib3
+
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 from typing import Optional, List, Dict, Any
 from pathlib import Path
-from collections import defaultdict
 from datetime import datetime
 import threading
-import copy
 
 # 项目路径
 script_path = Path(__file__).resolve()
@@ -78,8 +74,12 @@ def _should_use_mock(client) -> bool:
 
 
 def _log_mock_decision(provider: str, used_mock: bool) -> None:
-    _logger.info("[LLM] provider=%s LLM_MOCK=%s used_mock=%s",
-                 provider, os.environ.get("LLM_MOCK", "auto"), used_mock)
+    _logger.info(
+        "[LLM] provider=%s LLM_MOCK=%s used_mock=%s",
+        provider,
+        os.environ.get("LLM_MOCK", "auto"),
+        used_mock,
+    )
 
 
 def _provider_name(cls_name: str) -> str:
@@ -108,11 +108,27 @@ def _is_retryable_error(exc: Exception) -> bool:
         return True
     # OpenAI SDK 异常层级
     exc_name = type(exc).__name__
-    if exc_name in ("APITimeoutError", "APIConnectionError", "InternalServerError", "RateLimitError"):
+    if exc_name in (
+        "APITimeoutError",
+        "APIConnectionError",
+        "InternalServerError",
+        "RateLimitError",
+    ):
         return True
     exc_str = str(exc).lower()
     # 5xx
-    if any(code in exc_str for code in ["500", "502", "503", "504", "internal server error", "bad gateway", "service unavailable"]):
+    if any(
+        code in exc_str
+        for code in [
+            "500",
+            "502",
+            "503",
+            "504",
+            "internal server error",
+            "bad gateway",
+            "service unavailable",
+        ]
+    ):
         return True
     # 429
     if "429" in exc_str or "rate limit" in exc_str or "too many requests" in exc_str:
@@ -163,13 +179,16 @@ def _with_retry(fn, max_retries: int, base_delay: float = 1.0, label: str = "llm
             retryable = _is_retryable_error(e)
             if not retryable or attempt >= max_retries:
                 raise
-            delay = base_delay * (2 ** attempt)
+            delay = base_delay * (2**attempt)
             _logger.warning(
                 "llm_retry",
                 extra={
-                    "event": "llm_retry", "label": label,
-                    "attempt": attempt + 1, "max_retries": max_retries,
-                    "delay_s": delay, "error": str(e)[:200],
+                    "event": "llm_retry",
+                    "label": label,
+                    "attempt": attempt + 1,
+                    "max_retries": max_retries,
+                    "delay_s": delay,
+                    "error": str(e)[:200],
                 },
             )
             time.sleep(delay)
@@ -178,12 +197,14 @@ def _with_retry(fn, max_retries: int, base_delay: float = 1.0, label: str = "llm
 
 class LLMClient:
     """LLM客户端基类"""
-    
-    def __init__(self, model: str = "gpt-4o-mini", temperature: float = 0.7, max_tokens: int = 2000):
+
+    def __init__(
+        self, model: str = "gpt-4o-mini", temperature: float = 0.7, max_tokens: int = 2000
+    ):
         self.model = model
         self.temperature = temperature
         self.max_tokens = max_tokens
-    
+
     def chat(self, messages: List[Dict[str, str]], **kwargs) -> str:
         """发送对话请求"""
         raise NotImplementedError
@@ -232,7 +253,9 @@ class LLMClient:
             return self._client.chat.completions.create(**create_kwargs)
 
         try:
-            response = _with_retry(_do_call, max_retries=max_retries, base_delay=1.0, label=error_label)
+            response = _with_retry(
+                _do_call, max_retries=max_retries, base_delay=1.0, label=error_label
+            )
             latency_ms = round((time.time() - start) * 1000, 2)
             usage_dict = {
                 "prompt_tokens": getattr(response.usage, "prompt_tokens", 0) or 0,
@@ -242,8 +265,11 @@ class LLMClient:
             _logger.info(
                 "llm_call",
                 extra={
-                    "event": "llm_call", "trace_id": trace_id, "provider": provider,
-                    "model": response.model, "latency_ms": latency_ms,
+                    "event": "llm_call",
+                    "trace_id": trace_id,
+                    "provider": provider,
+                    "model": response.model,
+                    "latency_ms": latency_ms,
                     "prompt_tokens": usage_dict["prompt_tokens"],
                     "completion_tokens": usage_dict["completion_tokens"],
                     "total_tokens": usage_dict["total_tokens"],
@@ -252,7 +278,10 @@ class LLMClient:
                 },
             )
             get_metrics_collector().record(
-                provider=provider, model=response.model, latency_ms=latency_ms, success=True,
+                provider=provider,
+                model=response.model,
+                latency_ms=latency_ms,
+                success=True,
                 prompt_tokens=usage_dict["prompt_tokens"],
                 completion_tokens=usage_dict["completion_tokens"],
                 total_tokens=usage_dict["total_tokens"],
@@ -273,14 +302,22 @@ class LLMClient:
             _logger.warning(
                 "llm_call_failed",
                 extra={
-                    "event": "llm_call_failed", "trace_id": trace_id, "provider": provider,
-                    "model": self.model, "latency_ms": latency_ms,
-                    "error": str(e), "error_class": error_class, "success": False,
+                    "event": "llm_call_failed",
+                    "trace_id": trace_id,
+                    "provider": provider,
+                    "model": self.model,
+                    "latency_ms": latency_ms,
+                    "error": str(e),
+                    "error_class": error_class,
+                    "success": False,
                 },
             )
             get_metrics_collector().record(
-                provider=provider, model=self.model,
-                latency_ms=latency_ms, success=False, error=error_class,
+                provider=provider,
+                model=self.model,
+                latency_ms=latency_ms,
+                success=False,
+                error=error_class,
             )
             _logger.warning(f"{error_label} API调用失败 [{error_class}]: {e}")
             # P5-C: 即使 fallback 到 mock,LLMResponse.error 也填 error_class
@@ -292,22 +329,28 @@ class LLMClient:
 
 class OpenAIClient(LLMClient):
     """OpenAI API 客户端"""
-    
-    def __init__(self, api_key: str = None, model: str = "gpt-4o-mini", 
-                 temperature: float = 0.7, max_tokens: int = 2000):
+
+    def __init__(
+        self,
+        api_key: str = None,
+        model: str = "gpt-4o-mini",
+        temperature: float = 0.7,
+        max_tokens: int = 2000,
+    ):
         super().__init__(model, temperature, max_tokens)
-        
+
         # 优先从环境变量获取
         self.api_key = api_key or os.environ.get("OPENAI_API_KEY")
         self._client = None
-        
+
         if self.api_key and self.api_key != "sk-your-api-key-here":
             self._init_client()
-    
+
     def _init_client(self):
         """初始化OpenAI客户端"""
         try:
             from openai import OpenAI
+
             self._client = OpenAI(api_key=self.api_key)
             print(f"[OK] OpenAI客户端初始化成功 (模型: {self.model})")
         except ImportError:
@@ -316,11 +359,11 @@ class OpenAIClient(LLMClient):
         except Exception as e:
             _logger.warning(f"OpenAI客户端初始化失败: {e}")
             self._client = None
-    
+
     def is_available(self) -> bool:
         """检查API是否可用"""
         return self._client is not None
-    
+
     def chat(self, messages: List[Dict[str, str]], **kwargs) -> LLMResponse:
         """发送对话请求 (P5-A.2: 返回 LLMResponse, P5-B: 注入 trace_id + 记录 metrics)"""
         trace_id = kwargs.pop("trace_id", None) or new_trace_id()
@@ -401,15 +444,22 @@ class OpenAIClient(LLMClient):
                 }
                 # P5-B: 记 metrics
                 get_metrics_collector().record(
-                    provider=provider, model=self.model, latency_ms=latency_ms,
+                    provider=provider,
+                    model=self.model,
+                    latency_ms=latency_ms,
                     success=True,
                 )
                 _logger.info(
                     "llm_call",
                     extra={
-                        "event": "llm_call", "trace_id": trace_id, "provider": provider,
-                        "model": self.model, "latency_ms": latency_ms, **usage_dict,
-                        "success": True, "async": True,
+                        "event": "llm_call",
+                        "trace_id": trace_id,
+                        "provider": provider,
+                        "model": self.model,
+                        "latency_ms": latency_ms,
+                        **usage_dict,
+                        "success": True,
+                        "async": True,
                     },
                 )
                 return LLMResponse(
@@ -424,26 +474,33 @@ class OpenAIClient(LLMClient):
                 last_error = e
                 _logger.warning(
                     "[OpenAI-async] attempt %d failed: %s",
-                    attempt + 1, e,
+                    attempt + 1,
+                    e,
                 )
                 if attempt < _llm_max_retries():
                     import asyncio
-                    await asyncio.sleep(1.0 * (2 ** attempt))  # 1s, 2s, 4s
+
+                    await asyncio.sleep(1.0 * (2**attempt))  # 1s, 2s, 4s
                 continue
 
         # 全部重试失败
         latency_ms = round((time.time() - start) * 1000, 2)
         error_class = _classify_error(last_error) if last_error else "unknown"
         get_metrics_collector().record(
-            provider=provider, model=self.model, latency_ms=latency_ms,
-            success=False, error=error_class,
+            provider=provider,
+            model=self.model,
+            latency_ms=latency_ms,
+            success=False,
+            error=error_class,
         )
         mock_resp = self._mock_response(messages, trace_id=trace_id)
         mock_resp.error = f"async_max_retries_exceeded: {last_error}"
         mock_resp.finish_reason = "error"
         return mock_resp
 
-    def _mock_response(self, messages: List[Dict[str, str]], trace_id: Optional[str] = None) -> LLMResponse:
+    def _mock_response(
+        self, messages: List[Dict[str, str]], trace_id: Optional[str] = None
+    ) -> LLMResponse:
         """Mock响应 (P5-A.2: 返回 LLMResponse, P5-B: 携带 trace_id + latency + 记录 metrics)"""
         start = time.time()
         provider = _provider_name(type(self).__name__)
@@ -456,20 +513,29 @@ class OpenAIClient(LLMClient):
         elif "建议" in last_message or "推荐" in last_message:
             content = "我建议你从减少一次性塑料使用开始，比如自带购物袋和水杯。这不仅环保还能省钱！"
         else:
-            content = "作为绿色低碳助手，我很乐意帮助你了解更多环保知识。请问你有什么具体想了解的吗？"
+            content = (
+                "作为绿色低碳助手，我很乐意帮助你了解更多环保知识。请问你有什么具体想了解的吗？"
+            )
 
         latency_ms = round((time.time() - start) * 1000, 2)
         # P5-B: mock fallback 也要记 metrics
         _logger.info(
             "llm_call_mock_fallback",
             extra={
-                "event": "llm_call_mock_fallback", "trace_id": trace_id,
-                "provider": provider, "model": "mock", "latency_ms": latency_ms,
-                "success": True, "reason": "no_api_key_or_unavailable",
+                "event": "llm_call_mock_fallback",
+                "trace_id": trace_id,
+                "provider": provider,
+                "model": "mock",
+                "latency_ms": latency_ms,
+                "success": True,
+                "reason": "no_api_key_or_unavailable",
             },
         )
         get_metrics_collector().record(
-            provider=provider, model="mock", latency_ms=latency_ms, success=True,
+            provider=provider,
+            model="mock",
+            latency_ms=latency_ms,
+            success=True,
         )
         return LLMResponse(
             content=content,
@@ -484,8 +550,13 @@ class OpenAIClient(LLMClient):
 class ZhipuClient(LLMClient):
     """智谱 AI (GLM) 客户端"""
 
-    def __init__(self, api_key: str = None, model: str = "glm-4-flash",
-                 temperature: float = 0.7, max_tokens: int = 2000):
+    def __init__(
+        self,
+        api_key: str = None,
+        model: str = "glm-4-flash",
+        temperature: float = 0.7,
+        max_tokens: int = 2000,
+    ):
         super().__init__(model, temperature, max_tokens)
         self.api_key = api_key or os.environ.get("ZHIPU_API_KEY")
         self._client = None
@@ -495,6 +566,7 @@ class ZhipuClient(LLMClient):
     def _init_client(self):
         try:
             import zhipuai
+
             self._client = zhipuai.ZhipuAI(api_key=self.api_key)
             print(f"[OK] 智谱AI客户端初始化成功 (模型: {self.model})")
         except ImportError:
@@ -525,8 +597,13 @@ class ZhipuClient(LLMClient):
 class BaiduClient(LLMClient):
     """百度文心一言客户端"""
 
-    def __init__(self, api_key: str = None, model: str = "ernie-4.0-8k",
-                 temperature: float = 0.7, max_tokens: int = 2000):
+    def __init__(
+        self,
+        api_key: str = None,
+        model: str = "ernie-4.0-8k",
+        temperature: float = 0.7,
+        max_tokens: int = 2000,
+    ):
         super().__init__(model, temperature, max_tokens)
         self.api_key = api_key or os.environ.get("BAIDU_API_KEY")
         self.secret_key = os.environ.get("BAIDU_SECRET_KEY")
@@ -538,10 +615,13 @@ class BaiduClient(LLMClient):
     def _init_client(self):
         try:
             import requests
-            auth_url = (f"https://aip.baidubce.com/oauth/2.0/token"
-                       f"?grant_type=client_credentials"
-                       f"&client_id={self.api_key}"
-                       f"&client_secret={self.secret_key}")
+
+            auth_url = (
+                f"https://aip.baidubce.com/oauth/2.0/token"
+                f"?grant_type=client_credentials"
+                f"&client_id={self.api_key}"
+                f"&client_secret={self.secret_key}"
+            )
             response = requests.get(auth_url)
             if response.ok:
                 self._access_token = response.json().get("access_token")
@@ -569,8 +649,11 @@ class BaiduClient(LLMClient):
 
         def _do_request():
             import requests
-            url = (f"https://aip.baidubce.com/rpc/2.0/ai_custom/v1/"
-                   f"wenxinworkshop/chat/completions?access_token={self._access_token}")
+
+            url = (
+                f"https://aip.baidubce.com/rpc/2.0/ai_custom/v1/"
+                f"wenxinworkshop/chat/completions?access_token={self._access_token}"
+            )
             payload = {
                 "messages": messages,
                 "temperature": kwargs.get("temperature", self.temperature),
@@ -579,7 +662,9 @@ class BaiduClient(LLMClient):
             return requests.post(url, json=payload, timeout=timeout_s)
 
         try:
-            response = _with_retry(_do_request, max_retries=max_retries, base_delay=1.0, label="百度文心一言")
+            response = _with_retry(
+                _do_request, max_retries=max_retries, base_delay=1.0, label="百度文心一言"
+            )
             latency_ms = round((time.time() - start) * 1000, 2)
             if response.ok:
                 result = response.json()
@@ -594,16 +679,23 @@ class BaiduClient(LLMClient):
                 _logger.info(
                     "llm_call",
                     extra={
-                        "event": "llm_call", "trace_id": trace_id, "provider": provider,
-                        "model": self.model, "latency_ms": latency_ms,
+                        "event": "llm_call",
+                        "trace_id": trace_id,
+                        "provider": provider,
+                        "model": self.model,
+                        "latency_ms": latency_ms,
                         "prompt_tokens": usage_dict["prompt_tokens"],
                         "completion_tokens": usage_dict["completion_tokens"],
                         "total_tokens": usage_dict["total_tokens"],
-                        "finish_reason": finish_reason, "success": True,
+                        "finish_reason": finish_reason,
+                        "success": True,
                     },
                 )
                 get_metrics_collector().record(
-                    provider=provider, model=self.model, latency_ms=latency_ms, success=True,
+                    provider=provider,
+                    model=self.model,
+                    latency_ms=latency_ms,
+                    success=True,
                     prompt_tokens=usage_dict["prompt_tokens"],
                     completion_tokens=usage_dict["completion_tokens"],
                     total_tokens=usage_dict["total_tokens"],
@@ -621,14 +713,21 @@ class BaiduClient(LLMClient):
             _logger.warning(
                 "llm_call_failed",
                 extra={
-                    "event": "llm_call_failed", "trace_id": trace_id, "provider": provider,
-                    "model": self.model, "latency_ms": latency_ms,
-                    "error": error_class, "success": False,
+                    "event": "llm_call_failed",
+                    "trace_id": trace_id,
+                    "provider": provider,
+                    "model": self.model,
+                    "latency_ms": latency_ms,
+                    "error": error_class,
+                    "success": False,
                 },
             )
             get_metrics_collector().record(
-                provider=provider, model=self.model, latency_ms=latency_ms,
-                success=False, error=error_class,
+                provider=provider,
+                model=self.model,
+                latency_ms=latency_ms,
+                success=False,
+                error=error_class,
             )
             mock_resp = self._mock_response(messages, trace_id=trace_id)
             mock_resp.error = error_class
@@ -640,14 +739,22 @@ class BaiduClient(LLMClient):
             _logger.warning(
                 "llm_call_failed",
                 extra={
-                    "event": "llm_call_failed", "trace_id": trace_id, "provider": provider,
-                    "model": self.model, "latency_ms": latency_ms,
-                    "error": str(e), "error_class": error_class, "success": False,
+                    "event": "llm_call_failed",
+                    "trace_id": trace_id,
+                    "provider": provider,
+                    "model": self.model,
+                    "latency_ms": latency_ms,
+                    "error": str(e),
+                    "error_class": error_class,
+                    "success": False,
                 },
             )
             get_metrics_collector().record(
-                provider=provider, model=self.model, latency_ms=latency_ms,
-                success=False, error=error_class,
+                provider=provider,
+                model=self.model,
+                latency_ms=latency_ms,
+                success=False,
+                error=error_class,
             )
             _logger.warning(f"百度文心一言 API调用失败 [{error_class}]: {e}")
             mock_resp = self._mock_response(messages, trace_id=trace_id)
@@ -662,8 +769,13 @@ class BaiduClient(LLMClient):
 class AliClient(LLMClient):
     """阿里通义千问客户端"""
 
-    def __init__(self, api_key: str = None, model: str = "qwen-plus",
-                 temperature: float = 0.7, max_tokens: int = 2000):
+    def __init__(
+        self,
+        api_key: str = None,
+        model: str = "qwen-plus",
+        temperature: float = 0.7,
+        max_tokens: int = 2000,
+    ):
         super().__init__(model, temperature, max_tokens)
         self.api_key = api_key or os.environ.get("ALI_API_KEY")
         self._client = None
@@ -673,9 +785,9 @@ class AliClient(LLMClient):
     def _init_client(self):
         try:
             from openai import OpenAI
+
             self._client = OpenAI(
-                api_key=self.api_key,
-                base_url="https://dashscope.aliyuncs.com/compatible-mode/v1"
+                api_key=self.api_key, base_url="https://dashscope.aliyuncs.com/compatible-mode/v1"
             )
             print(f"[OK] 阿里通义千问客户端初始化成功 (模型: {self.model})")
         except ImportError:
@@ -697,7 +809,9 @@ class AliClient(LLMClient):
             return self._mock_response(messages, trace_id=trace_id)
         if not self._client:
             return self._mock_response(messages, trace_id=trace_id)
-        return self._call_openai_sdk(messages, kwargs, error_label="阿里通义千问", trace_id=trace_id)
+        return self._call_openai_sdk(
+            messages, kwargs, error_label="阿里通义千问", trace_id=trace_id
+        )
 
     def _mock_response(self, messages, trace_id: Optional[str] = None) -> LLMResponse:
         return MockLLMClient().chat(messages, trace_id=trace_id)
@@ -706,8 +820,13 @@ class AliClient(LLMClient):
 class MiniMaxClient(LLMClient):
     """MiniMax 海螺AI客户端"""
 
-    def __init__(self, api_key: str = None, model: str = "abab6.5s",
-                 temperature: float = 0.7, max_tokens: int = 2000):
+    def __init__(
+        self,
+        api_key: str = None,
+        model: str = "abab6.5s",
+        temperature: float = 0.7,
+        max_tokens: int = 2000,
+    ):
         super().__init__(model, temperature, max_tokens)
         self.api_key = api_key or os.environ.get("MINIMAX_API_KEY")
         self.group_id = os.environ.get("MINIMAX_GROUP_ID")
@@ -724,10 +843,17 @@ class MiniMaxClient(LLMClient):
             # P5-C: SSL 跳过由 INSECURE_SKIP_VERIFY 控制(默认 False)
             # 通过 http_client=httpx.Client(verify=False) 局部生效,不再污染全局环境变量
             import os
-            insecure = os.environ.get("INSECURE_SKIP_VERIFY", "").lower() in ("1", "true", "yes", "on")
+
+            insecure = os.environ.get("INSECURE_SKIP_VERIFY", "").lower() in (
+                "1",
+                "true",
+                "yes",
+                "on",
+            )
             kwargs = {"api_key": self.api_key, "base_url": "https://api.minimax.chat/v1"}
             if insecure:
                 import httpx
+
                 kwargs["http_client"] = httpx.Client(verify=False)
                 _logger.warning("MiniMax 客户端 SSL 验证已禁用 (INSECURE_SKIP_VERIFY=true)")
 
@@ -778,17 +904,24 @@ class MiniMaxClient(LLMClient):
                 _logger.info(
                     "llm_call",
                     extra={
-                        "event": "llm_call", "trace_id": trace_id, "provider": provider,
-                        "model": response.model, "latency_ms": latency_ms,
+                        "event": "llm_call",
+                        "trace_id": trace_id,
+                        "provider": provider,
+                        "model": response.model,
+                        "latency_ms": latency_ms,
                         "prompt_tokens": usage_dict["prompt_tokens"],
                         "completion_tokens": usage_dict["completion_tokens"],
                         "total_tokens": usage_dict["total_tokens"],
                         "finish_reason": response.choices[0].finish_reason or "stop",
-                        "success": True, "attempts": attempt + 1,
+                        "success": True,
+                        "attempts": attempt + 1,
                     },
                 )
                 get_metrics_collector().record(
-                    provider=provider, model=response.model, latency_ms=latency_ms, success=True,
+                    provider=provider,
+                    model=response.model,
+                    latency_ms=latency_ms,
+                    success=True,
                     prompt_tokens=usage_dict["prompt_tokens"],
                     completion_tokens=usage_dict["completion_tokens"],
                     total_tokens=usage_dict["total_tokens"],
@@ -807,9 +940,21 @@ class MiniMaxClient(LLMClient):
                 error_str = str(e).lower()
 
                 # 检查是否是频率限制错误
-                if any(keyword in error_str for keyword in ["rate limit", "429", "too many", "throttle", "请求过于频繁", "频率"]):
-                    wait_time = self._rate_limit_delay * (2 ** attempt)  # 指数退避
-                    print(f"MiniMax API 频率限制，等待 {wait_time:.1f} 秒后重试 (尝试 {attempt + 1}/{self._max_retries})")
+                if any(
+                    keyword in error_str
+                    for keyword in [
+                        "rate limit",
+                        "429",
+                        "too many",
+                        "throttle",
+                        "请求过于频繁",
+                        "频率",
+                    ]
+                ):
+                    wait_time = self._rate_limit_delay * (2**attempt)  # 指数退避
+                    print(
+                        f"MiniMax API 频率限制，等待 {wait_time:.1f} 秒后重试 (尝试 {attempt + 1}/{self._max_retries})"
+                    )
                     time.sleep(wait_time)
                     continue
                 else:
@@ -819,14 +964,23 @@ class MiniMaxClient(LLMClient):
                     _logger.warning(
                         "llm_call_failed",
                         extra={
-                            "event": "llm_call_failed", "trace_id": trace_id, "provider": provider,
-                            "model": self.model, "latency_ms": latency_ms,
-                            "error": str(e), "error_class": error_class, "success": False, "attempts": attempt + 1,
+                            "event": "llm_call_failed",
+                            "trace_id": trace_id,
+                            "provider": provider,
+                            "model": self.model,
+                            "latency_ms": latency_ms,
+                            "error": str(e),
+                            "error_class": error_class,
+                            "success": False,
+                            "attempts": attempt + 1,
                         },
                     )
                     get_metrics_collector().record(
-                        provider=provider, model=self.model, latency_ms=latency_ms,
-                        success=False, error=error_class,
+                        provider=provider,
+                        model=self.model,
+                        latency_ms=latency_ms,
+                        success=False,
+                        error=error_class,
                     )
                     print(f"MiniMax API 调用失败 [{error_class}]: {e}")
                     mock_resp = self._mock_response(messages, trace_id=trace_id)
@@ -840,15 +994,23 @@ class MiniMaxClient(LLMClient):
         _logger.warning(
             "llm_call_failed",
             extra={
-                "event": "llm_call_failed", "trace_id": trace_id, "provider": provider,
-                "model": self.model, "latency_ms": latency_ms,
+                "event": "llm_call_failed",
+                "trace_id": trace_id,
+                "provider": provider,
+                "model": self.model,
+                "latency_ms": latency_ms,
                 "error": f"max retries {self._max_retries} exhausted: {last_error}",
-                "error_class": error_class, "success": False, "attempts": self._max_retries,
+                "error_class": error_class,
+                "success": False,
+                "attempts": self._max_retries,
             },
         )
         get_metrics_collector().record(
-            provider=provider, model=self.model, latency_ms=latency_ms,
-            success=False, error=error_class,
+            provider=provider,
+            model=self.model,
+            latency_ms=latency_ms,
+            success=False,
+            error=error_class,
         )
         print(f"MiniMax API 重试 {self._max_retries} 次后仍失败 [{error_class}]: {last_error}")
         mock_resp = self._mock_response(messages, trace_id=trace_id)
@@ -863,8 +1025,13 @@ class MiniMaxClient(LLMClient):
 class DeepSeekClient(LLMClient):
     """DeepSeek 客户端"""
 
-    def __init__(self, api_key: str = None, model: str = "deepseek-chat",
-                 temperature: float = 0.7, max_tokens: int = 2000):
+    def __init__(
+        self,
+        api_key: str = None,
+        model: str = "deepseek-chat",
+        temperature: float = 0.7,
+        max_tokens: int = 2000,
+    ):
         super().__init__(model, temperature, max_tokens)
         self.api_key = api_key or os.environ.get("DEEPSEEK_API_KEY")
         self._client = None
@@ -874,10 +1041,8 @@ class DeepSeekClient(LLMClient):
     def _init_client(self):
         try:
             from openai import OpenAI
-            self._client = OpenAI(
-                api_key=self.api_key,
-                base_url="https://api.deepseek.com"
-            )
+
+            self._client = OpenAI(api_key=self.api_key, base_url="https://api.deepseek.com")
             print(f"[OK] DeepSeek客户端初始化成功 (模型: {self.model})")
         except ImportError:
             _logger.warning("openai 包未安装,请运行: pip install openai")
@@ -928,14 +1093,23 @@ class MockLLMClient(LLMClient):
         _logger.info(
             "llm_call",
             extra={
-                "event": "llm_call", "trace_id": trace_id, "provider": provider,
-                "model": "mock", "latency_ms": latency_ms,
-                "prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0,
-                "finish_reason": "stop", "success": True,
+                "event": "llm_call",
+                "trace_id": trace_id,
+                "provider": provider,
+                "model": "mock",
+                "latency_ms": latency_ms,
+                "prompt_tokens": 0,
+                "completion_tokens": 0,
+                "total_tokens": 0,
+                "finish_reason": "stop",
+                "success": True,
             },
         )
         get_metrics_collector().record(
-            provider=provider, model="mock", latency_ms=latency_ms, success=True,
+            provider=provider,
+            model="mock",
+            latency_ms=latency_ms,
+            success=True,
         )
         return LLMResponse(
             content=content,
@@ -949,12 +1123,13 @@ class MockLLMClient(LLMClient):
 
 # ========== 贝叶斯模型路由器 ==========
 
+
 class BetaDistribution:
     """Beta分布实现，用于贝叶斯推断的成功率建模"""
 
     def __init__(self, alpha: float = 1.0, beta: float = 1.0):
         self.alpha = alpha  # 成功次数 + 1（Beta(1,1) 为均匀先验）
-        self.beta = beta    # 失败次数 + 1
+        self.beta = beta  # 失败次数 + 1
 
     def sample(self) -> float:
         """从Beta分布中采样（使用Gamma函数近似）"""
@@ -964,6 +1139,7 @@ class BetaDistribution:
             self.beta = 1.0
         try:
             import numpy as np
+
             return float(np.random.beta(self.alpha, self.beta))
         except ImportError:
             return self._approx_sample()
@@ -971,8 +1147,10 @@ class BetaDistribution:
     def _approx_sample(self) -> float:
         """无NumPy时的近似采样（使用均值-方差高斯混合 + 边界裁剪）"""
         mean = self.alpha / (self.alpha + self.beta)
-        std = math.sqrt((self.alpha * self.beta) /
-                        ((self.alpha + self.beta) ** 2 * (self.alpha + self.beta + 1)))
+        std = math.sqrt(
+            (self.alpha * self.beta)
+            / ((self.alpha + self.beta) ** 2 * (self.alpha + self.beta + 1))
+        )
         # 加入足够的随机性（标准差至少0.15，确保有探索），再用均匀噪声增强
         sample_val = mean + random.gauss(0, max(std, 0.15)) + random.uniform(-0.1, 0.1)
         return max(0.005, min(0.995, sample_val))
@@ -1048,12 +1226,14 @@ class ModelStats:
             else:
                 self.failed_calls += 1
 
-            self.history.append({
-                "timestamp": datetime.now().isoformat(),
-                "success": success,
-                "latency_ms": round(latency_ms, 1),
-                "quality": quality
-            })
+            self.history.append(
+                {
+                    "timestamp": datetime.now().isoformat(),
+                    "success": success,
+                    "latency_ms": round(latency_ms, 1),
+                    "quality": quality,
+                }
+            )
             # 保留最近100条历史
             if len(self.history) > 100:
                 self.history = self.history[-100:]
@@ -1079,7 +1259,7 @@ class ModelStats:
         quality -= mock_count * 0.05  # 每个指标只扣0.05
 
         # 是否有中文（加分，因为项目面向中文用户）
-        has_chinese = any('\u4e00' <= c <= '\u9fff' for c in response)
+        has_chinese = any("\u4e00" <= c <= "\u9fff" for c in response)
         if has_chinese:
             quality += 0.1
 
@@ -1100,7 +1280,7 @@ class ModelStats:
             "success_rate": round(self.success_rate(), 4),
             "avg_latency_ms": round(self.avg_latency_ms, 1),
             "success_dist": self.success_dist.to_dict(),
-            "last_call": self.history[-1] if self.history else None
+            "last_call": self.history[-1] if self.history else None,
         }
 
 
@@ -1117,17 +1297,17 @@ class BayesianModelRouter:
     - 选择时从各模型的后验分布中采样，选择采样值最高的模型
     """
 
-    STRATEGY_THOMPSON = "thompson"    # Thompson Sampling - 探索/利用平衡
-    STRATEGY_UCB = "ucb"             # Upper Confidence Bound - 乐观估计
-    STRATEGY_GREEDY = "greedy"       # 简单贪心 - 始终选最高均值
-    STRATEGY_RANDOM = "random"       # 随机探索
+    STRATEGY_THOMPSON = "thompson"  # Thompson Sampling - 探索/利用平衡
+    STRATEGY_UCB = "ucb"  # Upper Confidence Bound - 乐观估计
+    STRATEGY_GREEDY = "greedy"  # 简单贪心 - 始终选最高均值
+    STRATEGY_RANDOM = "random"  # 随机探索
 
     def __init__(
         self,
         strategy: str = STRATEGY_THOMPSON,
         exploration_weight: float = 2.0,
         min_samples: int = 3,
-        auto_add_clients: bool = True
+        auto_add_clients: bool = True,
     ):
         self.strategy = strategy
         self.exploration_weight = exploration_weight  # UCB的探索系数
@@ -1224,13 +1404,9 @@ class BayesianModelRouter:
 
             if n < self.min_samples:
                 # 样本不足时给予探索奖励
-                exploration_bonus = self.exploration_weight * math.sqrt(
-                    math.log(N + 1) / n
-                )
+                exploration_bonus = self.exploration_weight * math.sqrt(math.log(N + 1) / n)
             else:
-                exploration_bonus = self.exploration_weight * math.sqrt(
-                    math.log(N + 1) / n
-                )
+                exploration_bonus = self.exploration_weight * math.sqrt(math.log(N + 1) / n)
 
             scores[mid] = mean + exploration_bonus
 
@@ -1257,7 +1433,9 @@ class BayesianModelRouter:
             debug_info = ", ".join(
                 f"{mid}:{v:.3f}" for mid, v in sorted(scores.items(), key=lambda x: -x[1])
             )
-            print(f"[BayesianRouter] #{self._total_decisions} [{strategy}] 选择: {chosen} | 评分: {debug_info}")
+            print(
+                f"[BayesianRouter] #{self._total_decisions} [{strategy}] 选择: {chosen} | 评分: {debug_info}"
+            )
 
     def record_result(self, model_id: str, success: bool, latency_ms: float, response: str = ""):
         """记录某模型的调用结果，用于更新后验分布"""
@@ -1270,7 +1448,7 @@ class BayesianModelRouter:
         messages: List[Dict[str, str]],
         model_id: str = None,
         force_model: str = None,
-        **kwargs
+        **kwargs,
     ) -> LLMResponse:
         """
         贝叶斯路由的chat接口 (P5-A.2: 返回 LLMResponse)
@@ -1297,8 +1475,11 @@ class BayesianModelRouter:
             if not available_clients:
                 # P5-B: 记录到 metrics
                 get_metrics_collector().record(
-                    provider="bayesian", model="router",
-                    latency_ms=0.0, success=False, error="no_available_clients",
+                    provider="bayesian",
+                    model="router",
+                    latency_ms=0.0,
+                    success=False,
+                    error="no_available_clients",
                 )
                 return LLMResponse(
                     content="[BayesianRouter] 没有任何可用的LLM客户端",
@@ -1320,7 +1501,12 @@ class BayesianModelRouter:
             response = client.chat(messages, **kwargs_with_tid)
             latency_ms = round((time.time() - start) * 1000, 2)
             success = self._is_valid_response(response)
-            self.record_result(target, success, latency_ms, response.content if hasattr(response, "content") else str(response))
+            self.record_result(
+                target,
+                success,
+                latency_ms,
+                response.content if hasattr(response, "content") else str(response),
+            )
             # 若子 client 已经填了 latency,router 的测量值覆盖(更准,含路由开销)
             try:
                 response.latency_ms = latency_ms
@@ -1332,9 +1518,12 @@ class BayesianModelRouter:
             _logger.info(
                 "bayesian_route",
                 extra={
-                    "event": "bayesian_route", "trace_id": trace_id,
-                    "provider": "bayesian", "model": target,
-                    "latency_ms": latency_ms, "success": success,
+                    "event": "bayesian_route",
+                    "trace_id": trace_id,
+                    "provider": "bayesian",
+                    "model": target,
+                    "latency_ms": latency_ms,
+                    "success": success,
                 },
             )
             return response
@@ -1342,15 +1531,22 @@ class BayesianModelRouter:
             latency_ms = round((time.time() - start) * 1000, 2)
             self.record_result(target, False, latency_ms, "")
             get_metrics_collector().record(
-                provider="bayesian", model=target, latency_ms=latency_ms,
-                success=False, error=str(e),
+                provider="bayesian",
+                model=target,
+                latency_ms=latency_ms,
+                success=False,
+                error=str(e),
             )
             _logger.warning(
                 "bayesian_route_failed",
                 extra={
-                    "event": "bayesian_route_failed", "trace_id": trace_id,
-                    "provider": "bayesian", "model": target,
-                    "latency_ms": latency_ms, "error": str(e), "success": False,
+                    "event": "bayesian_route_failed",
+                    "trace_id": trace_id,
+                    "provider": "bayesian",
+                    "model": target,
+                    "latency_ms": latency_ms,
+                    "error": str(e),
+                    "success": False,
                 },
             )
             print(f"[BayesianRouter] 模型 {target} 调用异常: {e}")
@@ -1386,10 +1582,7 @@ class BayesianModelRouter:
         with self._lock:
             if not self._models:
                 return "openai"
-            return max(
-                self._models,
-                key=lambda m: self._models[m].success_dist.mean()
-            )
+            return max(self._models, key=lambda m: self._models[m].success_dist.mean())
 
     def get_recommendation(self) -> Dict[str, Any]:
         """获取模型推荐和理由"""
@@ -1414,12 +1607,17 @@ class BayesianModelRouter:
             return {
                 "recommended": best,
                 "reason": "、".join(reason_parts),
-                "stats": best_stats.to_dict()
+                "stats": best_stats.to_dict(),
             }
 
     def set_strategy(self, strategy: str):
         """动态切换选择策略"""
-        valid = {self.STRATEGY_THOMPSON, self.STRATEGY_UCB, self.STRATEGY_GREEDY, self.STRATEGY_RANDOM}
+        valid = {
+            self.STRATEGY_THOMPSON,
+            self.STRATEGY_UCB,
+            self.STRATEGY_GREEDY,
+            self.STRATEGY_RANDOM,
+        }
         if strategy not in valid:
             print(f"[BayesianRouter] 无效策略: {strategy}，可用: {valid}")
             return
@@ -1429,7 +1627,9 @@ class BayesianModelRouter:
     def summary(self) -> str:
         """生成路由器的可读摘要"""
         with self._lock:
-            lines = [f"[BayesianRouter 摘要] 策略: {self.strategy} | 总决策: {self._total_decisions}"]
+            lines = [
+                f"[BayesianRouter 摘要] 策略: {self.strategy} | 总决策: {self._total_decisions}"
+            ]
             if not self._models:
                 return "\n".join(lines) + "\n  (无注册模型)"
 
@@ -1468,14 +1668,14 @@ class BayesianLLMClient(LLMClient):
         strategy: str = BayesianModelRouter.STRATEGY_THOMPSON,
         exploration_weight: float = 2.0,
         min_samples: int = 3,
-        **kwargs
+        **kwargs,
     ):
         super().__init__(**kwargs)
         self.router = BayesianModelRouter(
             strategy=strategy,
             exploration_weight=exploration_weight,
             min_samples=min_samples,
-            auto_add_clients=True
+            auto_add_clients=True,
         )
         print(f"[OK] 贝叶斯LLM客户端初始化成功 (策略: {strategy})")
 
@@ -1517,7 +1717,7 @@ def create_llm_client(provider: str = "openai", **kwargs) -> LLMClient:
             min_samples=min_samples,
             model=kwargs.get("model", "multi"),
             temperature=kwargs.get("temperature", 0.7),
-            max_tokens=kwargs.get("max_tokens", 2000)
+            max_tokens=kwargs.get("max_tokens", 2000),
         )
     elif provider == "openai":
         return OpenAIClient(**kwargs)
@@ -1555,18 +1755,14 @@ def get_llm_client() -> LLMClient:
         temperature = float(os.environ.get("LLM_TEMPERATURE", "0.7"))
 
         _llm_client = create_llm_client(
-            provider=provider,
-            api_key=api_key,
-            model=model,
-            temperature=temperature
+            provider=provider, api_key=api_key, model=model, temperature=temperature
         )
 
     return _llm_client
 
 
 def get_bayesian_client(
-    strategy: str = BayesianModelRouter.STRATEGY_THOMPSON,
-    **kwargs
+    strategy: str = BayesianModelRouter.STRATEGY_THOMPSON, **kwargs
 ) -> BayesianLLMClient:
     """
     获取贝叶斯路由LLM客户端（便捷函数）
@@ -1581,7 +1777,7 @@ def get_bayesian_client(
     return BayesianLLMClient(
         strategy=strategy,
         exploration_weight=kwargs.get("exploration_weight", 2.0),
-        min_samples=kwargs.get("min_samples", 3)
+        min_samples=kwargs.get("min_samples", 3),
     )
 
 
@@ -1637,68 +1833,66 @@ def build_chat_prompt(
     if user_profile:
         profile_context = _build_profile_context(user_profile)
         if profile_context:
-            messages.append({
-                "role": "system",
-                "content": f"[用户画像]\n{profile_context}"
-            })
+            messages.append({"role": "system", "content": f"[用户画像]\n{profile_context}"})
 
     # P4-H: 添加工作记忆(P4-H:跨会话 workspace, 主动写)
     if working_memory:
-        messages.append({
-            "role": "system",
-            "content": f"{working_memory}\n\n请结合用户的当前工作记忆上下文(目标/焦点/未完成项)回答。"
-        })
+        messages.append(
+            {
+                "role": "system",
+                "content": f"{working_memory}\n\n请结合用户的当前工作记忆上下文(目标/焦点/未完成项)回答。",
+            }
+        )
 
     # 添加RAG上下文
     if rag_context:
-        messages.append({
-            "role": "system",
-            "content": f"[参考知识]\n{rag_context}\n\n请结合以上参考知识回答用户问题。"
-        })
-    
+        messages.append(
+            {
+                "role": "system",
+                "content": f"[参考知识]\n{rag_context}\n\n请结合以上参考知识回答用户问题。",
+            }
+        )
+
     # 添加对话历史（最近5轮）
     if conversation_history:
         for msg in conversation_history[-10:]:
             role = "user" if msg.get("role") == "user" else "assistant"
-            messages.append({
-                "role": role,
-                "content": msg.get("content", "")[:500]
-            })
-    
+            messages.append({"role": role, "content": msg.get("content", "")[:500]})
+
     # 添加当前用户消息
     messages.append({"role": "user", "content": user_message})
-    
+
     return messages
 
 
 def _build_profile_context(profile: Dict[str, Any]) -> str:
     """构建用户画像上下文"""
     parts = []
-    
+
     # 基础信息
     basic = profile.get("basic_info", {})
     if basic:
         parts.append(f"用户年龄段: {basic.get('age_group', '未知')}")
         parts.append(f"所在地区: {basic.get('region', '未知')}")
-    
+
     # 环保画像
     eco = profile.get("eco_profile", {})
     if eco:
         level_map = {
             "beginner": "入门（刚开始了解环保）",
             "intermediate": "了解（有基础环保知识）",
-            "advanced": "精通（深度环保实践者）"
+            "advanced": "精通（深度环保实践者）",
         }
         level = level_map.get(eco.get("knowledge_level", ""), eco.get("knowledge_level", "未知"))
         parts.append(f"环保认知水平: {level}")
-        
+
         stage = eco.get("behavior_stage", "意向")
         parts.append(f"行为阶段: {stage}阶段")
-        
+
         interests = eco.get("primary_interests", [])
         if interests:
             parts.append(f"关注领域: {', '.join(interests[:3])}")
-    
+
     # 沟通风格
     comm = profile.get("communication_style", "balanced")
     style_map = {"professional": "专业详细", "simple": "简单易懂", "balanced": "适中"}
@@ -1710,6 +1904,7 @@ def _build_profile_context(profile: Dict[str, Any]) -> str:
 
 # ========== P6.S.17: tool calling 支持 ==========
 
+
 def _parse_openai_tool_calls(message) -> List[Dict[str, Any]]:
     """从 OpenAI ChatCompletionMessage 提取 tool_calls(标准化格式)"""
     raw = getattr(message, "tool_calls", None) or []
@@ -1718,11 +1913,13 @@ def _parse_openai_tool_calls(message) -> List[Dict[str, Any]]:
         fn = getattr(tc, "function", None)
         if not fn:
             continue
-        out.append({
-            "id": getattr(tc, "id", "") or "",
-            "name": getattr(fn, "name", "") or "",
-            "arguments": getattr(fn, "arguments", "") or "",
-        })
+        out.append(
+            {
+                "id": getattr(tc, "id", "") or "",
+                "name": getattr(fn, "name", "") or "",
+                "arguments": getattr(fn, "arguments", "") or "",
+            }
+        )
     return out
 
 
@@ -1738,6 +1935,7 @@ def registry_tools_to_openai_format(tool_names: Optional[List[str]] = None) -> L
     """
     try:
         from agent.tools import get_registry
+
         reg = get_registry()
     except Exception:
         return []
@@ -1761,10 +1959,17 @@ def registry_tools_to_openai_format(tool_names: Optional[List[str]] = None) -> L
                 continue
             ptype = p.get("type", "string")
             js_type = {
-                "string": "string", "int": "integer", "integer": "integer",
-                "float": "number", "number": "number", "bool": "boolean",
-                "boolean": "boolean", "list": "array", "array": "array",
-                "dict": "object", "object": "object",
+                "string": "string",
+                "int": "integer",
+                "integer": "integer",
+                "float": "number",
+                "number": "number",
+                "bool": "boolean",
+                "boolean": "boolean",
+                "list": "array",
+                "array": "array",
+                "dict": "object",
+                "object": "object",
             }.get(ptype, "string")
             properties[pname] = {
                 "type": js_type,
@@ -1775,14 +1980,16 @@ def registry_tools_to_openai_format(tool_names: Optional[List[str]] = None) -> L
         schema = {"type": "object", "properties": properties}
         if required:
             schema["required"] = required
-        out.append({
-            "type": "function",
-            "function": {
-                "name": name,
-                "description": (desc or f"Tool: {name}")[:1024],
-                "parameters": schema,
-            },
-        })
+        out.append(
+            {
+                "type": "function",
+                "function": {
+                    "name": name,
+                    "description": (desc or f"Tool: {name}")[:1024],
+                    "parameters": schema,
+                },
+            }
+        )
     return out
 
 
@@ -1796,9 +2003,7 @@ if __name__ == "__main__":
     client = get_llm_client()
     print(f"LLM客户端状态: {'可用' if client.is_available() else '不可用（使用Mock）'}")
 
-    messages = [
-        {"role": "user", "content": "什么是碳中和？"}
-    ]
+    messages = [{"role": "user", "content": "什么是碳中和？"}]
 
     response = client.chat(messages)
     print(f"\n测试回复:\n{response.content}")
@@ -1837,7 +2042,7 @@ if __name__ == "__main__":
         chosen = bayes_client.router.get_recommendation()["recommended"]
         # P5-A.2: resp 是 LLMResponse
         resp_text = resp.content if hasattr(resp, "content") else str(resp)
-        print(f"  [{i+1}] Q: {q[:20]}... → 模型: {chosen} → {resp_text[:40]}...")
+        print(f"  [{i + 1}] Q: {q[:20]}... → 模型: {chosen} → {resp_text[:40]}...")
 
     print("\n--- 统计摘要 ---")
     print(bayes_client.summary())
@@ -1860,11 +2065,14 @@ if __name__ == "__main__":
     stats = bayes_client.get_stats()
     for model_id, s in stats.items():
         print(f"\n  模型: {s['model']} ({s['provider']})")
-        print(f"    调用次数: {s['total_calls']} | 成功: {s['success_calls']} | 失败: {s['failed_calls']}")
+        print(
+            f"    调用次数: {s['total_calls']} | 成功: {s['success_calls']} | 失败: {s['failed_calls']}"
+        )
         print(f"    成功率: {s['success_rate']:.1%} | 平均延迟: {s['avg_latency_ms']:.1f}ms")
-        print(f"    Beta分布: alpha={s['success_dist']['alpha']:.2f}, beta={s['success_dist']['beta']:.2f}, mean={s['success_dist']['mean']:.4f}")
+        print(
+            f"    Beta分布: alpha={s['success_dist']['alpha']:.2f}, beta={s['success_dist']['beta']:.2f}, mean={s['success_dist']['mean']:.4f}"
+        )
 
     print("\n" + "=" * 60)
     print("测试完成！")
     print("=" * 60)
-

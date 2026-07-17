@@ -27,3 +27,8 @@ boto3>=1.35.0           # S3 上传(可选)
 
 # LangSmith / 调试
 langsmith>=0.3.0
+
+# 任务4: 代码质量工具链
+ruff>=0.15.0
+vulture>=2.16
+deptry>=0.25.0

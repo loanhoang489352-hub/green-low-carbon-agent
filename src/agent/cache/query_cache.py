@@ -15,6 +15,7 @@ Query Cache — P6.C
 metrics:暴露 hit / miss / size / hit_rate 给 /api/metrics(P5-B)
 invalidation:订阅画像更新事件,清除该 user_id 的所有缓存
 """
+
 import hashlib
 import json
 import logging
@@ -22,7 +23,7 @@ import sqlite3
 import threading
 import time
 from pathlib import Path
-from typing import Any, Dict, Optional, Tuple
+from typing import Any, Dict, Optional
 
 from paths import DATA_DIR
 
@@ -31,12 +32,14 @@ logger = logging.getLogger(__name__)
 
 # ========== 缓存键构造 ==========
 
+
 def _normalize_query(query: str) -> str:
     """标准化 query:小写 + 去空白 + 去标点
 
     '  你好  ' / '你好!' / '你好?' / '你好' → 同一键
     """
     import re
+
     s = query.strip().lower()
     s = re.sub(r"[\s　]+", " ", s)  # 多个空白 → 1 个
     s = re.sub(r"[^\w\s一-鿿]+", "", s)  # 去标点(保留中文/英文/数字)
@@ -74,6 +77,7 @@ def _make_cache_key(query: str, user_id: str, user_profile: Dict[str, Any]) -> s
 
 
 # ========== SQLite-backed 缓存 ==========
+
 
 class QueryCache:
     """
@@ -114,7 +118,9 @@ class QueryCache:
             conn.execute("CREATE INDEX IF NOT EXISTS idx_user_id ON query_cache(user_id)")
             conn.execute("CREATE INDEX IF NOT EXISTS idx_expires_at ON query_cache(expires_at)")
 
-    def get(self, query: str, user_id: str, user_profile: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+    def get(
+        self, query: str, user_id: str, user_profile: Dict[str, Any]
+    ) -> Optional[Dict[str, Any]]:
         """
         读缓存。命中返 {message, suggestions};miss/过期返 None。
         """
@@ -146,8 +152,14 @@ class QueryCache:
                 self._misses += 1
             return None
 
-    def set(self, query: str, user_id: str, user_profile: Dict[str, Any],
-            message: str, suggestions: list) -> bool:
+    def set(
+        self,
+        query: str,
+        user_id: str,
+        user_profile: Dict[str, Any],
+        message: str,
+        suggestions: list,
+    ) -> bool:
         """
         写缓存。返 True 成功 / False 失败(非致命,不影响主路径)
         """

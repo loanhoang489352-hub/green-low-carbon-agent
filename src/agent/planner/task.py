@@ -11,33 +11,35 @@ import uuid
 
 class TaskStatus(Enum):
     """任务状态枚举"""
-    PENDING = "pending"       # 等待执行
-    RUNNING = "running"       # 执行中
-    COMPLETED = "completed"   # 已完成
-    FAILED = "failed"         # 执行失败
-    SKIPPED = "skipped"       # 已跳过
-    WAITING = "waiting"       # 等待依赖完成
+
+    PENDING = "pending"  # 等待执行
+    RUNNING = "running"  # 执行中
+    COMPLETED = "completed"  # 已完成
+    FAILED = "failed"  # 执行失败
+    SKIPPED = "skipped"  # 已跳过
+    WAITING = "waiting"  # 等待依赖完成
 
 
 class TaskType(Enum):
     """任务类型枚举"""
+
     # 核心任务类型
-    INTENT_RECOGNITION = "intent_recognition"      # 意图识别
-    KNOWLEDGE_QUERY = "knowledge_query"            # 知识查询
-    ACTION_RECOMMEND = "action_recommend"           # 行动推荐
-    PROFILE_UPDATE = "profile_update"              # 画像更新
-    RESPONSE_GENERATE = "response_generate"        # 响应生成
-    REFLECTION = "reflection"                       # 反思
+    INTENT_RECOGNITION = "intent_recognition"  # 意图识别
+    KNOWLEDGE_QUERY = "knowledge_query"  # 知识查询
+    ACTION_RECOMMEND = "action_recommend"  # 行动推荐
+    PROFILE_UPDATE = "profile_update"  # 画像更新
+    RESPONSE_GENERATE = "response_generate"  # 响应生成
+    REFLECTION = "reflection"  # 反思
 
     # 外部工具调用
-    WEB_SEARCH = "web_search"                       # 网络搜索
-    WEATHER_CHECK = "weather_check"                 # 天气查询
-    KNOWLEDGE_RETRIEVAL = "knowledge_retrieval"     # 知识检索
+    WEB_SEARCH = "web_search"  # 网络搜索
+    WEATHER_CHECK = "weather_check"  # 天气查询
+    KNOWLEDGE_RETRIEVAL = "knowledge_retrieval"  # 知识检索
 
     # 特殊任务
-    CONDITIONAL_BRANCH = "conditional_branch"       # 条件分支
-    LOOP = "loop"                                   # 循环
-    ERROR_HANDLING = "error_handling"               # 错误处理
+    CONDITIONAL_BRANCH = "conditional_branch"  # 条件分支
+    LOOP = "loop"  # 循环
+    ERROR_HANDLING = "error_handling"  # 错误处理
 
 
 @dataclass
@@ -103,7 +105,7 @@ class Task:
             "status": self.status.value,
             "result": self.result,
             "error": self.error,
-            "priority": self.priority
+            "priority": self.priority,
         }
 
     @classmethod
@@ -120,7 +122,7 @@ class Task:
             status=status,
             result=data.get("result"),
             error=data.get("error"),
-            priority=data.get("priority", 0)
+            priority=data.get("priority", 0),
         )
 
 

@@ -9,10 +9,11 @@ import sys
 from pathlib import Path
 
 # Windows UTF-8 encoding setup - BEFORE any imports
-if sys.platform == 'win32':
+if sys.platform == "win32":
     import io
-    sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8', errors='replace')
-    sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding='utf-8', errors='replace')
+
+    sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8", errors="replace")
+    sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding="utf-8", errors="replace")
 
 # 设置UTF-8编码环境
 os.environ["PYTHONIOENCODING"] = "utf-8"
@@ -30,8 +31,9 @@ env_file = project_root_for_env / ".env"
 if env_file.exists():
     try:
         from dotenv import load_dotenv
+
         load_dotenv(env_file)
-        print(f"[环境] 已加载 .env 文件", flush=True)
+        print("[环境] 已加载 .env 文件", flush=True)
     except ImportError:
         # 手动解析 .env 文件
         with open(env_file, "r", encoding="utf-8") as f:
@@ -40,13 +42,12 @@ if env_file.exists():
                 if line and not line.startswith("#") and "=" in line:
                     key, value = line.split("=", 1)
                     os.environ[key.strip()] = value.strip()
-        print(f"[环境] 已手动加载 .env 文件", flush=True)
+        print("[环境] 已手动加载 .env 文件", flush=True)
 else:
     print(f"[环境] .env 文件不存在: {env_file}", flush=True)
 
 print("[DEBUG] Encoding setup done", flush=True)
 
-import json
 import uuid
 from http.server import ThreadingHTTPServer
 
@@ -84,6 +85,7 @@ def get_agent():
         try:
             print("[DEBUG] Importing agent.core...", flush=True)
             from agent.core import GreenAgent
+
             print("[DEBUG] GreenAgent imported", flush=True)
             print("[启动] 正在创建 GreenAgent 实例...", flush=True)
 
@@ -93,7 +95,7 @@ def get_agent():
             agent_instance = GreenAgent(
                 knowledge_base_path=str(project_root / "knowledge_base"),
                 enable_rag=True,
-                use_llm=True
+                use_llm=True,
             )
 
             if use_langgraph and agent_instance.langgraph_agent:
@@ -105,6 +107,7 @@ def get_agent():
         except Exception as e:
             print(f"[启动] 智能体初始化失败: {e}", flush=True)
             import traceback
+
             traceback.print_exc()
             raise
     return agent_instance
@@ -120,6 +123,7 @@ def get_policy_updater():
     global _policy_updater_instance
     if _policy_updater_instance is None:
         from policy.updater import PolicyUpdater
+
         _policy_updater_instance = PolicyUpdater()
         _policy_updater_instance.add_sample_policies()
     return _policy_updater_instance
@@ -130,6 +134,7 @@ def get_feedback_manager():
     global _feedback_manager_instance
     if _feedback_manager_instance is None:
         from feedback.feedback_manager import FeedbackManager
+
         _feedback_manager_instance = FeedbackManager()
     return _feedback_manager_instance
 
@@ -139,20 +144,23 @@ def get_account_manager():
     global _account_manager_instance
     if _account_manager_instance is None:
         from auth.account_manager import AccountManager
+
         _account_manager_instance = AccountManager()
     return _account_manager_instance
 
 
 def run_server(host="0.0.0.0", port=8000):
     """运行服务器(P5-D: 使用 RoutedRequestHandler 走 RouterRegistry)"""
-    print(f"\n[AGENT] 绿色低碳智能体正在启动...", flush=True)
-    print(f"[提示] 服务器将立即启动，收到请求时再加载模型", flush=True)
+    print("\n[AGENT] 绿色低碳智能体正在启动...", flush=True)
+    print("[提示] 服务器将立即启动，收到请求时再加载模型", flush=True)
 
     # P5-B: 启动时初始化结构化日志
     from observability import setup_logging
+
     log_file_path = None
     try:
         from paths import DATA_DIR
+
         DATA_DIR.mkdir(parents=True, exist_ok=True)
         log_file_path = str(DATA_DIR / "logs" / "app.log")
     except Exception:
@@ -167,19 +175,20 @@ def run_server(host="0.0.0.0", port=8000):
 
     # P5-D: 初始化路由 + 订阅 + 调度
     from server.app import init_app
+
     HandlerClass = init_app()
-    print(f"[P5-D] RoutedRequestHandler 初始化完成,所有路由已注册", flush=True)
+    print("[P5-D] RoutedRequestHandler 初始化完成,所有路由已注册", flush=True)
 
     print("[DEBUG] Creating HTTPServer...", flush=True)
     server = ThreadingHTTPServer((host, port), HandlerClass)
     print(f"[DEBUG] HTTPServer created on {(host, port)}", flush=True)
 
-    print(f"\n" + "=" * 50, flush=True)
-    print(f"[AGENT] 绿色低碳智能体 v2.0 启动成功！", flush=True)
-    print(f"=" * 50, flush=True)
+    print("\n" + "=" * 50, flush=True)
+    print("[AGENT] 绿色低碳智能体 v2.0 启动成功！", flush=True)
+    print("=" * 50, flush=True)
     print(f"   服务地址: http://localhost:{port}", flush=True)
-    print(f"   按 Ctrl+C 停止服务", flush=True)
-    print(f"=" * 50 + "\n", flush=True)
+    print("   按 Ctrl+C 停止服务", flush=True)
+    print("=" * 50 + "\n", flush=True)
 
     try:
         # P5-J: 注册 SIGTERM / SIGINT 优雅退出
@@ -187,17 +196,20 @@ def run_server(host="0.0.0.0", port=8000):
         # SIGINT  = Ctrl+C / docker-compose down
         import signal
         import threading
+
         shutdown_event = threading.Event()
 
         def _signal_handler(signum, frame):
             """P5-J: 收到终止信号后调 shutdown_app + server.shutdown"""
             import logging
+
             logger = logging.getLogger(__name__)
             sig_name = signal.Signals(signum).name
             logger.info("[Server] 收到 %s,开始优雅退出 (wait inflight ≤10s)", sig_name)
             try:
                 # 1) 等待 inflight 请求完成(≤10s)
                 from server.app import shutdown_app, get_inflight_count
+
                 shutdown_app(timeout_s=10.0)
                 logger.info(
                     "[Server] 优雅退出完成,剩余 inflight=%d",
@@ -233,6 +245,7 @@ def run_server(host="0.0.0.0", port=8000):
         print("\n\n服务已停止")
         try:
             from server.app import shutdown_app
+
             shutdown_app(timeout_s=5.0)
         except Exception:
             pass
@@ -267,7 +280,7 @@ def run_cli():
 
             if user_input.lower() == "profile":
                 profile = agent.get_user_profile(user_id)
-                print(f"\n[STAT] 你的用户画像:")
+                print("\n[STAT] 你的用户画像:")
                 eco = profile.get("eco_profile", {})
                 print(f"   - 环保认知水平: {eco.get('knowledge_level')}")
                 print(f"   - 行为阶段: {eco.get('behavior_stage')}")
@@ -276,7 +289,7 @@ def run_cli():
 
             if user_input.lower() == "stats":
                 kb_stats = agent.get_knowledge_stats()
-                print(f"\n[KB] 知识库统计:")
+                print("\n[KB] 知识库统计:")
                 print(f"   - 文档总数: {kb_stats.get('total_documents')}")
                 continue
 
@@ -291,20 +304,22 @@ def run_cli():
             response = agent.chat_enhanced(user_id, user_input, conversation_id)
             conversation_id = response.conversation_id
 
-            print(f"\n🤖 助手:")
+            print("\n🤖 助手:")
             print(response.message)
 
             if response.personalization_info:
                 ctx = response.personalization_info
-                print(f"\n📌 个性化信息: {ctx.get('knowledge_level')} | {ctx.get('behavior_stage')}阶段")
+                print(
+                    f"\n📌 个性化信息: {ctx.get('knowledge_level')} | {ctx.get('behavior_stage')}阶段"
+                )
 
             if response.recommendations:
-                print(f"\n[TIP] 为你推荐:")
+                print("\n[TIP] 为你推荐:")
                 for i, rec in enumerate(response.recommendations[:2], 1):
                     print(f"   {i}. {rec['action']}")
 
             if response.suggestions:
-                print(f"\n🔄 你可以尝试:")
+                print("\n🔄 你可以尝试:")
                 for i, suggestion in enumerate(response.suggestions[:3], 1):
                     print(f"   {i}. {suggestion}")
 
@@ -314,6 +329,7 @@ def run_cli():
         except Exception as e:
             print(f"\n发生错误: {e}")
             import traceback
+
             traceback.print_exc()
 
 
@@ -337,7 +353,9 @@ if __name__ == "__main__":
         os.environ["USE_LANGGRAPH"] = "true"
         if args.use_react:
             os.environ["LANGGRAPH_MODE"] = "react"
-    print(f"[启动] LangGraph 模式: USE_LANGGRAPH={os.environ.get('USE_LANGGRAPH', 'false')}, MODE={os.environ.get('LANGGRAPH_MODE', '')}")
+    print(
+        f"[启动] LangGraph 模式: USE_LANGGRAPH={os.environ.get('USE_LANGGRAPH', 'false')}, MODE={os.environ.get('LANGGRAPH_MODE', '')}"
+    )
 
     if args.cli:
         run_cli()

@@ -108,25 +108,17 @@
   }
 
   // ========== 浮动语言切换器 ==========
+  // P6.S.24 + Bug10: 改注入到 .top-right-actions(若存在),否则 fallback 到 body
   function injectSwitcher() {
     if (document.getElementById("lang-switcher")) return; // 避免重复注入
     const wrap = document.createElement("div");
     wrap.id = "lang-switcher";
+    // 基础样式(若在 .top-right-actions 内会被外层 .top-right-actions CSS 覆盖 fixed)
     wrap.style.cssText = [
-      "position:fixed",
-      "top:20px",
-      "right:130px",  // P6.S.2 fix: 让出设置按钮(api-key-btn 在 right:20px)
-      "z-index:99",   // 比设置按钮(z-index:100)低,防止遮挡
-      "background:rgba(255,255,255,0.95)",
-      "border-radius:20px",
-      "padding:4px 10px",
-      "box-shadow:0 2px 8px rgba(0,0,0,0.15)",
-      "font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif",
-      "font-size:13px",
-      "user-select:none",
       "display:flex",
       "align-items:center",
       "gap:6px",
+      "user-select:none",
     ].join(";");
     wrap.innerHTML =
       '<span style="color:#666;">🌐</span>' +
@@ -137,7 +129,20 @@
     wrap.querySelector("select").addEventListener("change", (e) => {
       setLocale(e.target.value);
     });
-    document.body.appendChild(wrap);
+    // P6.S.24 + Bug10: 优先注入到 header 内的 .top-right-actions
+    const topRight = document.querySelector(".top-right-actions");
+    if (topRight) {
+      topRight.insertBefore(wrap, topRight.firstChild);  // 放在设置按钮之前
+    } else {
+      // 兼容旧路径:fixed 注入
+      wrap.style.cssText += [
+        ";position:fixed;top:20px;right:130px;z-index:99;",
+        "background:rgba(255,255,255,0.95);border-radius:20px;",
+        "padding:4px 10px;box-shadow:0 2px 8px rgba(0,0,0,0.15);",
+        "font-size:13px;",
+      ].join("");
+      document.body.appendChild(wrap);
+    }
   }
 
   // ========== fetch 包装:自动带 Accept-Language ==========

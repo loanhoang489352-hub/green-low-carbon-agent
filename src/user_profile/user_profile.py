@@ -4,7 +4,6 @@
 支持完整的信息收集和动态更新
 """
 
-import sqlite3
 from db.connection import get_connection  # P6.P.2: 用池替裸 connect
 import json
 from typing import Dict, List, Any, Optional
@@ -44,7 +43,7 @@ class UserProfileManager:
         "华南": ["广东", "广西", "海南"],
         "西南": ["重庆", "四川", "贵州", "云南", "西藏"],
         "西北": ["陕西", "甘肃", "青海", "宁夏", "新疆"],
-        "港澳台": ["香港", "澳门", "台湾"]
+        "港澳台": ["香港", "澳门", "台湾"],
     }
 
     # 年龄段分类
@@ -53,7 +52,7 @@ class UserProfileManager:
         "26-35": {"label": "中青年", "style_hint": "balanced", "tone_hint": "professional"},
         "36-45": {"label": "中年", "style_hint": "detailed", "tone_hint": "patient"},
         "46-55": {"label": "中老年", "style_hint": "detailed", "tone_hint": "patient"},
-        "56+": {"label": "老年", "style_hint": "detailed", "tone_hint": "gentle"}
+        "56+": {"label": "老年", "style_hint": "detailed", "tone_hint": "gentle"},
     }
 
     # 收入水平分类
@@ -61,27 +60,71 @@ class UserProfileManager:
         "低收入": {"description": "月收入 5000 元以下", "action_cost_sensitivity": "高"},
         "中等收入": {"description": "月收入 5000-15000 元", "action_cost_sensitivity": "中"},
         "中高收入": {"description": "月收入 15000-30000 元", "action_cost_sensitivity": "低"},
-        "高收入": {"description": "月收入 30000 元以上", "action_cost_sensitivity": "很低"}
+        "高收入": {"description": "月收入 30000 元以上", "action_cost_sensitivity": "很低"},
     }
 
     # 家庭规模分类
     FAMILY_TYPES = {
         "1": {"label": "独居", "energy_focus": "个人", "recommendation_type": "简单实用"},
         "2": {"label": "两口之家", "energy_focus": "两人", "recommendation_type": "经济实惠"},
-        "3-4": {"label": "三口/四口之家", "energy_focus": "家庭", "recommendation_type": "全面均衡"},
-        "5+": {"label": "大家庭", "energy_focus": "集体", "recommendation_type": "系统化"}
+        "3-4": {
+            "label": "三口/四口之家",
+            "energy_focus": "家庭",
+            "recommendation_type": "全面均衡",
+        },
+        "5+": {"label": "大家庭", "energy_focus": "集体", "recommendation_type": "系统化"},
     }
 
     # 环保关注领域
     ECO_INTERESTS = [
-        {"id": "low_carbon_travel", "name": "低碳出行", "icon": "🚌", "keywords": ["骑车", "步行", "地铁", "公交", "电动车"]},
-        {"id": "energy_saving", "name": "节能减排", "icon": "[TIP]", "keywords": ["空调", "用电", "暖气", "节能"]},
-        {"id": "waste_classification", "name": "垃圾分类", "icon": "♻️", "keywords": ["垃圾", "分类", "回收", "废品"]},
-        {"id": "green_consumption", "name": "绿色消费", "icon": "🛒", "keywords": ["购物", "环保产品", "有机", "一次性"]},
-        {"id": "diet_eco", "name": "饮食环保", "icon": "🥗", "keywords": ["素食", "减少浪费", "光盘", "本地食材"]},
-        {"id": "water_conservation", "name": "水资源保护", "icon": "💧", "keywords": ["节水", "用水", "水费"]},
-        {"id": "renewable_energy", "name": "清洁能源", "icon": "☀️", "keywords": ["太阳能", "光伏", "新能源"]},
-        {"id": "carbon_offset", "name": "碳补偿", "icon": "🌳", "keywords": ["植树", "碳汇", "碳中和"]}
+        {
+            "id": "low_carbon_travel",
+            "name": "低碳出行",
+            "icon": "🚌",
+            "keywords": ["骑车", "步行", "地铁", "公交", "电动车"],
+        },
+        {
+            "id": "energy_saving",
+            "name": "节能减排",
+            "icon": "[TIP]",
+            "keywords": ["空调", "用电", "暖气", "节能"],
+        },
+        {
+            "id": "waste_classification",
+            "name": "垃圾分类",
+            "icon": "♻️",
+            "keywords": ["垃圾", "分类", "回收", "废品"],
+        },
+        {
+            "id": "green_consumption",
+            "name": "绿色消费",
+            "icon": "🛒",
+            "keywords": ["购物", "环保产品", "有机", "一次性"],
+        },
+        {
+            "id": "diet_eco",
+            "name": "饮食环保",
+            "icon": "🥗",
+            "keywords": ["素食", "减少浪费", "光盘", "本地食材"],
+        },
+        {
+            "id": "water_conservation",
+            "name": "水资源保护",
+            "icon": "💧",
+            "keywords": ["节水", "用水", "水费"],
+        },
+        {
+            "id": "renewable_energy",
+            "name": "清洁能源",
+            "icon": "☀️",
+            "keywords": ["太阳能", "光伏", "新能源"],
+        },
+        {
+            "id": "carbon_offset",
+            "name": "碳补偿",
+            "icon": "🌳",
+            "keywords": ["植树", "碳汇", "碳中和"],
+        },
     ]
 
     # 沟通风格配置
@@ -90,26 +133,26 @@ class UserProfileManager:
             "tone": "professional",
             "detail_level": "high",
             "use_terminology": True,
-            "include_data": True
+            "include_data": True,
         },
         "通俗": {
             "tone": "friendly",
             "detail_level": "medium",
             "use_terminology": False,
-            "include_data": False
+            "include_data": False,
         },
         "数据驱动": {
             "tone": "analytical",
             "detail_level": "high",
             "use_terminology": True,
-            "include_data": True
+            "include_data": True,
         },
         "故事型": {
             "tone": "narrative",
             "detail_level": "medium",
             "use_terminology": False,
-            "include_data": False
-        }
+            "include_data": False,
+        },
     }
 
     def __init__(self, db_path: str = None):
@@ -157,7 +200,7 @@ class UserProfileManager:
                 "income_level": None,
                 "family_type": None,
                 "occupation": None,
-                "education": None
+                "education": None,
             },
             "eco_profile": {
                 "knowledge_level": "intermediate",
@@ -167,27 +210,27 @@ class UserProfileManager:
                 "action_history": [],
                 "completed_actions": [],
                 "rejected_actions": [],
-                "engagement_history": []
+                "engagement_history": [],
             },
             "behavior_profile": {
                 "travel_habits": {},
                 "diet_habits": {},
                 "consumption_habits": {},
                 "home_energy_usage": {},
-                "lifestyle_tags": []
+                "lifestyle_tags": [],
             },
             "communication_style": "balanced",
             "preferences": {
                 "content_depth": "balanced",
                 "response_length": "medium",
                 "tone": "encouraging",
-                "format_preference": "text"
+                "format_preference": "text",
             },
             "preference_learning": {
                 "confirmed_interests": [],
                 "inferred_interests": [],
                 "rejected_topics": [],
-                "learning_confidence": {}
+                "learning_confidence": {},
             },
             "statistics": {
                 "total_conversations": 0,
@@ -197,10 +240,10 @@ class UserProfileManager:
                 "feedback_given": 0,
                 "suggestions_accepted": 0,
                 "suggestions_rejected": 0,
-                "topic_interactions": {}
+                "topic_interactions": {},
             },
             "onboarding_completed": False,
-            "onboarding_step": 0
+            "onboarding_step": 0,
         }
 
     def create_profile(self, user_id: str, profile_data: Dict[str, Any] = None):
@@ -219,13 +262,17 @@ class UserProfileManager:
             # P4-C.1: 默认 profile 含空图谱结构(由 get_profile 懒加载完整节点)
             if "graph" not in profile:
                 from user_profile.profile_graph import UserProfileGraph
+
                 profile["graph"] = UserProfileGraph(user_id).to_dict()
 
-            cursor.execute("""
+            cursor.execute(
+                """
                 INSERT OR REPLACE INTO user_profiles
                 (user_id, profile_data, created_at, updated_at)
                 VALUES (?, ?, ?, ?)
-            """, (user_id, json.dumps(profile, ensure_ascii=False), now, now))
+            """,
+                (user_id, json.dumps(profile, ensure_ascii=False), now, now),
+            )
 
             conn.commit()
         finally:
@@ -257,6 +304,7 @@ class UserProfileManager:
         # P4-C.1: 兜底 — 老数据可能没有 graph 字段
         if "graph" not in profile or not profile["graph"]:
             from user_profile.profile_graph import UserProfileGraph
+
             profile["graph"] = UserProfileGraph(user_id).to_dict()
 
         self._profile_cache[user_id] = profile
@@ -277,11 +325,14 @@ class UserProfileManager:
         conn = get_connection(str(self.db_path))
         cursor = conn.cursor()
 
-        cursor.execute("""
+        cursor.execute(
+            """
             UPDATE user_profiles
             SET profile_data = ?, updated_at = ?
             WHERE user_id = ?
-        """, (json.dumps(profile, ensure_ascii=False), profile["updated_at"], user_id))
+        """,
+            (json.dumps(profile, ensure_ascii=False), profile["updated_at"], user_id),
+        )
 
         success = cursor.rowcount > 0
         try:
@@ -304,7 +355,9 @@ class UserProfileManager:
         inferred = self._infer_from_basic_info(current_basic)
 
         profile["basic_info"] = current_basic
-        profile["communication_style"] = inferred.get("communication_style", profile.get("communication_style"))
+        profile["communication_style"] = inferred.get(
+            "communication_style", profile.get("communication_style")
+        )
         profile["preferences"].update(inferred.get("preferences", {}))
 
         profile["updated_at"] = datetime.now().isoformat()
@@ -312,11 +365,14 @@ class UserProfileManager:
         conn = get_connection(str(self.db_path))
         cursor = conn.cursor()
 
-        cursor.execute("""
+        cursor.execute(
+            """
             UPDATE user_profiles
             SET profile_data = ?, updated_at = ?
             WHERE user_id = ?
-        """, (json.dumps(profile, ensure_ascii=False), profile["updated_at"], user_id))
+        """,
+            (json.dumps(profile, ensure_ascii=False), profile["updated_at"], user_id),
+        )
 
         success = cursor.rowcount > 0
         try:
@@ -341,9 +397,7 @@ class UserProfileManager:
         income = basic_info.get("income_level")
         if income and income in self.INCOME_LEVELS:
             cost_sens = self.INCOME_LEVELS[income].get("action_cost_sensitivity", "中")
-            inferred["preferences"] = {
-                "cost_sensitivity": cost_sens
-            }
+            inferred["preferences"] = {"cost_sensitivity": cost_sens}
 
         return inferred
 
@@ -363,11 +417,14 @@ class UserProfileManager:
         conn = get_connection(str(self.db_path))
         cursor = conn.cursor()
 
-        cursor.execute("""
+        cursor.execute(
+            """
             UPDATE user_profiles
             SET profile_data = ?, updated_at = ?
             WHERE user_id = ?
-        """, (json.dumps(profile, ensure_ascii=False), profile["updated_at"], user_id))
+        """,
+            (json.dumps(profile, ensure_ascii=False), profile["updated_at"], user_id),
+        )
 
         success = cursor.rowcount > 0
         try:
@@ -380,7 +437,9 @@ class UserProfileManager:
 
         return success
 
-    def _sync_profile_to_graph(self, profile: Dict[str, Any], eco_updates: Dict[str, Any]) -> Dict[str, Any]:
+    def _sync_profile_to_graph(
+        self, profile: Dict[str, Any], eco_updates: Dict[str, Any]
+    ) -> Dict[str, Any]:
         """同步 profile 字段到 UserProfileGraph(P4-C.2)
 
         触发场景:
@@ -391,6 +450,7 @@ class UserProfileManager:
         - rejected_actions 追加 → add_action (negative)
         """
         from user_profile.profile_graph import UserProfileGraph
+
         graph_data = profile.get("graph", {})
         if not graph_data:
             graph = UserProfileGraph(profile["user_id"])
@@ -438,11 +498,14 @@ class UserProfileManager:
         conn = get_connection(str(self.db_path))
         cursor = conn.cursor()
 
-        cursor.execute("""
+        cursor.execute(
+            """
             UPDATE user_profiles
             SET profile_data = ?, updated_at = ?
             WHERE user_id = ?
-        """, (json.dumps(profile, ensure_ascii=False), profile["updated_at"], user_id))
+        """,
+            (json.dumps(profile, ensure_ascii=False), profile["updated_at"], user_id),
+        )
 
         success = cursor.rowcount > 0
         try:
@@ -461,17 +524,20 @@ class UserProfileManager:
         interest: str = None,
         action: str = None,
         accepted: bool = None,
-        topic: str = None
+        topic: str = None,
     ) -> bool:
         """更新偏好学习数据"""
         profile = self.get_profile(user_id)
 
-        pref_learning = profile.get("preference_learning", {
-            "confirmed_interests": [],
-            "inferred_interests": [],
-            "rejected_topics": [],
-            "learning_confidence": {}
-        })
+        pref_learning = profile.get(
+            "preference_learning",
+            {
+                "confirmed_interests": [],
+                "inferred_interests": [],
+                "rejected_topics": [],
+                "learning_confidence": {},
+            },
+        )
 
         if interest is not None:
             if accepted:
@@ -503,11 +569,14 @@ class UserProfileManager:
         conn = get_connection(str(self.db_path))
         cursor = conn.cursor()
 
-        cursor.execute("""
+        cursor.execute(
+            """
             UPDATE user_profiles
             SET profile_data = ?, updated_at = ?
             WHERE user_id = ?
-        """, (json.dumps(profile, ensure_ascii=False), profile["updated_at"], user_id))
+        """,
+            (json.dumps(profile, ensure_ascii=False), profile["updated_at"], user_id),
+        )
 
         success = cursor.rowcount > 0
         try:
@@ -524,16 +593,19 @@ class UserProfileManager:
         """记录交互用于统计"""
         profile = self.get_profile(user_id)
 
-        stats = profile.get("statistics", {
-            "total_conversations": 0,
-            "total_messages": 0,
-            "questions_asked": 0,
-            "actions_reported": 0,
-            "feedback_given": 0,
-            "suggestions_accepted": 0,
-            "suggestions_rejected": 0,
-            "topic_interactions": {}
-        })
+        stats = profile.get(
+            "statistics",
+            {
+                "total_conversations": 0,
+                "total_messages": 0,
+                "questions_asked": 0,
+                "actions_reported": 0,
+                "feedback_given": 0,
+                "suggestions_accepted": 0,
+                "suggestions_rejected": 0,
+                "topic_interactions": {},
+            },
+        )
 
         stats["total_messages"] = stats.get("total_messages", 0) + 1
 
@@ -561,11 +633,19 @@ class UserProfileManager:
         conn = get_connection(str(self.db_path))
         cursor = conn.cursor()
 
-        cursor.execute("""
+        cursor.execute(
+            """
             UPDATE user_profiles
             SET profile_data = ?, updated_at = ?, last_interaction = ?
             WHERE user_id = ?
-        """, (json.dumps(profile, ensure_ascii=False), profile["updated_at"], profile["last_interaction"], user_id))
+        """,
+            (
+                json.dumps(profile, ensure_ascii=False),
+                profile["updated_at"],
+                profile["last_interaction"],
+                user_id,
+            ),
+        )
 
         success = cursor.rowcount > 0
         try:
@@ -584,23 +664,29 @@ class UserProfileManager:
         # P6.P.2: 池已设 busy_timeout + WAL,无需再设
         cursor = conn.cursor()
         try:
-            cursor.execute("""
+            cursor.execute(
+                """
                 UPDATE user_profiles
                 SET conversation_count = conversation_count + 1,
                     updated_at = ?
                 WHERE user_id = ?
-            """, (datetime.now().isoformat(), user_id))
+            """,
+                (datetime.now().isoformat(), user_id),
+            )
 
             profile = self.get_profile(user_id)
             stats = profile.get("statistics", {})
             stats["total_conversations"] = stats.get("total_conversations", 0) + 1
             profile["statistics"] = stats
 
-            cursor.execute("""
+            cursor.execute(
+                """
                 UPDATE user_profiles
                 SET profile_data = ?
                 WHERE user_id = ?
-            """, (json.dumps(profile, ensure_ascii=False), user_id))
+            """,
+                (json.dumps(profile, ensure_ascii=False), user_id),
+            )
 
             conn.commit()
         finally:
@@ -648,7 +734,9 @@ class UserProfileManager:
             "content_depth": prefs.get("content_depth", "balanced"),
             "response_length": prefs.get("response_length", "medium"),
             "primary_interests": eco.get("primary_interests", []),
-            "confirmed_interests": profile.get("preference_learning", {}).get("confirmed_interests", []),
+            "confirmed_interests": profile.get("preference_learning", {}).get(
+                "confirmed_interests", []
+            ),
             "rejected_topics": profile.get("preference_learning", {}).get("rejected_topics", []),
             "family_type": basic.get("family_type"),
             "income_level": basic.get("income_level"),
@@ -656,45 +744,55 @@ class UserProfileManager:
 
         stage = eco.get("behavior_stage", "意向")
         if stage == "无意向":
-            strategy.update({
-                "focus": "意识唤醒",
-                "suggestion_intensity": "very_low",
-                "action_complexity": "minimal",
-                "tone": "gentle_encouragement",
-                "example_focus": "easy_wins"
-            })
+            strategy.update(
+                {
+                    "focus": "意识唤醒",
+                    "suggestion_intensity": "very_low",
+                    "action_complexity": "minimal",
+                    "tone": "gentle_encouragement",
+                    "example_focus": "easy_wins",
+                }
+            )
         elif stage == "意向":
-            strategy.update({
-                "focus": "动机强化",
-                "suggestion_intensity": "low",
-                "action_complexity": "simple",
-                "tone": "positive",
-                "example_focus": "similar_people"
-            })
+            strategy.update(
+                {
+                    "focus": "动机强化",
+                    "suggestion_intensity": "low",
+                    "action_complexity": "simple",
+                    "tone": "positive",
+                    "example_focus": "similar_people",
+                }
+            )
         elif stage == "准备":
-            strategy.update({
-                "focus": "行动计划",
-                "suggestion_intensity": "medium",
-                "action_complexity": "moderate",
-                "tone": "actionable",
-                "example_focus": "step_by_step"
-            })
+            strategy.update(
+                {
+                    "focus": "行动计划",
+                    "suggestion_intensity": "medium",
+                    "action_complexity": "moderate",
+                    "tone": "actionable",
+                    "example_focus": "step_by_step",
+                }
+            )
         elif stage == "行动":
-            strategy.update({
-                "focus": "坚持支持",
-                "suggestion_intensity": "medium",
-                "action_complexity": "challenging",
-                "tone": "supportive",
-                "example_focus": "progress_tracking"
-            })
+            strategy.update(
+                {
+                    "focus": "坚持支持",
+                    "suggestion_intensity": "medium",
+                    "action_complexity": "challenging",
+                    "tone": "supportive",
+                    "example_focus": "progress_tracking",
+                }
+            )
         else:
-            strategy.update({
-                "focus": "深度拓展",
-                "suggestion_intensity": "low",
-                "action_complexity": "advanced",
-                "tone": "expert",
-                "example_focus": "innovation"
-            })
+            strategy.update(
+                {
+                    "focus": "深度拓展",
+                    "suggestion_intensity": "low",
+                    "action_complexity": "advanced",
+                    "tone": "expert",
+                    "example_focus": "innovation",
+                }
+            )
 
         return strategy
 
@@ -709,17 +807,20 @@ class UserProfileManager:
         pref_learning = profile.get("preference_learning", {})
 
         comm_config = self.COMMUNICATION_CONFIGS.get(
-            profile.get("communication_style", "balanced"),
-            self.COMMUNICATION_CONFIGS["通俗"]
+            profile.get("communication_style", "balanced"), self.COMMUNICATION_CONFIGS["通俗"]
         )
 
         return {
             "user_id": user_id,
             "basic_info_summary": self._summarize_basic_info(basic),
             "knowledge_level": eco.get("knowledge_level", "intermediate"),
-            "knowledge_level_chinese": self._get_knowledge_level_chinese(eco.get("knowledge_level")),
+            "knowledge_level_chinese": self._get_knowledge_level_chinese(
+                eco.get("knowledge_level")
+            ),
             "behavior_stage": eco.get("behavior_stage", "意向"),
-            "behavior_stage_index": self.BEHAVIOR_STAGES.index(eco.get("behavior_stage", "意向")) if eco.get("behavior_stage", "意向") in self.BEHAVIOR_STAGES else 1,
+            "behavior_stage_index": self.BEHAVIOR_STAGES.index(eco.get("behavior_stage", "意向"))
+            if eco.get("behavior_stage", "意向") in self.BEHAVIOR_STAGES
+            else 1,
             "primary_interests": eco.get("primary_interests", []),
             "interest_icons": self._get_interest_icons(eco.get("primary_interests", [])),
             "completed_actions": eco.get("completed_actions", []),
@@ -734,7 +835,7 @@ class UserProfileManager:
             "suggestion_acceptance_rate": self._calculate_acceptance_rate(profile),
             "onboarding_completed": profile.get("onboarding_completed", False),
             "conversation_count": profile.get("statistics", {}).get("total_conversations", 0),
-            "last_interaction": profile.get("last_interaction")
+            "last_interaction": profile.get("last_interaction"),
         }
 
     def _summarize_basic_info(self, basic: Dict) -> str:
@@ -749,11 +850,7 @@ class UserProfileManager:
         return "，".join(parts) if parts else "新用户"
 
     def _get_knowledge_level_chinese(self, level: str) -> str:
-        mapping = {
-            "beginner": "入门",
-            "intermediate": "了解",
-            "advanced": "精通"
-        }
+        mapping = {"beginner": "入门", "intermediate": "了解", "advanced": "精通"}
         return mapping.get(level, "了解")
 
     def _get_interest_icons(self, interests: List[str]) -> str:
@@ -788,8 +885,8 @@ class UserProfileManager:
                     {"value": "26-35", "label": "26-35岁 (中青年)"},
                     {"value": "36-45", "label": "36-45岁 (中年)"},
                     {"value": "46-55", "label": "46-55岁 (中老年)"},
-                    {"value": "56+", "label": "56岁以上 (老年)"}
-                ]
+                    {"value": "56+", "label": "56岁以上 (老年)"},
+                ],
             },
             {
                 "step": 2,
@@ -799,8 +896,8 @@ class UserProfileManager:
                 "options": [
                     {"value": "male", "label": "男"},
                     {"value": "female", "label": "女"},
-                    {"value": "other", "label": "其他/不愿透露"}
-                ]
+                    {"value": "other", "label": "其他/不愿透露"},
+                ],
             },
             {
                 "step": 3,
@@ -808,7 +905,7 @@ class UserProfileManager:
                 "question": "你生活在哪个地区？",
                 "type": "text_input",
                 "placeholder": "例如：北京、上海、广东",
-                "suggestions": list(set(sum(self.REGION_CATEGORIES.values(), [])))
+                "suggestions": list(set(sum(self.REGION_CATEGORIES.values(), []))),
             },
             {
                 "step": 4,
@@ -819,8 +916,8 @@ class UserProfileManager:
                     {"value": "低收入", "label": "5000元以下"},
                     {"value": "中等收入", "label": "5000-15000元"},
                     {"value": "中高收入", "label": "15000-30000元"},
-                    {"value": "高收入", "label": "30000元以上"}
-                ]
+                    {"value": "高收入", "label": "30000元以上"},
+                ],
             },
             {
                 "step": 5,
@@ -831,8 +928,8 @@ class UserProfileManager:
                     {"value": "1", "label": "独居"},
                     {"value": "2", "label": "两口之家"},
                     {"value": "3-4", "label": "三口/四口之家"},
-                    {"value": "5+", "label": "大家庭（5人及以上）"}
-                ]
+                    {"value": "5+", "label": "大家庭（5人及以上）"},
+                ],
             },
             {
                 "step": 6,
@@ -844,7 +941,7 @@ class UserProfileManager:
                     for interest in self.ECO_INTERESTS
                 ],
                 "min_select": 1,
-                "max_select": 4
+                "max_select": 4,
             },
             {
                 "step": 7,
@@ -854,8 +951,8 @@ class UserProfileManager:
                 "options": [
                     {"value": "low", "label": "刚了解，还不太清楚"},
                     {"value": "medium", "label": "知道一些，想学习更多"},
-                    {"value": "high", "label": "比较了解，关注了很久"}
-                ]
+                    {"value": "high", "label": "比较了解，关注了很久"},
+                ],
             },
             {
                 "step": 8,
@@ -867,9 +964,9 @@ class UserProfileManager:
                     {"value": "意向", "label": "有想法，但还没行动"},
                     {"value": "准备", "label": "正在准备采取行动"},
                     {"value": "行动", "label": "已经在做低碳生活"},
-                    {"value": "维持", "label": "已经成为习惯了"}
-                ]
-            }
+                    {"value": "维持", "label": "已经成为习惯了"},
+                ],
+            },
         ]
 
     def complete_onboarding(self, user_id: str, answers: Dict[str, Any]) -> bool:
@@ -881,7 +978,7 @@ class UserProfileManager:
             "gender": answers.get("gender"),
             "region": answers.get("region"),
             "family_type": answers.get("family_type"),
-            "income_level": answers.get("income_level")
+            "income_level": answers.get("income_level"),
         }
 
         region_category = None
@@ -897,7 +994,7 @@ class UserProfileManager:
             "knowledge_level": self._map_knowledge_level(answers.get("eco_knowledge")),
             "behavior_stage": answers.get("behavior_stage", "意向"),
             "primary_interests": answers.get("primary_interests", []),
-            "awareness_level": answers.get("eco_knowledge", "medium")
+            "awareness_level": answers.get("eco_knowledge", "medium"),
         }
 
         inferred = self._infer_from_basic_info(basic_info)
@@ -905,7 +1002,10 @@ class UserProfileManager:
         profile["basic_info"] = basic_info
         profile["eco_profile"] = {**profile.get("eco_profile", {}), **eco_profile}
         profile["communication_style"] = inferred.get("communication_style", "balanced")
-        profile["preferences"] = {**profile.get("preferences", {}), **inferred.get("preferences", {})}
+        profile["preferences"] = {
+            **profile.get("preferences", {}),
+            **inferred.get("preferences", {}),
+        }
         profile["onboarding_completed"] = True
         profile["onboarding_step"] = 8
         profile["updated_at"] = datetime.now().isoformat()
@@ -913,11 +1013,14 @@ class UserProfileManager:
         conn = get_connection(str(self.db_path))
         cursor = conn.cursor()
 
-        cursor.execute("""
+        cursor.execute(
+            """
             UPDATE user_profiles
             SET profile_data = ?, updated_at = ?
             WHERE user_id = ?
-        """, (json.dumps(profile, ensure_ascii=False), profile["updated_at"], user_id))
+        """,
+            (json.dumps(profile, ensure_ascii=False), profile["updated_at"], user_id),
+        )
 
         success = cursor.rowcount > 0
         try:
@@ -984,5 +1087,5 @@ class UserProfileManager:
             "total_conversations": total_conversations,
             "avg_conversations_per_user": (
                 total_conversations / total_users if total_users > 0 else 0
-            )
+            ),
         }

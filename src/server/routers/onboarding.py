@@ -1,6 +1,7 @@
 """
 引导路由: start / answer / status / questions (P5-E: APIError 化)
 """
+
 import uuid
 
 
@@ -58,9 +59,41 @@ def register_onboarding_routes(registry) -> None:
     #   - 前端 onboarding/start → /answer → /status 全程没 session token
     #   - 强制 auth 阻挡会致前端 401 死锁
     #   - user.update 也改为公开(同 P6.S.14 chat 端点的修复逻辑)
-    registry.add_route("GET", "/api/onboarding/questions", onboarding_questions, auth_required=False, description="获取引导问题")
-    registry.add_route("POST", "/api/onboarding/status", onboarding_status, auth_required=False, description="引导状态")
-    registry.add_route("POST", "/api/onboarding/start", onboarding_start, auth_required=False, description="开始引导")
-    registry.add_route("POST", "/api/onboarding/answer", onboarding_answer, auth_required=False, description="回答引导问题")
-    registry.add_route("POST", "/api/user/register", user_register, auth_required=False, description="注册用户(等同 auth/register)")
-    registry.add_route("POST", "/api/user/update", user_update, auth_required=False, description="更新用户画像")
+    registry.add_route(
+        "GET",
+        "/api/onboarding/questions",
+        onboarding_questions,
+        auth_required=False,
+        description="获取引导问题",
+    )
+    registry.add_route(
+        "POST",
+        "/api/onboarding/status",
+        onboarding_status,
+        auth_required=False,
+        description="引导状态",
+    )
+    registry.add_route(
+        "POST",
+        "/api/onboarding/start",
+        onboarding_start,
+        auth_required=False,
+        description="开始引导",
+    )
+    registry.add_route(
+        "POST",
+        "/api/onboarding/answer",
+        onboarding_answer,
+        auth_required=False,
+        description="回答引导问题",
+    )
+    registry.add_route(
+        "POST",
+        "/api/user/register",
+        user_register,
+        auth_required=False,
+        description="注册用户(等同 auth/register)",
+    )
+    registry.add_route(
+        "POST", "/api/user/update", user_update, auth_required=False, description="更新用户画像"
+    )

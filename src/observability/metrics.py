@@ -7,6 +7,7 @@ LLM 调用指标收集 (P5-B)
 - /api/metrics 端点消费聚合:总调用/错误率/P50/P95/token 用量/按 provider 分组
 - 用 deque 保留最近 N=1000 条原始记录,够 P95 计算即可
 """
+
 import threading
 from collections import deque
 from dataclasses import dataclass, field
@@ -27,7 +28,9 @@ class CallRecord:
     completion_tokens: int = 0
     total_tokens: int = 0
     error: Optional[str] = None
-    timestamp: str = field(default_factory=lambda: datetime.now().isoformat(timespec="milliseconds"))
+    timestamp: str = field(
+        default_factory=lambda: datetime.now().isoformat(timespec="milliseconds")
+    )
 
 
 class MetricsCollector:
@@ -55,16 +58,18 @@ class MetricsCollector:
     ) -> None:
         """记录一次 LLM 调用"""
         with self._lock:
-            self._history.append(CallRecord(
-                provider=provider,
-                model=model,
-                latency_ms=latency_ms,
-                success=success,
-                prompt_tokens=prompt_tokens,
-                completion_tokens=completion_tokens,
-                total_tokens=total_tokens,
-                error=error,
-            ))
+            self._history.append(
+                CallRecord(
+                    provider=provider,
+                    model=model,
+                    latency_ms=latency_ms,
+                    success=success,
+                    prompt_tokens=prompt_tokens,
+                    completion_tokens=completion_tokens,
+                    total_tokens=total_tokens,
+                    error=error,
+                )
+            )
 
     def record_tool_call(self, tool_name: str) -> None:
         """P6.S.20: 记录 tool 调用"""
@@ -150,13 +155,16 @@ class MetricsCollector:
         # 按 provider 聚合
         by_provider: Dict[str, Dict] = {}
         for r in history:
-            entry = by_provider.setdefault(r.provider, {
-                "total_calls": 0,
-                "success_calls": 0,
-                "failed_calls": 0,
-                "latencies": [],
-                "total_tokens": 0,
-            })
+            entry = by_provider.setdefault(
+                r.provider,
+                {
+                    "total_calls": 0,
+                    "success_calls": 0,
+                    "failed_calls": 0,
+                    "latencies": [],
+                    "total_tokens": 0,
+                },
+            )
             entry["total_calls"] += 1
             if r.success:
                 entry["success_calls"] += 1
@@ -170,7 +178,11 @@ class MetricsCollector:
             entry["avg_latency_ms"] = round(sum(lats) / len(lats), 2) if lats else 0.0
             entry["p50_latency_ms"] = round(self._percentile(lats, 0.5), 2) if lats else 0.0
             entry["p95_latency_ms"] = round(self._percentile(lats, 0.95), 2) if lats else 0.0
-            entry["error_rate"] = round(entry["failed_calls"] / entry["total_calls"], 4) if entry["total_calls"] else 0.0
+            entry["error_rate"] = (
+                round(entry["failed_calls"] / entry["total_calls"], 4)
+                if entry["total_calls"]
+                else 0.0
+            )
 
         return {
             "total_calls": total,

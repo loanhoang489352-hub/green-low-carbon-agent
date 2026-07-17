@@ -3,14 +3,15 @@
 将 main.py 中的 if/elif 链改为声明式路由注册
 P5-D: 加 with_auth 装饰器 + 默认 auth_required=True
 """
-from typing import Callable, List, Optional, Tuple
-from dataclasses import dataclass, field
-from urllib.parse import urlparse
+
+from typing import Callable, List, Optional
+from dataclasses import dataclass
 
 
 @dataclass
 class Route:
     """单条路由"""
+
     method: str  # "GET" / "POST" / "PUT" / "DELETE"
     path: str  # 精确路径或前缀(以 = 开头表示精确匹配,以 ^ 开头表示前缀匹配)
     handler: Callable  # (handler, data) -> None,handler 应调用 self.send_json
@@ -76,17 +77,21 @@ def reset_registry() -> None:
 
 # ========== P5-D: 鉴权中间件 ==========
 
+
 def _send_unauthorized(handler, message: str = "Authentication required") -> None:
     """统一 401 响应"""
     try:
-        handler.send_json({
-            "ok": False,
-            "error": {
-                "code": "UNAUTHORIZED",
-                "message": message,
-                "status": 401,
+        handler.send_json(
+            {
+                "ok": False,
+                "error": {
+                    "code": "UNAUTHORIZED",
+                    "message": message,
+                    "status": 401,
+                },
             },
-        }, status=401)
+            status=401,
+        )
     except Exception:
         # 兜底,如果 handler 没有 send_json
         try:
@@ -126,6 +131,7 @@ def with_auth(handler: Callable, public: bool = False) -> Callable:
         # 鉴权
         try:
             from auth.account_manager import AccountManager
+
             # 复用 process-wide 单例
             if not hasattr(wrapper, "_account_mgr"):
                 wrapper._account_mgr = AccountManager()
@@ -166,3 +172,21 @@ def set_auth_enabled(enabled: bool) -> None:
     """设置鉴权开关(供 init_app / 测试用)"""
     global _auth_enabled
     _auth_enabled = bool(enabled)
+
+
+# ========== 任务6: 鉴权策略分层 ==========
+# 通过环境变量控制敏感路由默认鉴权
+#  - SECURE_SENSITIVE_ROUTES=true(默认,生产): chat/profile/feedback/memory/recommendations 强制鉴权
+#  - SECURE_SENSITIVE_ROUTES=false(测试): 保持现状(老 e2e 测试用)
+
+
+def is_secure_mode() -> bool:
+    """任务6: 是否启用安全模式(敏感路由强制鉴权)"""
+    import os
+
+    return os.environ.get("SECURE_SENSITIVE_ROUTES", "true").lower() in (
+        "1",
+        "true",
+        "yes",
+        "on",
+    )

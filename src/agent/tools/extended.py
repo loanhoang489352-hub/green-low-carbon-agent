@@ -10,28 +10,34 @@ import os
 import sys
 import json
 import time
-import urllib.parse
+import urllib.parse  # P6.S.26 fix: 提前 import,内层 _gaode_route 也复用
 from datetime import datetime
 from typing import Dict, Any, List, Optional
 from pathlib import Path
 
 # Windows UTF-8
-if sys.platform == 'win32':
+if sys.platform == "win32":
     import io
-    if not isinstance(sys.stdout, io.TextIOWrapper) or sys.stdout.encoding != 'utf-8':
-        sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8', errors='replace')
-        sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding='utf-8', errors='replace')
 
-from agent.tools.base import BaseTool, ToolResult, ToolMetadata
+    if not isinstance(sys.stdout, io.TextIOWrapper) or sys.stdout.encoding != "utf-8":
+        sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8", errors="replace")
+        sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding="utf-8", errors="replace")
+
+from agent.tools.base import BaseTool, ToolResult
+from observability import get_logger  # P6.S.26 fix: 结构化日志 + 自动 trace_id
+
+_logger = get_logger(__name__)
 
 try:
     from config_loader import get_default_city
+
     _DEFAULT_CITY = get_default_city()
 except Exception:
     _DEFAULT_CITY = "北京"
 
 
 # ============ A. 知识库检索工具 ============
+
 
 class KnowledgeRetrievalTool(BaseTool):
     """知识库检索工具 — 直接调用 RAG Engine"""
@@ -51,15 +57,15 @@ class KnowledgeRetrievalTool(BaseTool):
                 "name": "query",
                 "type": "string",
                 "description": "用户的问题或查询关键词",
-                "required": True
+                "required": True,
             },
             {
                 "name": "top_k",
                 "type": "integer",
                 "description": "返回结果数量，默认3",
                 "required": False,
-                "default": 3
-            }
+                "default": 3,
+            },
         ]
 
     def execute(self, **kwargs) -> ToolResult:
@@ -68,7 +74,9 @@ class KnowledgeRetrievalTool(BaseTool):
         top_k = kwargs.get("top_k", 3)
 
         if not query:
-            return ToolResult(success=False, error="查询内容不能为空", execution_time=time.time() - start)
+            return ToolResult(
+                success=False, error="查询内容不能为空", execution_time=time.time() - start
+            )
 
         try:
             from rag.rag_engine import RAGEngine, RAGConfig
@@ -76,7 +84,7 @@ class KnowledgeRetrievalTool(BaseTool):
             config = RAGConfig(
                 enabled=True,
                 provider="sentence-transformers",
-                persist_directory=str(Path(__file__).parent.parent.parent / "data" / "vector_db")
+                persist_directory=str(Path(__file__).parent.parent.parent / "data" / "vector_db"),
             )
             rag_engine = RAGEngine(config)
             project_root = Path(__file__).parent.parent.parent
@@ -88,36 +96,33 @@ class KnowledgeRetrievalTool(BaseTool):
                 return ToolResult(
                     success=True,
                     data={"query": query, "results": [], "message": "未找到相关内容"},
-                    execution_time=time.time() - start
+                    execution_time=time.time() - start,
                 )
 
             formatted = []
             for r in results:
-                formatted.append({
-                    "title": r.metadata.get("title", "") if r.metadata else "",
-                    "source": r.metadata.get("source", "") if r.metadata else "",
-                    "content": r.content[:300] if len(r.content) > 300 else r.content,
-                    "score": r.score if hasattr(r, 'score') else 0
-                })
+                formatted.append(
+                    {
+                        "title": r.metadata.get("title", "") if r.metadata else "",
+                        "source": r.metadata.get("source", "") if r.metadata else "",
+                        "content": r.content[:300] if len(r.content) > 300 else r.content,
+                        "score": r.score if hasattr(r, "score") else 0,
+                    }
+                )
 
             return ToolResult(
                 success=True,
-                data={
-                    "query": query,
-                    "results": formatted,
-                    "count": len(formatted)
-                },
-                execution_time=time.time() - start
+                data={"query": query, "results": formatted, "count": len(formatted)},
+                execution_time=time.time() - start,
             )
         except Exception as e:
             return ToolResult(
-                success=False,
-                error=f"知识检索失败: {str(e)}",
-                execution_time=time.time() - start
+                success=False, error=f"知识检索失败: {str(e)}", execution_time=time.time() - start
             )
 
 
 # ============ B. 碳足迹查询统计工具 ============
+
 
 class CarbonFootprintTool(BaseTool):
     """碳足迹查询统计工具 — 查询用户累计碳减排数据"""
@@ -133,26 +138,21 @@ class CarbonFootprintTool(BaseTool):
     @property
     def parameters(self) -> List[Dict[str, Any]]:
         return [
-            {
-                "name": "user_id",
-                "type": "string",
-                "description": "用户ID",
-                "required": True
-            },
+            {"name": "user_id", "type": "string", "description": "用户ID", "required": True},
             {
                 "name": "period",
                 "type": "string",
                 "description": "统计周期：week/month/year/all，默认month",
                 "required": False,
-                "default": "month"
+                "default": "month",
             },
             {
                 "name": "category",
                 "type": "string",
                 "description": "分类筛选：出行/用电/饮食/消费，默认全部",
                 "required": False,
-                "default": "all"
-            }
+                "default": "all",
+            },
         ]
 
     def execute(self, **kwargs) -> ToolResult:
@@ -162,7 +162,9 @@ class CarbonFootprintTool(BaseTool):
         category = kwargs.get("category", "all")
 
         if not user_id:
-            return ToolResult(success=False, error="user_id不能为空", execution_time=time.time() - start)
+            return ToolResult(
+                success=False, error="user_id不能为空", execution_time=time.time() - start
+            )
 
         try:
             from user_profile.behavior_tracker import get_tracker
@@ -209,18 +211,16 @@ class CarbonFootprintTool(BaseTool):
                 "achievements": {
                     "total_reduction_kg": round(total_reduction, 2),
                     "tree_equivalent": round(tree_equivalent, 1),
-                    "rank_percentile": self._calc_percentile(total_reduction)
+                    "rank_percentile": self._calc_percentile(total_reduction),
                 },
-                "suggestions": calculator.get_suggestions()
+                "suggestions": calculator.get_suggestions(),
             }
 
             return ToolResult(success=True, data=data, execution_time=time.time() - start)
 
         except Exception as e:
             return ToolResult(
-                success=False,
-                error=f"碳足迹查询失败: {str(e)}",
-                execution_time=time.time() - start
+                success=False, error=f"碳足迹查询失败: {str(e)}", execution_time=time.time() - start
             )
 
     def _get_travel_stats(self, user_id: str, days: int) -> Dict:
@@ -237,12 +237,15 @@ class CarbonFootprintTool(BaseTool):
             c = conn.cursor()
 
             cutoff = (datetime.now() - timedelta(days=days)).strftime("%Y-%m-%d")
-            c.execute("""
+            c.execute(
+                """
                 SELECT action, SUM(value) as total_km, SUM(carbon_kg) as total_carbon
                 FROM behaviors
                 WHERE user_id = ? AND category = '出行' AND date >= ?
                 GROUP BY action
-            """, (user_id, cutoff))
+            """,
+                (user_id, cutoff),
+            )
 
             results = {}
             for row in c.fetchall():
@@ -267,12 +270,15 @@ class CarbonFootprintTool(BaseTool):
             c = conn.cursor()
 
             cutoff = (datetime.now() - timedelta(days=days)).strftime("%Y-%m-%d")
-            c.execute("""
+            c.execute(
+                """
                 SELECT action, COUNT(*) as times, SUM(value) as total_kg
                 FROM behaviors
                 WHERE user_id = ? AND category = '饮食' AND date >= ?
                 GROUP BY action
-            """, (user_id, cutoff))
+            """,
+                (user_id, cutoff),
+            )
 
             results = {}
             for row in c.fetchall():
@@ -300,6 +306,7 @@ class CarbonFootprintTool(BaseTool):
 
 # ============ C. 出行规划工具（高德 API + 模拟数据） ============
 
+
 class TravelPlanningTool(BaseTool):
     """出行规划工具 — 查询公交路线 + 碳排放对比"""
 
@@ -314,25 +321,15 @@ class TravelPlanningTool(BaseTool):
     @property
     def parameters(self) -> List[Dict[str, Any]]:
         return [
-            {
-                "name": "origin",
-                "type": "string",
-                "description": "出发地",
-                "required": True
-            },
-            {
-                "name": "destination",
-                "type": "string",
-                "description": "目的地",
-                "required": True
-            },
+            {"name": "origin", "type": "string", "description": "出发地", "required": True},
+            {"name": "destination", "type": "string", "description": "目的地", "required": True},
             {
                 "name": "mode",
                 "type": "string",
                 "description": "偏好方式：transit(公交地铁)/cycling(骑行)/walking(步行)/all，默认all",
                 "required": False,
-                "default": "all"
-            }
+                "default": "all",
+            },
         ]
 
     def execute(self, **kwargs) -> ToolResult:
@@ -341,23 +338,37 @@ class TravelPlanningTool(BaseTool):
         destination = kwargs.get("destination", "")
         mode = kwargs.get("mode", "all")
 
+        # P6.S.26 fix: 实例级限流标志(每次 execute 前重置)
+        self._last_was_rate_limited = False
+        self._last_quota_info = ""
+
         if not origin or not destination:
-            return ToolResult(success=False, error="出发地和目的地不能为空", execution_time=time.time() - start)
+            return ToolResult(
+                success=False, error="出发地和目的地不能为空", execution_time=time.time() - start
+            )
 
         api_key = os.environ.get("GAODE_API_KEY", "")
         if not api_key:
             return ToolResult(
                 success=False,
                 error="高德地图API未配置，请设置GAODE_API_KEY",
-                execution_time=time.time() - start
+                execution_time=time.time() - start,
             )
 
         result = self._gaode_route(origin, destination, api_key)
         if not result:
+            # P6.S.26 fix: 区分"无结果" vs "限流" — 限流时返更明确的错误,便于上层走 RAG 降级
+            if self._last_was_rate_limited:
+                error_msg = (
+                    f"高德地图 API QPS 配额耗尽({self._last_quota_info}),"
+                    f"无法查询从 {origin} 到 {destination} 的路线,请稍后重试或更换 API key"
+                )
+            else:
+                error_msg = f"未能在高德地图找到从 {origin} 到 {destination} 的路线，请检查地址是否正确"
             return ToolResult(
                 success=False,
-                error=f"未能在高德地图找到从 {origin} 到 {destination} 的路线，请检查地址是否正确",
-                execution_time=time.time() - start
+                error=error_msg,
+                execution_time=time.time() - start,
             )
 
         # 获取出发地天气(影响骑行/步行评分)
@@ -365,7 +376,12 @@ class TravelPlanningTool(BaseTool):
         result["weather"] = weather_info
 
         # 多因素评分: 碳排 + 费用 + 时长 + 天气
-        weights = kwargs.get("weights") or {"carbon": 0.4, "cost": 0.2, "duration": 0.2, "weather": 0.2}
+        weights = kwargs.get("weights") or {
+            "carbon": 0.4,
+            "cost": 0.2,
+            "duration": 0.2,
+            "weather": 0.2,
+        }
         result["recommended"] = self._recommend_route(result["routes"], weather_info, weights)
         result["weights"] = weights
 
@@ -376,26 +392,33 @@ class TravelPlanningTool(BaseTool):
         """调用高德公交路线 API"""
         try:
             import urllib.request
-            import urllib.parse
 
             # 地址 → 坐标
-            # 先用默认 city 查(避免 "国贸" 这种通用名被解析到外地),
-            # 没结果再放开 city 让高德全国搜(跨城查询)
-            origin_coord = self._gaode_geocode(origin, api_key, city=_DEFAULT_CITY) \
-                           or self._gaode_geocode(origin, api_key, city=None)
-            dest_coord = self._gaode_geocode(destination, api_key, city=_DEFAULT_CITY) \
-                          or self._gaode_geocode(destination, api_key, city=None)
+            # P6.S.26 fix: fallback 顺序反转 — 先 city=None(全国搜一次命中更准),
+            # 没结果再用 city=北京兜底。避免限流时二次调用(QPS 配额本就紧张)
+            origin_coord = self._gaode_geocode(
+                origin, api_key, city=None
+            ) or self._gaode_geocode(origin, api_key, city=_DEFAULT_CITY)
+            dest_coord = self._gaode_geocode(
+                destination, api_key, city=None
+            ) or self._gaode_geocode(destination, api_key, city=_DEFAULT_CITY)
             if not origin_coord or not dest_coord:
+                # P6.S.26 fix: 显式记录 geocode 失败,便于排查
+                _logger.warning(
+                    "TravelPlanning geocode failed origin=%r dest=%r origin_coord=%r dest_coord=%r",
+                    origin, destination, origin_coord, dest_coord,
+                )
                 return None
 
             # 公交路线
+            # P6.S.26 fix: 坐标用 quote() 单独编码,避免部分代理/CDN 把逗号当 header 分隔符截断
             url = "https://restapi.amap.com/v3/direction/transit/integrated"
             params = {
                 "key": api_key,
-                "origin": origin_coord,
-                "destination": dest_coord,
-                "city": _DEFAULT_CITY,
-                "datatype": "transit"
+                "origin": urllib.parse.quote(origin_coord, safe=""),
+                "destination": urllib.parse.quote(dest_coord, safe=""),
+                "city": urllib.parse.quote(_DEFAULT_CITY, safe=""),
+                "datatype": "transit",
             }
             url += "?" + urllib.parse.urlencode(params)
 
@@ -412,34 +435,93 @@ class TravelPlanningTool(BaseTool):
             formatted_routes = []
             for t in transits[:3]:
                 line_info = []
+                # P6.S.24 + Bug1 fix: polyline 真数据在嵌套层(bus.buslines[].polyline / walking.steps[].polyline)
+                polyline_parts = []
                 for seg in t.get("segments", []):
                     if seg.get("bus") and seg["bus"].get("buslines"):
                         line_info.append(f"公交{seg['bus']['buslines'][0]['name']}")
+                        # busline 自身就有完整 polyline
+                        for bl in seg["bus"]["buslines"]:
+                            if bl.get("polyline"):
+                                polyline_parts.append(bl["polyline"])
                     elif seg.get("metro"):
                         line_info.append(f"地铁{seg['metro']['name']}")
+                        # metro 也可能有 buslines 嵌套
+                        if seg["metro"].get("buslines"):
+                            for bl in seg["metro"]["buslines"]:
+                                if bl.get("polyline"):
+                                    polyline_parts.append(bl["polyline"])
                     elif seg.get("walking") and seg["walking"].get("steps"):
-                        line_info.append(f"步行{seg['walking']['steps'][0]['distance']}米")
+                        line_info.append(f"步行{seg['walking']['steps'][0].get('distance', 0)}米")
+                        # walking 各 step 都有 polyline
+                        for step in seg["walking"]["steps"]:
+                            if step.get("polyline"):
+                                polyline_parts.append(step["polyline"])
 
-                # 高德返回的 duration/distance/cost 都是字符串(可能带小数)
-                duration = int(float(t.get("duration", 0))) // 60
-                distance = int(float(t.get("distance", 0))) // 1000
+                # Bug1 + Bug19 fix: 高德返回的 cost 可能是 [] / {} / "3.0" 多种类型
+                # 优先从顶层 cost 读取,若为空数组则从 segments 累加 cost(公交+地铁通常每段都有 cost)
+                cost_raw = t.get("cost", 0)
+                cost_yuan = 0
+                if isinstance(cost_raw, (list, dict)):
+                    # 顶层 cost 空,尝试从 segments 累加
+                    seg_cost = 0.0
+                    for seg in t.get("segments", []):
+                        if isinstance(seg.get("cost"), (int, float, str)):
+                            try:
+                                seg_cost += float(seg["cost"])
+                            except (TypeError, ValueError):
+                                pass
+                        # buslines/metro 内部 buslines 也有 cost
+                        for line_key in ("bus", "metro"):
+                            line = seg.get(line_key, {})
+                            if isinstance(line.get("cost"), (int, float, str)):
+                                try:
+                                    seg_cost += float(line["cost"])
+                                except (TypeError, ValueError):
+                                    pass
+                            for bl in line.get("buslines", []) or []:
+                                bc = bl.get("cost")
+                                if isinstance(bc, (int, float, str)):
+                                    try:
+                                        seg_cost += float(bc)
+                                    except (TypeError, ValueError):
+                                        pass
+                    cost_yuan = round(seg_cost, 1) if seg_cost > 0 else 0
+                else:
+                    try:
+                        cost_yuan = round(float(cost_raw), 1)
+                    except (TypeError, ValueError):
+                        cost_yuan = 0
+
+                # P6.S.26 fix: 保留 1 位小数,避免 <1km 段显示 0.0km
+                # duration 高德返秒,distance 高德返米
+                duration = round(float(t.get("duration", 0)) / 60, 1)
+                distance = round(float(t.get("distance", 0)) / 1000, 1)
                 carbon = distance * 0.08  # 公交人均碳排放
 
-                formatted_routes.append({
-                    "type": "公交+地铁",
-                    "line": " → ".join(line_info) if line_info else "公交",
-                    "duration_min": duration,
-                    "distance_km": distance,
-                    "carbon_kg": round(carbon, 3),
-                    "cost_yuan": int(float(t.get("cost", 0)))
-                })
+                # P6.S.24: 拼接 polyline(各段用 ; 分隔,前端解码)
+                polyline = ";".join(polyline_parts) if polyline_parts else None
+
+                formatted_routes.append(
+                    {
+                        "type": "公交+地铁",
+                        "line": " → ".join(line_info) if line_info else "公交",
+                        "duration_min": duration,
+                        "distance_km": distance,
+                        "carbon_kg": round(carbon, 3),
+                        "cost_yuan": cost_yuan,  # Bug1 fix: 鲁棒解析
+                        "polyline": polyline,    # Bug1 fix: 嵌套层提取
+                        "from": origin,
+                        "to": destination,
+                    }
+                )
 
             # 骑行路线
             cycling_url = "https://restapi.amap.com/v3/direction/bicycling"
             cycling_params = {
                 "key": api_key,
-                "origin": origin_coord,
-                "destination": dest_coord
+                "origin": urllib.parse.quote(origin_coord, safe=""),
+                "destination": urllib.parse.quote(dest_coord, safe=""),
             }
             cycling_url += "?" + urllib.parse.urlencode(cycling_params)
 
@@ -452,14 +534,18 @@ class TravelPlanningTool(BaseTool):
                     paths = cycling_data["route"].get("paths", [])
                     if paths:
                         p = paths[0]
+                        # P6.S.26 fix: 距离/时长保留 1 位小数
                         cycling_result = {
                             "type": "骑行",
-                            "distance_km": int(float(p.get("distance", 0))) // 1000,
-                            "duration_min": int(float(p.get("duration", 0))) // 60,
+                            "distance_km": round(float(p.get("distance", 0)) / 1000, 1),
+                            "duration_min": round(float(p.get("duration", 0)) / 60, 1),
                             "carbon_kg": 0,
-                            "cost_yuan": 0
+                            "cost_yuan": 0,
+                            "polyline": p.get("polyline"),  # P6.S.24
+                            "from": origin,
+                            "to": destination,
                         }
-            except Exception as ce:
+            except Exception:
                 # 跨城骑行(>50km)通常没有数据,不报错
                 pass
 
@@ -469,30 +555,58 @@ class TravelPlanningTool(BaseTool):
 
             # 私家车对比
             if formatted_routes:
-                driving_carbon = formatted_routes[0]["distance_km"] * 0.21
-                all_routes.append({
-                    "type": "自驾",
-                    "distance_km": formatted_routes[0]["distance_km"],
-                    "duration_min": int(formatted_routes[0]["duration_min"] * 0.6),
-                    "carbon_kg": round(driving_carbon, 3),
-                    "cost_yuan": round(formatted_routes[0]["distance_km"] * 0.5, 1)
-                })
+                first = formatted_routes[0]
+                driving_carbon = first["distance_km"] * 0.21
+                # P6.S.26 fix: 时长/距离保留 1 位小数(自驾按公交 0.6 倍)
+                all_routes.append(
+                    {
+                        "type": "自驾",
+                        "distance_km": first["distance_km"],
+                        "duration_min": round(first["duration_min"] * 0.6, 1),
+                        "carbon_kg": round(driving_carbon, 3),
+                        "cost_yuan": round(first["distance_km"] * 0.5, 1),
+                        # Bug1 fix: 自驾也复用公交路线的 polyline(路线图相同)
+                        "polyline": first.get("polyline"),
+                        "from": origin,
+                        "to": destination,
+                    }
+                )
+
+            # P6.S.24: 在 response 顶层附上 origin/dest 坐标,供前端 Leaflet marker 用
+            def _coord_to_latlng(coord_str):
+                """高德坐标 'lng,lat' → {lat, lng}"""
+                if not coord_str or "," not in coord_str:
+                    return None
+                try:
+                    lng, lat = coord_str.split(",", 1)
+                    return {"lat": float(lat), "lng": float(lng)}
+                except (ValueError, TypeError):
+                    return None
 
             return {
                 "origin": origin,
                 "destination": destination,
-                "routes": all_routes
+                "origin_coord": _coord_to_latlng(origin_coord),
+                "destination_coord": _coord_to_latlng(dest_coord),
+                "routes": all_routes,
             }
 
         except Exception as e:
-            print(f"[TravelPlanning] 高德API调用失败: {e}")
+            # P6.S.26 fix: 用结构化 logger 替代 print,带 trace_id + 上下文
+            # (原 print 无 trace_id 串不到 LLM 调用,排查极困难)
+            _logger.error(
+                "TravelPlanning 出行规划失败 origin=%r destination=%r api_key_configured=%s error=%s: %s",
+                origin, destination, bool(api_key), type(e).__name__, e,
+                exc_info=True,
+            )
             return None
 
-    def _gaode_geocode(self, address: str, api_key: str, city: Optional[str] = None) -> Optional[str]:
+    def _gaode_geocode(
+        self, address: str, api_key: str, city: Optional[str] = None
+    ) -> Optional[str]:
         """地址转坐标(city=None 时让高德自动判断,适用于跨城查询)"""
         try:
             import urllib.request
-            import urllib.parse
 
             url = "https://restapi.amap.com/v3/geocode/geo"
             params = {"key": api_key, "address": address}
@@ -506,14 +620,28 @@ class TravelPlanningTool(BaseTool):
 
             if data.get("status") == "1" and data.get("geocodes"):
                 return data["geocodes"][0]["location"]
-        except Exception:
-            pass
+            # P6.S.26 fix: 高德明确返 status=0 时也记 warning(配额/拼写错误)
+            info = data.get("info", "")
+            # 检测高德 QPS 限流 — 设实例标志供 execute() 透传
+            if info and ("CUQPS" in info or "LIMIT" in info or "限流" in info or "QUOTA" in info.upper()):
+                self._last_was_rate_limited = True
+                self._last_quota_info = info
+            _logger.warning(
+                "TravelPlanning geocode status!=1 address=%r city=%r response_status=%s info=%s",
+                address, city, data.get("status"), info,
+            )
+        except Exception as e:
+            # P6.S.26 fix: 结构化日志替代静默 pass
+            _logger.warning(
+                "TravelPlanning geocode exception address=%r city=%r error=%s: %s",
+                address, city, type(e).__name__, e,
+            )
         return None
 
     def _mock_route(self, origin: str, destination: str) -> Dict:
         """模拟公交路线数据"""
         # 估算距离（简单按3km模拟）
-        distance = 5 # km
+        distance = 5  # km
         routes = [
             {
                 "type": "地铁",
@@ -521,7 +649,7 @@ class TravelPlanningTool(BaseTool):
                 "duration_min": 35,
                 "distance_km": distance,
                 "carbon_kg": round(distance * 0.04, 3),
-                "cost_yuan": 5
+                "cost_yuan": 5,
             },
             {
                 "type": "公交",
@@ -529,7 +657,7 @@ class TravelPlanningTool(BaseTool):
                 "duration_min": 50,
                 "distance_km": distance,
                 "carbon_kg": round(distance * 0.08, 3),
-                "cost_yuan": 3
+                "cost_yuan": 3,
             },
             {
                 "type": "骑行+地铁",
@@ -537,7 +665,7 @@ class TravelPlanningTool(BaseTool):
                 "duration_min": 30,
                 "distance_km": distance,
                 "carbon_kg": 0,
-                "cost_yuan": 4
+                "cost_yuan": 4,
             },
             {
                 "type": "骑行",
@@ -545,7 +673,7 @@ class TravelPlanningTool(BaseTool):
                 "duration_min": 25,
                 "distance_km": distance,
                 "carbon_kg": 0,
-                "cost_yuan": 0
+                "cost_yuan": 0,
             },
             {
                 "type": "自驾",
@@ -553,24 +681,28 @@ class TravelPlanningTool(BaseTool):
                 "duration_min": 20,
                 "distance_km": distance,
                 "carbon_kg": round(distance * 0.21, 3),
-                "cost_yuan": round(distance * 0.5, 1)
-            }
+                "cost_yuan": round(distance * 0.5, 1),
+            },
         ]
 
         return {
             "origin": origin,
             "destination": destination,
             "routes": routes,
-            "recommended": routes[2]  # 推荐骑行+地铁
+            "recommended": routes[2],  # 推荐骑行+地铁
         }
 
     def _fetch_weather(self, city: str) -> Optional[Dict]:
         """获取天气(失败返回 None,不阻塞推荐)"""
         try:
             from utils.web_search import WebSearcher
+
             ws = WebSearcher()
             # 直接拿原始字段而非格式化字符串(用 Open-Meteo 的两步调用)
-            import urllib.request, urllib.parse, json as _json
+            import urllib.request
+            import urllib.parse
+            import json as _json
+
             geo_url = f"https://geocoding-api.open-meteo.com/v1/search?name={urllib.parse.quote(city)}&count=1&language=zh"
             req = urllib.request.Request(geo_url, headers=ws.session_headers)
             with urllib.request.urlopen(req, timeout=5) as resp:
@@ -645,8 +777,9 @@ class TravelPlanningTool(BaseTool):
 
         return min(penalty, 1.0), "、".join(reasons)
 
-    def _recommend_route(self, routes: List[Dict], weather: Optional[Dict] = None,
-                          weights: Optional[Dict] = None) -> Dict:
+    def _recommend_route(
+        self, routes: List[Dict], weather: Optional[Dict] = None, weights: Optional[Dict] = None
+    ) -> Dict:
         """多因素评分: 碳排 + 费用 + 时长 + 天气适宜度.
         每个因素归一化到 [0,1](越大越好),加权求和;
         天气扣分仅对骑行/步行生效."""
@@ -665,10 +798,12 @@ class TravelPlanningTool(BaseTool):
             penalty, reason = self._weather_penalty(r.get("type", ""), weather)
             weather_score = 1.0 - penalty
 
-            total = (carbon_score * weights["carbon"]
-                     + cost_score * weights["cost"]
-                     + dur_score * weights["duration"]
-                     + weather_score * weights["weather"])
+            total = (
+                carbon_score * weights["carbon"]
+                + cost_score * weights["cost"]
+                + dur_score * weights["duration"]
+                + weather_score * weights["weather"]
+            )
             r["score"] = round(total, 3)
             r["score_breakdown"] = {
                 "carbon": round(carbon_score, 2),
@@ -691,6 +826,7 @@ class TravelPlanningTool(BaseTool):
 
 # ============ D. 报告导出工具 ============
 
+
 class ReportExportTool(BaseTool):
     """报告导出工具 — 生成 Markdown 格式低碳生活报告"""
 
@@ -705,26 +841,21 @@ class ReportExportTool(BaseTool):
     @property
     def parameters(self) -> List[Dict[str, Any]]:
         return [
-            {
-                "name": "user_id",
-                "type": "string",
-                "description": "用户ID",
-                "required": True
-            },
+            {"name": "user_id", "type": "string", "description": "用户ID", "required": True},
             {
                 "name": "period",
                 "type": "string",
                 "description": "报告周期：week/month/year，默认month",
                 "required": False,
-                "default": "month"
+                "default": "month",
             },
             {
                 "name": "include_achievements",
                 "type": "boolean",
                 "description": "是否包含成就徽章，默认True",
                 "required": False,
-                "default": True
-            }
+                "default": True,
+            },
         ]
 
     def execute(self, **kwargs) -> ToolResult:
@@ -734,7 +865,9 @@ class ReportExportTool(BaseTool):
         include_achievements = kwargs.get("include_achievements", True)
 
         if not user_id:
-            return ToolResult(success=False, error="user_id不能为空", execution_time=time.time() - start)
+            return ToolResult(
+                success=False, error="user_id不能为空", execution_time=time.time() - start
+            )
 
         try:
             from user_profile.behavior_tracker import get_tracker
@@ -747,10 +880,13 @@ class ReportExportTool(BaseTool):
             # 获取数据
             days_map = {"week": 7, "month": 30, "year": 365}
             days = days_map.get(period, 30)
-            period_label = {"week": "近7天", "month": "近30天", "year": "近1年"}.get(period, "近30天")
+            period_label = {"week": "近7天", "month": "近30天", "year": "近1年"}.get(
+                period, "近30天"
+            )
 
-            #碳足迹
+            # 碳足迹
             from user_profile.carbon_footprint import CarbonFootprintCalculator
+
             calculator = CarbonFootprintCalculator()
             report = calculator.get_monthly_report()
             breakdown = calculator.get_category_breakdown(days)
@@ -782,7 +918,7 @@ class ReportExportTool(BaseTool):
                 total_reduction=total_reduction,
                 achievements=achievements,
                 knowledge_level=knowledge_level,
-                behavior_stage=behavior_stage
+                behavior_stage=behavior_stage,
             )
 
             # 保存文件
@@ -805,17 +941,15 @@ class ReportExportTool(BaseTool):
                     "summary": {
                         "total_emission_kg": report.get("总排放_kg_CO2", 0),
                         "total_reduction_kg": report.get("总减排_kg_CO2", 0),
-                        "grade": report.get("评级", "N/A")
-                    }
+                        "grade": report.get("评级", "N/A"),
+                    },
                 },
-                execution_time=time.time() - start
+                execution_time=time.time() - start,
             )
 
         except Exception as e:
             return ToolResult(
-                success=False,
-                error=f"报告生成失败: {str(e)}",
-                execution_time=time.time() - start
+                success=False, error=f"报告生成失败: {str(e)}", execution_time=time.time() - start
             )
 
     def _build_markdown(
@@ -828,7 +962,7 @@ class ReportExportTool(BaseTool):
         total_reduction: float,
         achievements: Dict,
         knowledge_level: str,
-        behavior_stage: str
+        behavior_stage: str,
     ) -> str:
         """构建 Markdown 报告内容"""
 
@@ -846,8 +980,8 @@ class ReportExportTool(BaseTool):
             "",
             "## 📊 碳足迹总览",
             "",
-            f"|指标 | 数值 |",
-            f"|------|------|",
+            "|指标 | 数值 |",
+            "|------|------|",
             f"| 总排放 | {report.get('总排放_kg_CO2', 0):.1f} kg CO₂ |",
             f"| 总减排 | {report.get('总减排_kg_CO2', 0):.1f} kg CO₂ |",
             f"| 净排放 | {report.get('净排放_kg_CO2', 0):.1f} kg CO₂ |",
@@ -858,12 +992,14 @@ class ReportExportTool(BaseTool):
 
         # 分类排放
         if breakdown:
-            lines.extend([
-                "## 📈分类排放统计",
-                "",
-                f"| 类别 | 排放量(kg CO₂) |",
-                f"|------|----------------|",
-            ])
+            lines.extend(
+                [
+                    "## 📈分类排放统计",
+                    "",
+                    "| 类别 | 排放量(kg CO₂) |",
+                    "|------|----------------|",
+                ]
+            )
             for cat, val in breakdown.items():
                 lines.append(f"| {cat} | {val:.1f} |")
             lines.append("")
@@ -871,48 +1007,56 @@ class ReportExportTool(BaseTool):
         # 减排成就
         if total_reduction > 0:
             tree_equivalent = total_reduction / 21
-            lines.extend([
-                "##🏆 减排成就",
-                "",
-                f"-累计减排 **{total_reduction:.1f} kg CO₂**",
-                f"- 相当于种植 **{tree_equivalent:.1f} 棵树**（每年吸收量）",
-                f"- 环保认知水平：{level_cn}",
-                f"- 行为阶段：{behavior_stage}",
-                "",
-            ])
+            lines.extend(
+                [
+                    "##🏆 减排成就",
+                    "",
+                    f"-累计减排 **{total_reduction:.1f} kg CO₂**",
+                    f"- 相当于种植 **{tree_equivalent:.1f} 棵树**（每年吸收量）",
+                    f"- 环保认知水平：{level_cn}",
+                    f"- 行为阶段：{behavior_stage}",
+                    "",
+                ]
+            )
 
         # 用户画像
         if profile:
             basic = profile.get("basic_info", {})
             if basic:
-                lines.extend([
-                    "## 👤 用户画像",
-                    "",
-                    f"- 地区：{basic.get('region', '未知')}",
-                    f"- 年龄段：{basic.get('age_group', '未知')}",
-                    f"- 环保认知：{level_cn}",
-                    f"- 行为阶段：{behavior_stage}",
-                    "",
-                ])
+                lines.extend(
+                    [
+                        "## 👤 用户画像",
+                        "",
+                        f"- 地区：{basic.get('region', '未知')}",
+                        f"- 年龄段：{basic.get('age_group', '未知')}",
+                        f"- 环保认知：{level_cn}",
+                        f"- 行为阶段：{behavior_stage}",
+                        "",
+                    ]
+                )
 
         # 行为建议
         suggestions = report.get("suggestions", [])
         if suggestions:
-            lines.extend([
-                "## 💡 改进建议",
-                "",
-            ])
+            lines.extend(
+                [
+                    "## 💡 改进建议",
+                    "",
+                ]
+            )
             for s in suggestions[:3]:
                 action = s.get("action", "")
                 potential = s.get("减排潜力", "")
                 lines.append(f"- **{action}**：{potential}")
             lines.append("")
 
-        lines.extend([
-            "---",
-            "",
-            "*本报告由绿色低碳智能体自动生成*",
-            f"*报告周期：{period_label}*",
-        ])
+        lines.extend(
+            [
+                "---",
+                "",
+                "*本报告由绿色低碳智能体自动生成*",
+                f"*报告周期：{period_label}*",
+            ]
+        )
 
         return "\n".join(lines)

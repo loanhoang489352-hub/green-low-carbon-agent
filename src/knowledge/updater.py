@@ -18,12 +18,13 @@ from html.parser import HTMLParser
 
 script_path = Path(__file__).resolve()
 project_root = script_path.parent.parent.parent
-sys.path.insert(0, str(project_root / 'src'))
+sys.path.insert(0, str(project_root / "src"))
 
 
 @dataclass
 class UpdateSource:
     """更新源"""
+
     name: str
     url: str
     type: str  # policy, news, knowledge
@@ -38,6 +39,7 @@ class UpdateSource:
 @dataclass
 class UpdateResult:
     """更新结果"""
+
     source: str
     url: str
     has_update: bool
@@ -50,6 +52,7 @@ class UpdateResult:
 @dataclass
 class ParsedContent:
     """解析后的内容"""
+
     title: str
     content: str
     update_time: Optional[str] = None
@@ -69,28 +72,28 @@ class HTMLContentParser(HTMLParser):
         self.in_script = False
         self.in_style = False
         self.in_nav = False
-        self.skip_tags = {'script', 'style', 'nav', 'header', 'footer', 'aside'}
+        self.skip_tags = {"script", "style", "nav", "header", "footer", "aside"}
         self.current_skip = None
         self.links = []
 
     def handle_starttag(self, tag, attrs):
         attrs_dict = dict(attrs)
 
-        if tag == 'title':
+        if tag == "title":
             self.in_title = True
 
         if tag in self.skip_tags:
             self.current_skip = tag
             return
 
-        if tag == 'a' and 'href' in attrs_dict:
-            self.links.append(attrs_dict['href'])
+        if tag == "a" and "href" in attrs_dict:
+            self.links.append(attrs_dict["href"])
 
-        if tag == 'body':
+        if tag == "body":
             self.in_body = True
 
     def handle_endtag(self, tag):
-        if tag == 'title':
+        if tag == "title":
             self.in_title = False
 
         if tag == self.current_skip:
@@ -134,22 +137,31 @@ class PolicyDateExtractor:
     # 常见日期模式
     DATE_PATTERNS = [
         # 2024年1月1日
-        (r'(\d{4})年(\d{1,2})月(\d{1,2})日', '%Y年%m月%d日'),
+        (r"(\d{4})年(\d{1,2})月(\d{1,2})日", "%Y年%m月%d日"),
         # 2024-01-01
-        (r'(\d{4})-(\d{2})-(\d{2})', '%Y-%m-%d'),
+        (r"(\d{4})-(\d{2})-(\d{2})", "%Y-%m-%d"),
         # 2024/01/01
-        (r'(\d{4})/(\d{2})/(\d{2})', '%Y/%m/%d'),
+        (r"(\d{4})/(\d{2})/(\d{2})", "%Y/%m/%d"),
         # 2024.01.01
-        (r'(\d{4})\.(\d{2})\.(\d{2})', '%Y.%m.%d'),
+        (r"(\d{4})\.(\d{2})\.(\d{2})", "%Y.%m.%d"),
         # 2024年1月
-        (r'(\d{4})年(\d{1,2})月', '%Y年%m月'),
+        (r"(\d{4})年(\d{1,2})月", "%Y年%m月"),
         # 2024年
-        (r'(\d{4})年', '%Y年'),
+        (r"(\d{4})年", "%Y年"),
     ]
 
     UPDATE_KEYWORDS = [
-        '发布', '更新', '修订', '施行', '生效', '实施',
-        '公布', '印发', '通知', '公告', '发布于'
+        "发布",
+        "更新",
+        "修订",
+        "施行",
+        "生效",
+        "实施",
+        "公布",
+        "印发",
+        "通知",
+        "公告",
+        "发布于",
     ]
 
     def extract_date(self, text: str) -> Optional[str]:
@@ -158,11 +170,11 @@ class PolicyDateExtractor:
             matches = re.finditer(pattern, text)
             for match in matches:
                 try:
-                    if '%Y年%m月%d日' in date_format:
+                    if "%Y年%m月%d日" in date_format:
                         date_str = f"{match.group(1)}年{match.group(2)}月{match.group(3)}日"
-                    elif '%Y年%m月' in date_format:
+                    elif "%Y年%m月" in date_format:
                         date_str = f"{match.group(1)}年{match.group(2)}月"
-                    elif '%Y年' in date_format:
+                    elif "%Y年" in date_format:
                         date_str = f"{match.group(1)}年"
                     else:
                         date_str = match.group(0)
@@ -188,7 +200,7 @@ class PolicyDateExtractor:
             if matches:
                 date_str = matches.group(1)
                 # 标准化日期格式
-                date_str = date_str.replace('/', '-')
+                date_str = date_str.replace("/", "-")
                 return date_str
 
         return None
@@ -196,7 +208,7 @@ class PolicyDateExtractor:
     def is_quarterly_update(self, date_str: str) -> bool:
         """判断是否是季度更新"""
         # 季度更新通常在 1/4/7/10 月
-        month_match = re.search(r'(\d{1,2})月', date_str)
+        month_match = re.search(r"(\d{1,2})月", date_str)
         if month_match:
             month = int(month_match.group(1))
             return month in [1, 4, 7, 10]
@@ -211,21 +223,21 @@ class PolicyDateExtractor:
         try:
             months = []
             for d in dates:
-                match = re.search(r'(\d{4})年?(\d{1,2})月?', d)
+                match = re.search(r"(\d{4})年?(\d{1,2})月?", d)
                 if match:
                     months.append(int(match.group(1)) * 12 + int(match.group(2)))
 
             if len(months) >= 2:
                 months.sort()
-                intervals = [months[i+1] - months[i] for i in range(len(months)-1)]
+                intervals = [months[i + 1] - months[i] for i in range(len(months) - 1)]
                 avg_interval = sum(intervals) / len(intervals)
 
                 if avg_interval <= 3:
                     return "quarterly"  # 季度更新
                 elif avg_interval <= 6:
-                    return "biannual"   # 半年更新
+                    return "biannual"  # 半年更新
                 else:
-                    return "annual"     # 年度更新
+                    return "annual"  # 年度更新
         except (ValueError, IndexError, KeyError):
             pass
 
@@ -243,7 +255,7 @@ class KnowledgeMerger:
         similar = []
 
         # 按标题关键词匹配
-        title_keywords = re.findall(r'[\w]+', new_title)
+        title_keywords = re.findall(r"[\w]+", new_title)
 
         for md_file in self.knowledge_base_path.rglob("*.md"):
             # 检查分类
@@ -262,14 +274,14 @@ class KnowledgeMerger:
 
     def merge_content(self, existing_path: Path, new_content: ParsedContent) -> str:
         """合并新旧内容"""
-        existing = existing_path.read_text(encoding='utf-8')
+        existing = existing_path.read_text(encoding="utf-8")
 
         # 提取现有文档的front matter和正文
         front_matter = ""
         body = existing
 
-        if existing.startswith('---'):
-            parts = existing.split('---', 2)
+        if existing.startswith("---"):
+            parts = existing.split("---", 2)
             if len(parts) >= 3:
                 front_matter = parts[1]
                 body = parts[2]
@@ -280,7 +292,7 @@ class KnowledgeMerger:
 title: {new_content.title}
 source: {new_content.source_url}
 last_updated: {timestamp}
-original_update: {new_content.update_time or 'unknown'}
+original_update: {new_content.update_time or "unknown"}
 ---
 
 """
@@ -310,38 +322,38 @@ class KnowledgeUpdater:
             "name": "中国碳排放交易网",
             "url": "http://www.pcet.cn",
             "type": "carbon_market",
-            "description": "碳交易与碳市场信息"
+            "description": "碳交易与碳市场信息",
         },
         {
             "name": "碳排放交易网",
             "url": "http://www.tanpaifang.com",
             "type": "carbon_market",
-            "description": "碳排放权交易信息"
+            "description": "碳排放权交易信息",
         },
         {
             "name": "中国节能信息网",
             "url": "http://www.ceprei.com",
             "type": "energy",
-            "description": "节能减排与能效信息"
+            "description": "节能减排与能效信息",
         },
         {
             "name": "中国环境报",
             "url": "http://www.cenews.com.cn",
             "type": "news",
-            "description": "环保新闻资讯"
+            "description": "环保新闻资讯",
         },
         {
             "name": "Carbon Monitor",
             "url": "https://carbonmonitor.org",
             "type": "data",
-            "description": "全球碳排放实时监测"
+            "description": "全球碳排放实时监测",
         },
         {
             "name": "Eartho",
             "url": "https://earthos.taoclimate.com",
             "type": "climate",
-            "description": "气候变化数据"
-        }
+            "description": "气候变化数据",
+        },
     ]
 
     def __init__(self, knowledge_base_path: str = None, update_interval: int = 3600):
@@ -375,47 +387,47 @@ class KnowledgeUpdater:
 
         if config_file.exists():
             try:
-                with open(config_file, 'r', encoding='utf-8') as f:
+                with open(config_file, "r", encoding="utf-8") as f:
                     data = json.load(f)
-                    for item in data.get('sources', []):
-                        self.sources.append(UpdateSource(
-                            name=item['name'],
-                            url=item['url'],
-                            type=item.get('type', 'policy'),
-                            last_check=item.get('last_check'),
-                            last_hash=item.get('last_hash'),
-                            last_update_time=item.get('last_update_time')
-                        ))
+                    for item in data.get("sources", []):
+                        self.sources.append(
+                            UpdateSource(
+                                name=item["name"],
+                                url=item["url"],
+                                type=item.get("type", "policy"),
+                                last_check=item.get("last_check"),
+                                last_hash=item.get("last_hash"),
+                                last_update_time=item.get("last_update_time"),
+                            )
+                        )
             except Exception as e:
                 print(f"[KnowledgeUpdater] 加载源配置失败: {e}")
 
         # 如果没有配置，使用碳排放相关源
         if not self.sources:
             for src in self.CARBON_SOURCES:
-                self.sources.append(UpdateSource(
-                    name=src['name'],
-                    url=src['url'],
-                    type=src['type']
-                ))
+                self.sources.append(
+                    UpdateSource(name=src["name"], url=src["url"], type=src["type"])
+                )
 
     def _save_sources(self):
         """保存更新源配置"""
         config_file = self.knowledge_base_path / "sources.json"
         data = {
-            'sources': [
+            "sources": [
                 {
-                    'name': s.name,
-                    'url': s.url,
-                    'type': s.type,
-                    'last_check': s.last_check,
-                    'last_hash': s.last_hash,
-                    'last_update_time': s.last_update_time
+                    "name": s.name,
+                    "url": s.url,
+                    "type": s.type,
+                    "last_check": s.last_check,
+                    "last_hash": s.last_hash,
+                    "last_update_time": s.last_update_time,
                 }
                 for s in self.sources
             ]
         }
         try:
-            with open(config_file, 'w', encoding='utf-8') as f:
+            with open(config_file, "w", encoding="utf-8") as f:
                 json.dump(data, f, ensure_ascii=False, indent=2)
         except Exception as e:
             print(f"[KnowledgeUpdater] 保存源配置失败: {e}")
@@ -435,7 +447,6 @@ class KnowledgeUpdater:
     def _fetch_html(self, url: str) -> Tuple[Optional[str], Optional[str]]:
         """获取网页内容（带SSL错误处理和编码处理）"""
         import ssl
-        import re
 
         # 创建不验证SSL的context
         ctx = ssl.create_default_context()
@@ -444,47 +455,52 @@ class KnowledgeUpdater:
 
         try:
             import urllib.request
+
             req = urllib.request.Request(
                 url,
                 headers={
-                    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-                    'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
-                    'Accept-Language': 'zh-CN,zh;q=0.9,en;q=0.8',
-                    'Connection': 'keep-alive',
-                }
+                    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+                    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+                    "Accept-Language": "zh-CN,zh;q=0.9,en;q=0.8",
+                    "Connection": "keep-alive",
+                },
             )
 
             # 优先尝试HTTPS with SSL bypass
-            if url.startswith('https'):
+            if url.startswith("https"):
                 try:
                     with urllib.request.urlopen(req, timeout=15, context=ctx) as response:
                         raw_content = response.read()
-                        content_type = response.getheader('Content-Type', '')
-                        return self._decode_html_content(raw_content, content_type), response.getheader('Last-Modified', '')
+                        content_type = response.getheader("Content-Type", "")
+                        return self._decode_html_content(
+                            raw_content, content_type
+                        ), response.getheader("Last-Modified", "")
                 except ssl.SSLError:
                     pass  # 尝试HTTP
 
             # 回退到普通方式
             with urllib.request.urlopen(req, timeout=15) as response:
                 raw_content = response.read()
-                content_type = response.getheader('Content-Type', '')
-                return self._decode_html_content(raw_content, content_type), response.getheader('Last-Modified', '')
+                content_type = response.getheader("Content-Type", "")
+                return self._decode_html_content(raw_content, content_type), response.getheader(
+                    "Last-Modified", ""
+                )
 
-        except Exception as e:
+        except Exception:
             return None, None
 
-    def _decode_html_content(self, raw_content: bytes, content_type: str = '') -> Optional[str]:
+    def _decode_html_content(self, raw_content: bytes, content_type: str = "") -> Optional[str]:
         """智能解码HTML内容，尝试多种编码"""
         # 1. 首先尝试从Content-Type获取编码
         charset = None
-        if 'charset=' in content_type:
-            match = re.search(r'charset=([^\s;]+)', content_type, re.IGNORECASE)
+        if "charset=" in content_type:
+            match = re.search(r"charset=([^\s;]+)", content_type, re.IGNORECASE)
             if match:
                 charset = match.group(1).strip()
 
         # 2. 尝试检测HTML中的meta charset
         if not charset:
-            raw_str = raw_content[:500].decode('latin-1', errors='ignore')
+            raw_str = raw_content[:500].decode("latin-1", errors="ignore")
             meta_match = re.search(r'<meta[^>]+charset=["\']?([^s"\'>]+)', raw_str, re.IGNORECASE)
             if meta_match:
                 charset = meta_match.group(1).strip()
@@ -493,13 +509,13 @@ class KnowledgeUpdater:
         encodings_to_try = []
         if charset:
             encodings_to_try.append(charset.upper())
-        encodings_to_try.extend(['UTF-8', 'GB18030', 'GBK', 'BIG5', 'LATIN-1'])
+        encodings_to_try.extend(["UTF-8", "GB18030", "GBK", "BIG5", "LATIN-1"])
 
         for encoding in encodings_to_try:
             try:
-                content = raw_content.decode(encoding, errors='strict')
+                content = raw_content.decode(encoding, errors="strict")
                 # 验证：如果有中文字符且能正常显示，说明解码成功
-                if '碳' in content or '低' in content or '绿' in content:
+                if "碳" in content or "低" in content or "绿" in content:
                     return content
                 # 即使没有常见字，也返回（可能有其他内容）
                 return content
@@ -507,7 +523,7 @@ class KnowledgeUpdater:
                 continue
 
         # 4. 最后回退到 UTF-8 with ignore
-        return raw_content.decode('utf-8', errors='ignore')
+        return raw_content.decode("utf-8", errors="ignore")
 
     def _parse_html_content(self, html: str) -> ParsedContent:
         """解析HTML提取正文"""
@@ -531,7 +547,7 @@ class KnowledgeUpdater:
             title=title,
             content=text[:10000],  # 限制内容长度
             update_time=update_time,
-            source_url=""
+            source_url="",
         )
 
     def _fetch_content_hash(self, url: str) -> str:
@@ -600,8 +616,8 @@ class KnowledgeUpdater:
                     source=source.name,
                     url=source.url,
                     has_update=False,
-                    error=f"无法获取页面",
-                    timestamp=datetime.now().isoformat()
+                    error="无法获取页面",
+                    timestamp=datetime.now().isoformat(),
                 )
 
             content_hash = self._compute_content_hash(html)
@@ -613,7 +629,7 @@ class KnowledgeUpdater:
                     source=source.name,
                     url=source.url,
                     has_update=False,
-                    timestamp=datetime.now().isoformat()
+                    timestamp=datetime.now().isoformat(),
                 )
 
             if content_hash != source.last_hash:
@@ -629,14 +645,14 @@ class KnowledgeUpdater:
                     has_update=True,
                     new_content=[parsed.content],
                     update_time=parsed.update_time,
-                    timestamp=datetime.now().isoformat()
+                    timestamp=datetime.now().isoformat(),
                 )
 
             return UpdateResult(
                 source=source.name,
                 url=source.url,
                 has_update=False,
-                timestamp=datetime.now().isoformat()
+                timestamp=datetime.now().isoformat(),
             )
 
         except Exception as e:
@@ -645,7 +661,7 @@ class KnowledgeUpdater:
                 url=source.url,
                 has_update=False,
                 error=str(e),
-                timestamp=datetime.now().isoformat()
+                timestamp=datetime.now().isoformat(),
             )
 
     def _save_update_log(self, results: List[UpdateResult]):
@@ -655,27 +671,29 @@ class KnowledgeUpdater:
 
         if log_file.exists():
             try:
-                with open(log_file, 'r', encoding='utf-8') as f:
+                with open(log_file, "r", encoding="utf-8") as f:
                     logs = json.load(f)
             except Exception:
                 pass
 
         # 添加新记录
         for result in results:
-            logs.append({
-                'source': result.source,
-                'url': result.url,
-                'has_update': result.has_update,
-                'update_time': result.update_time,
-                'timestamp': result.timestamp,
-                'error': result.error
-            })
+            logs.append(
+                {
+                    "source": result.source,
+                    "url": result.url,
+                    "has_update": result.has_update,
+                    "update_time": result.update_time,
+                    "timestamp": result.timestamp,
+                    "error": result.error,
+                }
+            )
 
         # 只保留最近100条记录
         logs = logs[-100:]
 
         try:
-            with open(log_file, 'w', encoding='utf-8') as f:
+            with open(log_file, "w", encoding="utf-8") as f:
                 json.dump(logs, f, ensure_ascii=False, indent=2)
         except Exception as e:
             print(f"[KnowledgeUpdater] 保存更新日志失败: {e}")
@@ -693,7 +711,7 @@ class KnowledgeUpdater:
                 title=f"{result.source} 更新",
                 content=result.new_content[0] if result.new_content else "",
                 update_time=result.update_time,
-                source_url=result.url
+                source_url=result.url,
             )
 
             # 判断是否需要合并
@@ -702,7 +720,7 @@ class KnowledgeUpdater:
             if should_merge and existing_path:
                 # 合并到现有文档
                 merged_content = self._merger.merge_content(existing_path, parsed)
-                existing_path.write_text(merged_content, encoding='utf-8')
+                existing_path.write_text(merged_content, encoding="utf-8")
                 print(f"[KnowledgeUpdater] 已合并更新到: {existing_path.name}")
                 affected_paths.append(str(existing_path))
             else:
@@ -722,7 +740,7 @@ class KnowledgeUpdater:
     def _save_new_document(self, content: ParsedContent, source_name: str) -> Optional[str]:
         """保存为新文档,返回保存的文件路径字符串"""
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        safe_title = re.sub(r'[^\w一-鿿]+', '_', content.title)[:50]
+        safe_title = re.sub(r"[^\w一-鿿]+", "_", content.title)[:50]
         filename = f"{safe_title}_{timestamp}.md"
         filepath = self.updates_dir / filename
 
@@ -730,12 +748,12 @@ class KnowledgeUpdater:
             front_matter = f"""---
 title: {content.title}
 source: {content.source_url}
-update_time: {content.update_time or 'unknown'}
+update_time: {content.update_time or "unknown"}
 processed_at: {datetime.now().isoformat()}
 ---
 
 """
-            with open(filepath, 'w', encoding='utf-8') as f:
+            with open(filepath, "w", encoding="utf-8") as f:
                 f.write(front_matter)
                 f.write(content.content)
             print(f"[KnowledgeUpdater] 已保存新文档: {filename}")
@@ -751,27 +769,26 @@ processed_at: {datetime.now().isoformat()}
     def get_update_status(self) -> Dict:
         """获取更新状态"""
         return {
-            'sources_count': len(self.sources),
-            'last_check': self._last_update_check,
-            'updates_dir': str(self.updates_dir),
-            'sources': [
+            "sources_count": len(self.sources),
+            "last_check": self._last_update_check,
+            "updates_dir": str(self.updates_dir),
+            "sources": [
                 {
-                    'name': s.name,
-                    'type': s.type,
-                    'url': s.url,
-                    'last_check': s.last_check,
-                    'last_update_time': s.last_update_time
+                    "name": s.name,
+                    "type": s.type,
+                    "url": s.url,
+                    "last_check": s.last_check,
+                    "last_update_time": s.last_update_time,
                 }
                 for s in self.sources
-            ]
+            ],
         }
 
     def schedule_updates(self, callback: Optional[Callable] = None):
         """调度定期更新（需要在主循环中调用）"""
-        import time
 
         while True:
-            print(f"[KnowledgeUpdater] 执行定期检查...")
+            print("[KnowledgeUpdater] 执行定期检查...")
             results = self.check_updates()
 
             if callback:
@@ -814,13 +831,13 @@ processed_at: {datetime.now().isoformat()}
                     break
 
                 # 执行更新
-                print(f"[KnowledgeUpdater] 执行每日更新...")
+                print("[KnowledgeUpdater] 执行每日更新...")
                 try:
                     results = self.check_updates()
                     self.process_updates(results)
                     if callback:
                         callback(results)
-                    print(f"[KnowledgeUpdater] 每日更新完成")
+                    print("[KnowledgeUpdater] 每日更新完成")
                 except Exception as e:
                     print(f"[KnowledgeUpdater] 每日更新失败: {e}")
 
@@ -884,18 +901,18 @@ if __name__ == "__main__":
     print("\n[1] 更新状态:")
     status = updater.get_update_status()
     for key, value in status.items():
-        if key != 'sources':
+        if key != "sources":
             print(f"   {key}: {value}")
 
     print("\n[2] 可用源列表:")
-    for source in status['sources']:
+    for source in status["sources"]:
         print(f"   - {source['name']} ({source['type']})")
         print(f"     URL: {source['url']}")
 
     print("\n[3] 检查更新...")
     results = updater.check_updates()
     for result in results:
-        status_str = '有更新' if result.has_update else '无更新'
+        status_str = "有更新" if result.has_update else "无更新"
         update_info = f" (更新时间: {result.update_time})" if result.update_time else ""
         print(f"   - {result.source}: {status_str}{update_info}")
         if result.error:

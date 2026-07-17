@@ -123,6 +123,34 @@ X-Session-Id: <session_id>
 `CORS_ORIGINS` 显式白名单(逗号分隔),默认 `http://localhost:3000,http://127.0.0.1:3000`。
 **生产不要**用 `*` 或留空,避免 CSRF。
 
+### 前端 XSS 防护(P6.S.23)
+`web/index.html` 是单体内嵌 JS,所有 `innerHTML` 拼接用户/后端可控字段都必须过 `escapeHtml()`
+(覆盖 `& < > " ' \`` 6 类字符),在 PR-1 中加固:
+
+| 入口 | 修法 |
+|------|------|
+| `addMessage` 渲染助手消息 | `formatContent(content)` 先 `escapeHtml(String(content))` 再做 markdown 替换 |
+| 助手的 `recommendation.action` / `category` / `examples` | 模板里 `${escapeHtml(...)}` |
+| 助手的 `suggestion` 按钮 | 旧 `onclick="sendQuickMessage('${s.replace(/'/g, "\\'")}')"` 拼接(只转单引号不全)<br>→ 改 `data-suggestion="${escapeHtml(s)}"` + `setupChatContainerDelegation()` 单一 click listener |
+| 助手的 `knowledgeRefs` | `escapeHtml(typeof k === 'string' ? k : (k.title \|\| k.name \|\| ...))` |
+| 政策列表 `policies.title/source/summary/key_points` | 全部 `escapeHtml(...)` |
+| 画像 `ctx.behavior_stage / basic_info_summary` | 全部 `escapeHtml(...)` |
+| 反馈按钮(comment / reason) | 改 `data-fb` + `data-msg-id` + 事件委托,无拼接 |
+
+**触发场景示例**(修复前会执行 JS):
+- LLM 答 `<script>alert(1)</script>` → DOM 直接执行
+- 第三方政策源 `policy.title = '<img onerror=alert(1)>'` → DOM 注入
+- 助手建议文本 `'); evil(); //` → onclick 内代码执行
+
+**验证**:`tests/test_p6s23_xss_helpers.py` 14 个测试 + `test_p6s23_intent_location.py` 10 个测试
+覆盖 escapeHtml 完整性、`formatContent` 顺序、所有内联 onclick 已迁移、crypto.randomUUID 替代等。
+
+### 事件委托替代内联 onclick
+PR-1 之前 30+ 处内联 `onclick="..."` 既不安全(转义不全)也难维护。
+PR-1 之后:
+- `chat-container` 上挂一个 click listener,按 `data-fb` / `data-suggestion` / `data-retry` / `data-msg-id` 派发
+- 其余 fixed 元素(header / 设置按钮 / Tab 切换)继续用 `addEventListener`(本就正确)
+
 ## 8. 已知限制
 
 - **内存限流不跨进程**:单机部署 OK,多 worker(Nginx upstream)需用 Redis 替代

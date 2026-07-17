@@ -2,6 +2,7 @@
 反馈事件订阅者
 收到 FEEDBACK_RECEIVED 时更新用户画像(likes/dislikes 反映偏好)
 """
+
 import logging
 
 from events import EventType, get_event_bus
@@ -9,17 +10,23 @@ from events import EventType, get_event_bus
 logger = logging.getLogger(__name__)
 
 
-def _update_profile_preferences(user_id: str, feedback_type: str, reason=None, comment=None) -> None:
+def _update_profile_preferences(
+    user_id: str, feedback_type: str, reason=None, comment=None
+) -> None:
     """根据反馈调整用户画像的偏好"""
     try:
         from user_profile.user_profile import UserProfileManager
+
         pm = UserProfileManager()
         profile = pm.get_profile(user_id)
-        prefs = profile.get("eco_profile", {}).setdefault("feedback_preferences", {
-            "liked_categories": [],
-            "disliked_categories": [],
-            "last_feedback": None,
-        })
+        prefs = profile.get("eco_profile", {}).setdefault(
+            "feedback_preferences",
+            {
+                "liked_categories": [],
+                "disliked_categories": [],
+                "last_feedback": None,
+            },
+        )
         if feedback_type == "like":
             # 点赞:把 comment 或 reason 提到的领域记为偏好
             text = comment or reason or ""
@@ -30,6 +37,7 @@ def _update_profile_preferences(user_id: str, feedback_type: str, reason=None, c
             if text and text not in prefs["disliked_categories"]:
                 prefs["disliked_categories"].append(text)
         from datetime import datetime
+
         prefs["last_feedback"] = datetime.now().isoformat()
         pm.update_eco_profile(user_id, {"feedback_preferences": prefs})
         logger.info("[Feedback→Profile] 更新用户 %s 画像: type=%s", user_id, feedback_type)

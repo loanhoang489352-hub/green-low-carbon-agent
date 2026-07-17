@@ -19,11 +19,12 @@ P6.E.1 修复:
 - 归还时还要检测连接健康
 - threading.local + TTL 是最简方案
 """
+
 import sqlite3
 import threading
 import time
 from pathlib import Path
-from typing import Dict, Optional, Tuple
+from typing import Dict, Tuple
 
 # 缓存 key: (db_path, thread_id) → (conn, last_used_ts, prisma_set_done)
 _CACHE: Dict[Tuple[str, int], Tuple[sqlite3.Connection, float]] = {}

@@ -49,8 +49,30 @@ def register_profile_routes(registry) -> None:
         handler.send_json({"history": history})
 
     # P6.S.7: profile/personalization/stats 改 False(前端 loadProfile 没传 token)
-    registry.add_route("GET", "^/api/profile/", profile_get, auth_required=False, description="用户画像(GET)")
-    registry.add_route("GET", "^/api/personalization/", personalization_get, auth_required=False, description="个性化上下文(GET)")
-    registry.add_route("POST", "/api/personalization/context", personalization_context, auth_required=False, description="个性化上下文(POST)")
-    registry.add_route("GET", "^/api/stats/", user_stats, auth_required=False, description="用户统计")
-    registry.add_route("GET", "^/api/conversation/", conversation_get, auth_required=True, description="对话历史(GET)")
+    registry.add_route(
+        "GET", "^/api/profile/", profile_get, auth_required=False, description="用户画像(GET)"
+    )
+    registry.add_route(
+        "GET",
+        "^/api/personalization/",
+        personalization_get,
+        auth_required=False,
+        description="个性化上下文(GET)",
+    )
+    registry.add_route(
+        "POST",
+        "/api/personalization/context",
+        personalization_context,
+        auth_required=False,
+        description="个性化上下文(POST)",
+    )
+    registry.add_route(
+        "GET", "^/api/stats/", user_stats, auth_required=False, description="用户统计"
+    )
+    registry.add_route(
+        "GET",
+        "^/api/conversation/",
+        conversation_get,
+        auth_required=True,
+        description="对话历史(GET)",
+    )

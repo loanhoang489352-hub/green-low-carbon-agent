@@ -21,6 +21,7 @@
 
 参考:图片集/4.jpg "Day36: 你的 AI Agent 为什么每次对话都'失忆'? 三层记忆模型彻底解决"
 """
+
 from __future__ import annotations
 
 import json
@@ -29,14 +30,16 @@ import sys
 import threading
 from datetime import datetime, timedelta
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Set, Tuple
+from typing import Any, Dict, List, Optional
 
 # P5-F: 模块级 logger
 try:
     from observability import get_logger
+
     _logger = get_logger("memory.working")
 except Exception:
     import logging
+
     _logger = logging.getLogger("memory.working")
 
 project_root = Path(__file__).parent.parent.parent
@@ -63,17 +66,49 @@ WORKSPACE_SNAPSHOT_DIR = project_root / "data" / "memory_snapshots"
 
 # 明确信号:用户明确表示引用之前
 EXPLICIT_RECALL_SIGNALS = (
-    "上次", "之前", "前面", "昨天", "前天", "之前那次", "上次那个",
-    "继续", "接着", "还记得", "你记得", "之前聊过", "我们说过",
-    "刚才", "之前那个", "之前聊的", "以前",
+    "上次",
+    "之前",
+    "前面",
+    "昨天",
+    "前天",
+    "之前那次",
+    "上次那个",
+    "继续",
+    "接着",
+    "还记得",
+    "你记得",
+    "之前聊过",
+    "我们说过",
+    "刚才",
+    "之前那个",
+    "之前聊的",
+    "以前",
 )
 
 # 隐式信号:需要上下文才能理解
 IMPLICIT_RECALL_SIGNALS = (
-    "那个", "那个方案", "换一下", "换成", "调整一下", "改一下",
-    "第二个", "第N个", "再来一次", "类似", "同上次", "和上次一样",
-    "跟上次", "和之前", "那个", "前面", "更早", "上次那个",
-    "再试", "再聊聊", "用之前那个", "继续刚才",
+    "那个",
+    "那个方案",
+    "换一下",
+    "换成",
+    "调整一下",
+    "改一下",
+    "第二个",
+    "第N个",
+    "再来一次",
+    "类似",
+    "同上次",
+    "和上次一样",
+    "跟上次",
+    "和之前",
+    "那个",
+    "前面",
+    "更早",
+    "上次那个",
+    "再试",
+    "再聊聊",
+    "用之前那个",
+    "继续刚才",
 )
 
 
@@ -179,18 +214,22 @@ class _UserWorkspace:
                 "type": type(value).__name__,
                 "agent": agent_name,
                 "importance": max(0.0, min(1.0, importance)),
-                "created_at": existing.get("created_at") if existing else datetime.now().isoformat(),
+                "created_at": existing.get("created_at")
+                if existing
+                else datetime.now().isoformat(),
                 "updated_at": datetime.now().isoformat(),
                 "accessed_at": datetime.now().isoformat(),
                 "access_count": existing.get("access_count", 0) if existing else 0,
             }
-            self.task_log.append({
-                "op": "set",
-                "key": key,
-                "agent": agent_name,
-                "overwritten": overwritten,
-                "timestamp": datetime.now().isoformat(),
-            })
+            self.task_log.append(
+                {
+                    "op": "set",
+                    "key": key,
+                    "agent": agent_name,
+                    "overwritten": overwritten,
+                    "timestamp": datetime.now().isoformat(),
+                }
+            )
             if len(self.task_log) > 200:
                 self.task_log = self.task_log[-200:]
             self.touch()
@@ -200,12 +239,14 @@ class _UserWorkspace:
         with self._lock:
             if key in self.scope:
                 del self.scope[key]
-                self.task_log.append({
-                    "op": "delete",
-                    "key": key,
-                    "agent": agent_name,
-                    "timestamp": datetime.now().isoformat(),
-                })
+                self.task_log.append(
+                    {
+                        "op": "delete",
+                        "key": key,
+                        "agent": agent_name,
+                        "timestamp": datetime.now().isoformat(),
+                    }
+                )
                 return True
             return False
 
@@ -292,11 +333,13 @@ class WorkingMemory:
                     f" 先 end_task 再 start 避免污染"
                 )
             ws.current_task = task_name
-            ws.task_log.append({
-                "op": "start_task",
-                "task": task_name,
-                "timestamp": datetime.now().isoformat(),
-            })
+            ws.task_log.append(
+                {
+                    "op": "start_task",
+                    "task": task_name,
+                    "timestamp": datetime.now().isoformat(),
+                }
+            )
             ws.touch()
 
     def end_task(self, user_id: str, clear: bool = True) -> None:
@@ -308,13 +351,15 @@ class WorkingMemory:
         """
         ws = self._get_workspace(user_id)
         with ws._lock:
-            ws.task_log.append({
-                "op": "end_task",
-                "task": ws.current_task,
-                "clear": clear,
-                "scope_size": len(ws.scope),
-                "timestamp": datetime.now().isoformat(),
-            })
+            ws.task_log.append(
+                {
+                    "op": "end_task",
+                    "task": ws.current_task,
+                    "clear": clear,
+                    "scope_size": len(ws.scope),
+                    "timestamp": datetime.now().isoformat(),
+                }
+            )
             if clear:
                 ws.scope = {}
             ws.current_task = None
@@ -417,10 +462,12 @@ class WorkingMemory:
             for user_id, ws in list(self._workspaces.items()):
                 with ws._lock:
                     expired_keys = [
-                        k for k, v in ws.scope.items()
+                        k
+                        for k, v in ws.scope.items()
                         if datetime.fromisoformat(
                             v.get("accessed_at", v.get("updated_at", datetime.now().isoformat()))
-                        ) < cutoff
+                        )
+                        < cutoff
                         and v.get("importance", 0.5) < 0.8  # 重要的不淘汰
                     ]
                     for k in expired_keys:

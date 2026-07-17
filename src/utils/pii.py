@@ -17,6 +17,7 @@ PII 脱敏工具(P5-I.A)
 - "识别不到就原样保留"(宁可漏不可错)
 - 静默不抛异常(主流程不能因脱敏失败挂掉)
 """
+
 from __future__ import annotations
 
 import re
@@ -24,9 +25,7 @@ from typing import Any, Optional
 
 
 _PHONE_RE = re.compile(r"(?<!\d)1[3-9]\d{9}(?!\d)")
-_EMAIL_RE = re.compile(
-    r"([A-Za-z0-9._%+\-]+)@([A-Za-z0-9.\-]+\.[A-Za-z]{2,})"
-)
+_EMAIL_RE = re.compile(r"([A-Za-z0-9._%+\-]+)@([A-Za-z0-9.\-]+\.[A-Za-z]{2,})")
 _ID_CARD_RE = re.compile(r"(?<!\d)[1-9]\d{16}[\dXx](?!\d)")
 _BANK_CARD_RE = re.compile(r"(?<!\d)\d{13,19}(?!\d)")
 
@@ -76,9 +75,7 @@ def mask_id_card(text: str) -> str:
     """
     if not text:
         return text
-    return _ID_CARD_RE.sub(
-        lambda m: m.group(0)[:6] + "********" + m.group(0)[14:], text
-    )
+    return _ID_CARD_RE.sub(lambda m: m.group(0)[:6] + "********" + m.group(0)[14:], text)
 
 
 def mask_bank_card(text: str) -> str:
@@ -104,9 +101,7 @@ def mask_address(text: str) -> str:
     """
     if not text:
         return text
-    return _ADDRESS_RE.sub(
-        lambda m: m.group(0)[:12] + "***", text
-    )
+    return _ADDRESS_RE.sub(lambda m: m.group(0)[:12] + "***", text)
 
 
 def mask_pii(text: str) -> str:
@@ -142,7 +137,8 @@ def mask_pii_in_dict(data: Optional[dict]) -> Optional[dict]:
             masked[k] = mask_pii_in_dict(v)
         elif isinstance(v, list):
             masked[k] = [
-                mask_pii(item) if isinstance(item, str)
+                mask_pii(item)
+                if isinstance(item, str)
                 else (mask_pii_in_dict(item) if isinstance(item, dict) else item)
                 for item in v
             ]

@@ -3,16 +3,15 @@
 基于用户画像和上下文生成个性化建议
 """
 
-import json
 import random
-from typing import Dict, List, Any, Optional
-from datetime import datetime
+from typing import Dict, List, Any
 from dataclasses import dataclass
 
 
 @dataclass
 class Recommendation:
     """推荐结果"""
+
     action: str
     category: str
     reason: str
@@ -42,13 +41,10 @@ class PersonalizedRecommendationEngine:
                     "carbon_saving": "每次约0.5-2kg CO2",
                     "reason_templates": [
                         "短距离骑行不仅环保，还能锻炼身体",
-                        "步行是最环保的出行方式，还省钱"
+                        "步行是最环保的出行方式，还省钱",
                     ],
-                    "examples": [
-                        "3公里以内可以步行或骑共享单车",
-                        "小区周边购物步行即可"
-                    ],
-                    "personalization_hints": ["通勤距离", "交通工具"]
+                    "examples": ["3公里以内可以步行或骑共享单车", "小区周边购物步行即可"],
+                    "personalization_hints": ["通勤距离", "交通工具"],
                 },
                 {
                     "action": "每周选择一天公共交通出行",
@@ -57,13 +53,10 @@ class PersonalizedRecommendationEngine:
                     "carbon_saving": "每周约5-10kg CO2",
                     "reason_templates": [
                         "公共交通可以显著减少个人碳排放",
-                        "减少开车还能省油费停车费"
+                        "减少开车还能省油费停车费",
                     ],
-                    "examples": [
-                        "周三不开车，坐地铁或公交上班",
-                        "周末逛商场坐公交去"
-                    ],
-                    "personalization_hints": ["通勤方式", "停车便利性"]
+                    "examples": ["周三不开车，坐地铁或公交上班", "周末逛商场坐公交去"],
+                    "personalization_hints": ["通勤方式", "停车便利性"],
                 },
                 {
                     "action": "搭载同事或朋友拼车出行",
@@ -72,14 +65,11 @@ class PersonalizedRecommendationEngine:
                     "carbon_saving": "每次约2-5kg CO2/人",
                     "reason_templates": [
                         "拼车可以大幅减少道路车辆数量",
-                        "和朋友一起通勤还能聊天解闷"
+                        "和朋友一起通勤还能聊天解闷",
                     ],
-                    "examples": [
-                        "和邻居拼车上下班",
-                        "顺路接送孩子时约其他家长"
-                    ],
-                    "personalization_hints": ["通勤路线", "家庭成员"]
-                }
+                    "examples": ["和邻居拼车上下班", "顺路接送孩子时约其他家长"],
+                    "personalization_hints": ["通勤路线", "家庭成员"],
+                },
             ],
             "medium": [
                 {
@@ -89,13 +79,10 @@ class PersonalizedRecommendationEngine:
                     "carbon_saving": "每年约2-4吨 CO2",
                     "reason_templates": [
                         "电动车虽然充电有碳排放，但整体比燃油车少60%以上",
-                        "长期使用成本更低，保养更简单"
+                        "长期使用成本更低，保养更简单",
                     ],
-                    "examples": [
-                        "比亚迪、蔚来、特斯拉等都是不错的选择",
-                        "看看是否有购车补贴政策"
-                    ],
-                    "personalization_hints": ["收入水平", "家庭用车需求"]
+                    "examples": ["比亚迪、蔚来、特斯拉等都是不错的选择", "看看是否有购车补贴政策"],
+                    "personalization_hints": ["收入水平", "家庭用车需求"],
                 },
                 {
                     "action": "优化通勤路线，减少开车频率",
@@ -104,14 +91,11 @@ class PersonalizedRecommendationEngine:
                     "carbon_saving": "每月约30-60kg CO2",
                     "reason_templates": [
                         "合理规划路线可以减少无效里程",
-                        "减少开车还能缓解交通压力"
+                        "减少开车还能缓解交通压力",
                     ],
-                    "examples": [
-                        "住得近的同事可以轮流开车",
-                        "在地铁站附近停车换乘"
-                    ],
-                    "personalization_hints": ["通勤距离", "工作地点交通"]
-                }
+                    "examples": ["住得近的同事可以轮流开车", "在地铁站附近停车换乘"],
+                    "personalization_hints": ["通勤距离", "工作地点交通"],
+                },
             ],
             "hard": [
                 {
@@ -121,15 +105,12 @@ class PersonalizedRecommendationEngine:
                     "carbon_saving": "配合电动车使用效果更佳",
                     "reason_templates": [
                         "在家充电更方便，还能利用低谷电价",
-                        "配合太阳能发电系统效果更好"
+                        "配合太阳能发电系统效果更好",
                     ],
-                    "examples": [
-                        "咨询物业和电力公司申请流程",
-                        "了解当地的补贴政策"
-                    ],
-                    "personalization_hints": ["住房类型", "收入水平"]
+                    "examples": ["咨询物业和电力公司申请流程", "了解当地的补贴政策"],
+                    "personalization_hints": ["住房类型", "收入水平"],
                 }
-            ]
+            ],
         },
         "家居": {
             "easy": [
@@ -138,15 +119,9 @@ class PersonalizedRecommendationEngine:
                     "difficulty": "easy",
                     "impact": "low",
                     "carbon_saving": "每月约5-15kg CO2",
-                    "reason_templates": [
-                        "随手关灯是最简单的节能方式",
-                        "养成习惯后完全不费力"
-                    ],
-                    "examples": [
-                        "离开客厅就关灯",
-                        "白天充分利用自然光"
-                    ],
-                    "personalization_hints": ["家庭成员"]
+                    "reason_templates": ["随手关灯是最简单的节能方式", "养成习惯后完全不费力"],
+                    "examples": ["离开客厅就关灯", "白天充分利用自然光"],
+                    "personalization_hints": ["家庭成员"],
                 },
                 {
                     "action": "空调温度夏天调高1度，冬天调低1度",
@@ -155,13 +130,10 @@ class PersonalizedRecommendationEngine:
                     "carbon_saving": "每年约200-500kg CO2",
                     "reason_templates": [
                         "1度的温差人体几乎感觉不到，但能省不少电",
-                        "空调是家庭耗电大户，温度调整效果明显"
+                        "空调是家庭耗电大户，温度调整效果明显",
                     ],
-                    "examples": [
-                        "夏天设置26度，冬天设置20度",
-                        "睡觉时再调低/高1-2度"
-                    ],
-                    "personalization_hints": ["家庭用电习惯", "空调使用频率"]
+                    "examples": ["夏天设置26度，冬天设置20度", "睡觉时再调低/高1-2度"],
+                    "personalization_hints": ["家庭用电习惯", "空调使用频率"],
                 },
                 {
                     "action": "拔掉不用的电器插头",
@@ -170,14 +142,11 @@ class PersonalizedRecommendationEngine:
                     "carbon_saving": "每月约10-20kg CO2",
                     "reason_templates": [
                         "电器待机也会耗电，叫'吸血鬼电力'",
-                        "集中在一个插排上方便开关"
+                        "集中在一个插排上方便开关",
                     ],
-                    "examples": [
-                        "电视、机顶盒、充电器等不用时拔掉",
-                        "使用带开关的插排"
-                    ],
-                    "personalization_hints": ["家电数量"]
-                }
+                    "examples": ["电视、机顶盒、充电器等不用时拔掉", "使用带开关的插排"],
+                    "personalization_hints": ["家电数量"],
+                },
             ],
             "medium": [
                 {
@@ -187,29 +156,20 @@ class PersonalizedRecommendationEngine:
                     "carbon_saving": "每年约100-200kg CO2",
                     "reason_templates": [
                         "LED灯比白炽灯节能80%以上",
-                        "虽然单价高一些，但寿命长8-10倍"
+                        "虽然单价高一些，但寿命长8-10倍",
                     ],
-                    "examples": [
-                        "先换家里最常用的几个灯",
-                        "购买时选择正规品牌"
-                    ],
-                    "personalization_hints": ["住房情况", "收入水平"]
+                    "examples": ["先换家里最常用的几个灯", "购买时选择正规品牌"],
+                    "personalization_hints": ["住房情况", "收入水平"],
                 },
                 {
                     "action": "使用智能插座或定时器控制电器",
                     "difficulty": "medium",
                     "impact": "medium",
                     "carbon_saving": "每月约10-30kg CO2",
-                    "reason_templates": [
-                        "智能控制可以避免忘记关闭电器",
-                        "定时开关更方便"
-                    ],
-                    "examples": [
-                        "电热水器设定时开关",
-                        "路由器设置夜间关闭"
-                    ],
-                    "personalization_hints": ["科技接受度", "家电类型"]
-                }
+                    "reason_templates": ["智能控制可以避免忘记关闭电器", "定时开关更方便"],
+                    "examples": ["电热水器设定时开关", "路由器设置夜间关闭"],
+                    "personalization_hints": ["科技接受度", "家电类型"],
+                },
             ],
             "hard": [
                 {
@@ -219,30 +179,21 @@ class PersonalizedRecommendationEngine:
                     "carbon_saving": "每年约500-1000kg CO2",
                     "reason_templates": [
                         "智能家居可以精细化管理用电",
-                        "虽然投入较大，但长期收益明显"
+                        "虽然投入较大，但长期收益明显",
                     ],
-                    "examples": [
-                        "米家、绿米等智能家居生态",
-                        "从简单的智能插座开始逐步升级"
-                    ],
-                    "personalization_hints": ["收入水平", "科技接受度", "住房情况"]
+                    "examples": ["米家、绿米等智能家居生态", "从简单的智能插座开始逐步升级"],
+                    "personalization_hints": ["收入水平", "科技接受度", "住房情况"],
                 },
                 {
                     "action": "安装太阳能光伏发电系统",
                     "difficulty": "hard",
                     "impact": "very_high",
                     "carbon_saving": "每年约1-3吨 CO2",
-                    "reason_templates": [
-                        "太阳能是真正的清洁能源",
-                        "多余电力可以卖给电网"
-                    ],
-                    "examples": [
-                        "咨询当地的光伏安装公司",
-                        "了解安装条件和补贴政策"
-                    ],
-                    "personalization_hints": ["住房类型", "地区光照", "收入水平"]
-                }
-            ]
+                    "reason_templates": ["太阳能是真正的清洁能源", "多余电力可以卖给电网"],
+                    "examples": ["咨询当地的光伏安装公司", "了解安装条件和补贴政策"],
+                    "personalization_hints": ["住房类型", "地区光照", "收入水平"],
+                },
+            ],
         },
         "消费": {
             "easy": [
@@ -251,15 +202,9 @@ class PersonalizedRecommendationEngine:
                     "difficulty": "easy",
                     "impact": "low",
                     "carbon_saving": "每月约5-10kg CO2",
-                    "reason_templates": [
-                        "塑料袋难降解，污染环境",
-                        "环保袋结实耐用，长期更省钱"
-                    ],
-                    "examples": [
-                        "买菜、逛超市都带上环保袋",
-                        "车里、包里各放一个备用"
-                    ],
-                    "personalization_hints": ["购物习惯"]
+                    "reason_templates": ["塑料袋难降解，污染环境", "环保袋结实耐用，长期更省钱"],
+                    "examples": ["买菜、逛超市都带上环保袋", "车里、包里各放一个备用"],
+                    "personalization_hints": ["购物习惯"],
                 },
                 {
                     "action": "减少一次性塑料制品使用",
@@ -268,29 +213,20 @@ class PersonalizedRecommendationEngine:
                     "carbon_saving": "每月约3-8kg CO2",
                     "reason_templates": [
                         "一次性塑料是最大的污染源之一",
-                        "使用可重复使用的物品更环保"
+                        "使用可重复使用的物品更环保",
                     ],
-                    "examples": [
-                        "自带水杯、餐具、吸管",
-                        "拒绝一次性餐具"
-                    ],
-                    "personalization_hints": ["饮食习惯", "工作环境"]
+                    "examples": ["自带水杯、餐具、吸管", "拒绝一次性餐具"],
+                    "personalization_hints": ["饮食习惯", "工作环境"],
                 },
                 {
                     "action": "购买本地食材，减少食品运输碳排放",
                     "difficulty": "easy",
                     "impact": "medium",
                     "carbon_saving": "每月约20-50kg CO2",
-                    "reason_templates": [
-                        "食品运输是碳排放的重要来源",
-                        "本地食材更新鲜"
-                    ],
-                    "examples": [
-                        "去菜市场或农场直销点买菜",
-                        "关注食材产地标签"
-                    ],
-                    "personalization_hints": ["饮食习惯", "购物习惯"]
-                }
+                    "reason_templates": ["食品运输是碳排放的重要来源", "本地食材更新鲜"],
+                    "examples": ["去菜市场或农场直销点买菜", "关注食材产地标签"],
+                    "personalization_hints": ["饮食习惯", "购物习惯"],
+                },
             ],
             "medium": [
                 {
@@ -300,29 +236,20 @@ class PersonalizedRecommendationEngine:
                     "carbon_saving": "累计效果显著",
                     "reason_templates": [
                         "环保认证产品通常更耐用、更环保",
-                        "虽然可能贵一点，但品质更有保障"
+                        "虽然可能贵一点，但品质更有保障",
                     ],
-                    "examples": [
-                        "选购有绿色食品标志的食品",
-                        "选择有能效标识的家电"
-                    ],
-                    "personalization_hints": ["收入水平", "消费习惯"]
+                    "examples": ["选购有绿色食品标志的食品", "选择有能效标识的家电"],
+                    "personalization_hints": ["收入水平", "消费习惯"],
                 },
                 {
                     "action": "减少冲动消费，只买需要的东西",
                     "difficulty": "medium",
                     "impact": "high",
                     "carbon_saving": "视消费额而定",
-                    "reason_templates": [
-                        "减少消费是最有效的减排方式",
-                        "理性消费还能省钱"
-                    ],
-                    "examples": [
-                        "购物前列清单",
-                        "等几天再决定是否购买"
-                    ],
-                    "personalization_hints": ["消费习惯", "收入水平"]
-                }
+                    "reason_templates": ["减少消费是最有效的减排方式", "理性消费还能省钱"],
+                    "examples": ["购物前列清单", "等几天再决定是否购买"],
+                    "personalization_hints": ["消费习惯", "收入水平"],
+                },
             ],
             "hard": [
                 {
@@ -330,17 +257,11 @@ class PersonalizedRecommendationEngine:
                     "difficulty": "hard",
                     "impact": "high",
                     "carbon_saving": "显著减少碳足迹",
-                    "reason_templates": [
-                        "可持续品牌注重环保和公平",
-                        "二手交易可以延长物品寿命"
-                    ],
-                    "examples": [
-                        "购买二手书籍、家具",
-                        "选择承诺可持续发展的品牌"
-                    ],
-                    "personalization_hints": ["消费观念", "收入水平"]
+                    "reason_templates": ["可持续品牌注重环保和公平", "二手交易可以延长物品寿命"],
+                    "examples": ["购买二手书籍、家具", "选择承诺可持续发展的品牌"],
+                    "personalization_hints": ["消费观念", "收入水平"],
                 }
-            ]
+            ],
         },
         "饮食": {
             "easy": [
@@ -351,13 +272,10 @@ class PersonalizedRecommendationEngine:
                     "carbon_saving": "每月约30-80kg CO2",
                     "reason_templates": [
                         "食物浪费不仅是浪费钱，还浪费了生产它时的碳排放",
-                        "按需购买、合理储存可以大大减少浪费"
+                        "按需购买、合理储存可以大大减少浪费",
                     ],
-                    "examples": [
-                        "少做一点，按食量做饭",
-                        "吃不完的下一顿继续吃"
-                    ],
-                    "personalization_hints": ["家庭规模", "饮食习惯"]
+                    "examples": ["少做一点，按食量做饭", "吃不完的下一顿继续吃"],
+                    "personalization_hints": ["家庭规模", "饮食习惯"],
                 },
                 {
                     "action": "每周尝试一天素食",
@@ -366,29 +284,20 @@ class PersonalizedRecommendationEngine:
                     "carbon_saving": "每周约15-30kg CO2",
                     "reason_templates": [
                         "肉类生产碳排放很高，减少吃肉就是减排",
-                        "素食也很有营养，还有助于健康"
+                        "素食也很有营养，还有助于健康",
                     ],
-                    "examples": [
-                        "周一设为'无肉日'",
-                        "尝试一些素食食谱"
-                    ],
-                    "personalization_hints": ["饮食习惯", "家庭成员"]
+                    "examples": ["周一设为'无肉日'", "尝试一些素食食谱"],
+                    "personalization_hints": ["饮食习惯", "家庭成员"],
                 },
                 {
                     "action": "减少外卖订餐",
                     "difficulty": "easy",
                     "impact": "medium",
                     "carbon_saving": "每次约1-3kg CO2",
-                    "reason_templates": [
-                        "外卖包装和配送都会产生碳排放",
-                        "自己做饭更健康、更省钱"
-                    ],
-                    "examples": [
-                        "中午带饭上班",
-                        "周末在家做饭"
-                    ],
-                    "personalization_hints": ["工作环境", "饮食习惯"]
-                }
+                    "reason_templates": ["外卖包装和配送都会产生碳排放", "自己做饭更健康、更省钱"],
+                    "examples": ["中午带饭上班", "周末在家做饭"],
+                    "personalization_hints": ["工作环境", "饮食习惯"],
+                },
             ],
             "medium": [
                 {
@@ -396,15 +305,9 @@ class PersonalizedRecommendationEngine:
                     "difficulty": "medium",
                     "impact": "low",
                     "carbon_saving": "每月约10-20kg CO2",
-                    "reason_templates": [
-                        "当季蔬菜不需要大棚加热",
-                        "本地蔬菜减少运输碳排放"
-                    ],
-                    "examples": [
-                        "夏天多吃瓜果，冬天多吃萝卜白菜",
-                        "去菜市场买当天的菜"
-                    ],
-                    "personalization_hints": ["饮食习惯", "购物习惯"]
+                    "reason_templates": ["当季蔬菜不需要大棚加热", "本地蔬菜减少运输碳排放"],
+                    "examples": ["夏天多吃瓜果，冬天多吃萝卜白菜", "去菜市场买当天的菜"],
+                    "personalization_hints": ["饮食习惯", "购物习惯"],
                 }
             ],
             "hard": [
@@ -413,17 +316,11 @@ class PersonalizedRecommendationEngine:
                     "difficulty": "hard",
                     "impact": "high",
                     "carbon_saving": "通过了解带动行动",
-                    "reason_templates": [
-                        "了解自己的碳排放才能更好地减排",
-                        "数据化管理更科学"
-                    ],
-                    "examples": [
-                        "使用碳足迹计算器",
-                        "记录每月的用电量、开车里程等"
-                    ],
-                    "personalization_hints": ["知识水平", "科技接受度"]
+                    "reason_templates": ["了解自己的碳排放才能更好地减排", "数据化管理更科学"],
+                    "examples": ["使用碳足迹计算器", "记录每月的用电量、开车里程等"],
+                    "personalization_hints": ["知识水平", "科技接受度"],
                 }
-            ]
+            ],
         },
         "垃圾分类": {
             "easy": [
@@ -432,31 +329,19 @@ class PersonalizedRecommendationEngine:
                     "difficulty": "easy",
                     "impact": "medium",
                     "carbon_saving": "提高回收率",
-                    "reason_templates": [
-                        "分类是回收的前提",
-                        "在家就分好，投放更方便"
-                    ],
-                    "examples": [
-                        "设置可回收/不可回收两个桶",
-                        "厨余垃圾单独存放"
-                    ],
-                    "personalization_hints": ["住房情况", "家庭成员"]
+                    "reason_templates": ["分类是回收的前提", "在家就分好，投放更方便"],
+                    "examples": ["设置可回收/不可回收两个桶", "厨余垃圾单独存放"],
+                    "personalization_hints": ["住房情况", "家庭成员"],
                 },
                 {
                     "action": "了解当地垃圾分类规则",
                     "difficulty": "easy",
                     "impact": "medium",
                     "carbon_saving": "正确分类才能有效回收",
-                    "reason_templates": [
-                        "不同城市分类标准可能不同",
-                        "正确分类是环保的基础"
-                    ],
-                    "examples": [
-                        "查询当地垃圾分类指南",
-                        "记住常见物品的分类"
-                    ],
-                    "personalization_hints": ["地区"]
-                }
+                    "reason_templates": ["不同城市分类标准可能不同", "正确分类是环保的基础"],
+                    "examples": ["查询当地垃圾分类指南", "记住常见物品的分类"],
+                    "personalization_hints": ["地区"],
+                },
             ],
             "medium": [
                 {
@@ -464,15 +349,9 @@ class PersonalizedRecommendationEngine:
                     "difficulty": "medium",
                     "impact": "medium",
                     "carbon_saving": "每吨可回收物减排约1.5吨 CO2",
-                    "reason_templates": [
-                        "回收利用可以大大减少原材料开采",
-                        "很多物品都可以回收"
-                    ],
-                    "examples": [
-                        "收集废纸、塑料瓶送回收站",
-                        "电子垃圾送专业回收点"
-                    ],
-                    "personalization_hints": ["居住环境"]
+                    "reason_templates": ["回收利用可以大大减少原材料开采", "很多物品都可以回收"],
+                    "examples": ["收集废纸、塑料瓶送回收站", "电子垃圾送专业回收点"],
+                    "personalization_hints": ["居住环境"],
                 }
             ],
             "hard": [
@@ -483,16 +362,13 @@ class PersonalizedRecommendationEngine:
                     "carbon_saving": "影响更多人",
                     "reason_templates": [
                         "一个人的力量有限，集体行动影响更大",
-                        "参与活动还能结识志同道合的朋友"
+                        "参与活动还能结识志同道合的朋友",
                     ],
-                    "examples": [
-                        "参加社区垃圾分类志愿活动",
-                        "组织邻居一起环保"
-                    ],
-                    "personalization_hints": ["社交意愿", "时间精力"]
+                    "examples": ["参加社区垃圾分类志愿活动", "组织邻居一起环保"],
+                    "personalization_hints": ["社交意愿", "时间精力"],
                 }
-            ]
-        }
+            ],
+        },
     }
 
     # 行为阶段推荐策略
@@ -502,36 +378,36 @@ class PersonalizedRecommendationEngine:
             "suggestion_count": 1,
             "focus": "意识唤醒",
             "tone": "鼓励性",
-            "highlight": "简单易行的小行动"
+            "highlight": "简单易行的小行动",
         },
         "意向": {
             "difficulty_filter": ["easy", "medium"],
             "suggestion_count": 2,
             "focus": "动机强化",
             "tone": "积极正面",
-            "highlight": "行动的好处和意义"
+            "highlight": "行动的好处和意义",
         },
         "准备": {
             "difficulty_filter": ["easy", "medium"],
             "suggestion_count": 2,
             "focus": "行动计划",
             "tone": "务实指导",
-            "highlight": "具体步骤和注意事项"
+            "highlight": "具体步骤和注意事项",
         },
         "行动": {
             "difficulty_filter": ["medium", "hard"],
             "suggestion_count": 2,
             "focus": "坚持支持",
             "tone": "支持鼓励",
-            "highlight": "成功案例和进步追踪"
+            "highlight": "成功案例和进步追踪",
         },
         "维持": {
             "difficulty_filter": ["hard"],
             "suggestion_count": 2,
             "focus": "深度拓展",
             "tone": "专业深入",
-            "highlight": "进阶技巧和创新方法"
-        }
+            "highlight": "进阶技巧和创新方法",
+        },
     }
 
     # 收入水平建议调整
@@ -540,68 +416,223 @@ class PersonalizedRecommendationEngine:
             "prefer_easy": True,
             "avoid_hard": True,
             "highlight_benefit": "省钱",
-            "cost_emphasis": True
+            "cost_emphasis": True,
         },
         "中等收入": {
             "prefer_easy": True,
             "avoid_hard": False,
             "highlight_benefit": "性价比",
-            "cost_emphasis": True
+            "cost_emphasis": True,
         },
         "中高收入": {
             "prefer_easy": False,
             "avoid_hard": False,
             "highlight_benefit": "品质生活",
-            "cost_emphasis": False
+            "cost_emphasis": False,
         },
         "高收入": {
             "prefer_easy": False,
             "avoid_hard": False,
             "highlight_benefit": "社会责任",
-            "cost_emphasis": False
-        }
+            "cost_emphasis": False,
+        },
     }
 
     # 家庭规模建议调整
     FAMILY_ADJUSTMENTS = {
-        "1": {
-            "scale_down": ["全家行动", "家庭合作"],
-            "scale_up": ["个人实践"]
-        },
-        "2": {
-            "scale_down": [],
-            "scale_up": []
-        },
-        "3-4": {
-            "scale_down": [],
-            "scale_up": ["孩子带动全家"]
-        },
-        "5+": {
-            "scale_down": ["全家参与"],
-            "scale_up": ["分头行动"]
-        }
+        "1": {"scale_down": ["全家行动", "家庭合作"], "scale_up": ["个人实践"]},
+        "2": {"scale_down": [], "scale_up": []},
+        "3-4": {"scale_down": [], "scale_up": ["孩子带动全家"]},
+        "5+": {"scale_down": ["全家参与"], "scale_up": ["分头行动"]},
     }
 
     def __init__(self):
         self._recommendation_history: Dict[str, List[str]] = {}
 
-    def generate_recommendations(
+    # 任务1 P1-1: 地域化 + 兴趣偏好 + 行为频次的差异化加权
+    # 修复:之前 3 角色返回完全相同(同质化),根因是缺这些加权
+    REGION_AFFINITY = {
+        "beijing": {
+            "出行": 1.3,
+            "家居": 1.1,
+            "消费": 1.0,
+            "饮食": 1.0,
+            "垃圾分类": 1.4,
+        },  # 京津冀公交发达 + 严垃圾分类
+        "shanghai": {
+            "出行": 1.3,
+            "家居": 1.1,
+            "消费": 1.1,
+            "饮食": 1.0,
+            "垃圾分类": 1.4,
+        },  # 上海垃圾分类
+        "guangzhou": {
+            "出行": 1.0,
+            "家居": 1.0,
+            "消费": 1.2,
+            "饮食": 1.3,
+            "垃圾分类": 1.1,
+        },  # 粤菜多
+        "shenzhen": {"出行": 1.1, "家居": 1.0, "消费": 1.2, "饮食": 1.2, "垃圾分类": 1.1},
+        "hangzhou": {
+            "出行": 1.1,
+            "家居": 1.2,
+            "消费": 1.1,
+            "饮食": 1.0,
+            "垃圾分类": 1.3,
+        },  # 互联网+绿色城市
+    }
+    INTEREST_TO_CATEGORY = {
+        "travel": "出行",
+        "low_carbon_travel": "出行",
+        "home_energy": "家居",
+        "energy_saving": "家居",
+        "low_carbon_purchase": "消费",
+        "green_consumption": "消费",
+        "diet_eco": "饮食",
+        "low_carbon_diet": "饮食",
+        "recycle": "垃圾分类",
+        "waste_classification": "垃圾分类",
+        "plastic_reduction": "消费",
+        "campus": "饮食",
+        "business": "消费",
+    }
+
+    def _compute_category_weight(
         self,
-        user_profile: Dict[str, Any],
-        context: Dict[str, Any] = None,
-        count: int = 3
+        category: str,
+        region: str,
+        interests: list,
+        recent_behaviors: list,
+    ) -> float:
+        """任务1 P1-1: 类别加权综合 — 地域 + 兴趣 + 行为频次
+
+        Returns:
+            权重(>=0.1,越大越优先)
+        """
+        weight = 1.0
+        # 1) 地域加成
+        reg = (region or "").lower()
+        weight *= self.REGION_AFFINITY.get(reg, {}).get(category, 1.0)
+        # 2) 兴趣加成(任一兴趣命中, +50%)
+        for it in interests or []:
+            if self.INTEREST_TO_CATEGORY.get(it) == category:
+                weight *= 1.5
+                break
+        # 3) 最近行为频次加成(最近 7 天同一类行为,降权避免重复推荐同类;反向,如从未做过,则提权)
+        behavior_types_to_cat = {
+            "bus": "出行",
+            "walk": "出行",
+            "bike": "出行",
+            "electricity": "家居",
+            "water": "家居",
+            "purchase": "消费",
+            "recycle": "垃圾分类",
+            "plastic": "垃圾分类",
+            "recycle_sort": "垃圾分类",
+        }
+        recent_cat_count = sum(
+            1
+            for b in (recent_behaviors or [])
+            if behavior_types_to_cat.get(b.get("type", "")) == category
+        )
+        if recent_cat_count >= 5:
+            weight *= 0.4  # 已大量做该类,降权
+        elif recent_cat_count == 0:
+            weight *= 1.3  # 从未做过,提权(引导新行为)
+        return max(0.1, weight)
+
+    def generate_recommendations(
+        self, user_profile: Dict[str, Any], context: Dict[str, Any] = None, count: int = 3
     ) -> List[Recommendation]:
         """
         生成个性化建议
 
         Args:
             user_profile: 用户画像
-            context: 额外上下文（如对话内容）
+            context: 额外上下文（如对话内容、recent_behaviors、region）
             count: 建议数量
 
         Returns:
             推荐列表
         """
+        recommendations = []
+
+        eco = user_profile.get("eco_profile", {})
+        basic = user_profile.get("basic_info", {})
+        prefs = user_profile.get("preferences", {})
+        pref_learning = user_profile.get("preference_learning", {})
+
+        # 任务1 P1-1: 多源提取 region/interests/recent_behaviors
+        region = basic.get("region") or basic.get("city") or user_profile.get("region", "")
+        interests = (
+            confirmed_interests
+            if (
+                confirmed_interests := pref_learning.get("confirmed_interests", [])
+                or prefs.get("interests", [])
+                or user_profile.get("interests", [])
+            )
+            else []
+        )
+        recent_behaviors = (
+            (context or {}).get("recent_behaviors") or user_profile.get("recent_behaviors") or []
+        )
+
+        behavior_stage = eco.get("behavior_stage", "意向")
+        strategy = self.STAGE_STRATEGIES.get(behavior_stage, self.STAGE_STRATEGIES["意向"])
+
+        income_level = basic.get("income_level", "中等收入")
+        income_adj = self.INCOME_ADJUSTMENTS.get(income_level, self.INCOME_ADJUSTMENTS["中等收入"])
+
+        family_type = basic.get("family_type", "3-4")
+        family_adj = self.FAMILY_ADJUSTMENTS.get(family_type, self.FAMILY_ADJUSTMENTS["3-4"])
+
+        confirmed_interests_pref = pref_learning.get("confirmed_interests", [])
+        rejected_topics = pref_learning.get("rejected_topics", [])
+
+        difficulty_filter = strategy.get("difficulty_filter", ["easy", "medium"])
+
+        categories = list(self.ACTION_LIBRARY.keys())
+        # 任务1 P1-1: 用 _compute_category_weight 综合排序,不再固定顺序
+        weighted_categories = sorted(
+            categories,
+            key=lambda c: self._compute_category_weight(c, region, interests, recent_behaviors),
+            reverse=True,
+        )
+
+        suggested_actions = []
+        for category in weighted_categories:
+            if len(suggested_actions) >= count:
+                break
+
+            if category not in self.ACTION_LIBRARY:
+                continue
+
+            if category in rejected_topics:
+                continue
+
+            for difficulty in difficulty_filter:
+                if len(suggested_actions) >= count:
+                    break
+
+                if difficulty not in self.ACTION_LIBRARY[category]:
+                    continue
+
+                for action_data in self.ACTION_LIBRARY[category][difficulty]:
+                    if len(suggested_actions) >= count:
+                        break
+
+                    action_text = action_data["action"]
+
+                    if self._was_recently_suggested(user_profile.get("user_id", ""), action_text):
+                        continue
+
+                    if not self._check_personalization_fit(action_data, user_profile):
+                        continue
+
+                    reason = self._generate_personalized_reason(
+                        action_data, user_profile, strategy, income_adj
+                    )
         recommendations = []
 
         eco = user_profile.get("eco_profile", {})
@@ -630,7 +661,7 @@ class PersonalizedRecommendationEngine:
                 "energy_saving": "家居",
                 "green_consumption": "消费",
                 "diet_eco": "饮食",
-                "waste_classification": "垃圾分类"
+                "waste_classification": "垃圾分类",
             }
             priority_categories = [
                 interest_to_category.get(i, "家居")
@@ -687,7 +718,7 @@ class PersonalizedRecommendationEngine:
                         impact=action_data.get("impact", "medium"),
                         estimated_carbon_saving=action_data.get("carbon_saving", ""),
                         examples=action_data.get("examples", []),
-                        rejected_reasons=self._generate_rejection_reasons(action_data)
+                        rejected_reasons=self._generate_rejection_reasons(action_data),
                     )
 
                     suggested_actions.append(rec)
@@ -721,11 +752,7 @@ class PersonalizedRecommendationEngine:
         return True
 
     def _generate_personalized_reason(
-        self,
-        action_data: Dict,
-        user_profile: Dict[str, Any],
-        strategy: Dict,
-        income_adj: Dict
+        self, action_data: Dict, user_profile: Dict[str, Any], strategy: Dict, income_adj: Dict
     ) -> str:
         """生成个性化理由"""
         templates = action_data.get("reason_templates", ["这是一个不错的低碳行动"])
@@ -741,11 +768,7 @@ class PersonalizedRecommendationEngine:
 
         return template
 
-    def _generate_personalization_context(
-        self,
-        action_data: Dict,
-        user_profile: Dict
-    ) -> str:
+    def _generate_personalization_context(self, action_data: Dict, user_profile: Dict) -> str:
         """生成个性化上下文"""
         parts = []
 
@@ -783,12 +806,7 @@ class PersonalizedRecommendationEngine:
 
         return reasons
 
-    def record_recommendation_feedback(
-        self,
-        user_id: str,
-        action: str,
-        feedback_type: str
-    ):
+    def record_recommendation_feedback(self, user_id: str, action: str, feedback_type: str):
         """记录推荐反馈"""
         if user_id not in self._recommendation_history:
             self._recommendation_history[user_id] = []
@@ -800,10 +818,7 @@ class PersonalizedRecommendationEngine:
             self._recommendation_history[user_id] = self._recommendation_history[user_id][-50:]
 
     def get_category_suggestions(
-        self,
-        category: str,
-        user_profile: Dict[str, Any],
-        difficulty: str = "easy"
+        self, category: str, user_profile: Dict[str, Any], difficulty: str = "easy"
     ) -> List[Dict]:
         """获取特定类别的建议"""
         if category not in self.ACTION_LIBRARY:
@@ -888,27 +903,15 @@ class PersonalizedRecommendationEngine:
         impact_details = []
 
         for rec in recommendations:
-            impact_map = {
-                "very_low": 0.5,
-                "low": 1,
-                "medium": 3,
-                "high": 5,
-                "very_high": 10
-            }
+            impact_map = {"very_low": 0.5, "low": 1, "medium": 3, "high": 5, "very_high": 10}
             impact = impact_map.get(rec.impact, 1)
             total_impact += impact
-            impact_details.append({
-                "action": rec.action,
-                "impact": rec.impact,
-                "estimated_value": impact
-            })
+            impact_details.append(
+                {"action": rec.action, "impact": rec.impact, "estimated_value": impact}
+            )
 
         return {
             "total_impact_score": total_impact,
             "details": impact_details,
-            "impact_level": (
-                "高" if total_impact > 8 else
-                "中" if total_impact > 4 else
-                "低"
-            )
+            "impact_level": ("高" if total_impact > 8 else "中" if total_impact > 4 else "低"),
         }

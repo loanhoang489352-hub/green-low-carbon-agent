@@ -7,6 +7,7 @@ P4-B.5:统一 GreenAgent 与 LangGraphAgent 的 active_conversations 状态
 - 跨进程重启**无**持久化(由 LangGraph SqliteSaver 负责状态,本类只做元数据)
 - TTL 清理过期会话(由 scheduler 周期调用)
 """
+
 from __future__ import annotations
 
 import threading
@@ -51,7 +52,9 @@ class ConversationStore:
         self._conversations: Dict[str, ConversationContext] = {}
         self._user_index: Dict[str, List[str]] = {}
 
-    def get_or_create(self, user_id: str, conversation_id: Optional[str] = None) -> ConversationContext:
+    def get_or_create(
+        self, user_id: str, conversation_id: Optional[str] = None
+    ) -> ConversationContext:
         """获取或创建会话
 
         Args:
@@ -132,8 +135,7 @@ class ConversationStore:
         removed = 0
         with self._lock:
             expired_ids = [
-                cid for cid, ctx in self._conversations.items()
-                if ctx.last_updated < cutoff_iso
+                cid for cid, ctx in self._conversations.items() if ctx.last_updated < cutoff_iso
             ]
             for cid in expired_ids:
                 ctx = self._conversations.pop(cid)

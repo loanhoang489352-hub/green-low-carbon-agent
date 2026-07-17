@@ -6,13 +6,15 @@
 
 # Windows UTF-8 encoding setup - Only if not already wrapped (avoid duplicate wrapping)
 import sys
-if sys.platform == 'win32':
-    import io
-    if not isinstance(sys.stdout, io.TextIOWrapper) or sys.stdout.encoding != 'utf-8':
-        sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8', errors='replace')
-        sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding='utf-8', errors='replace')
 
-from typing import Dict, List, Optional, Any
+if sys.platform == "win32":
+    import io
+
+    if not isinstance(sys.stdout, io.TextIOWrapper) or sys.stdout.encoding != "utf-8":
+        sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8", errors="replace")
+        sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding="utf-8", errors="replace")
+
+from typing import Dict, List, Any
 from dataclasses import dataclass
 import os
 import random
@@ -21,13 +23,14 @@ from pathlib import Path
 # 添加项目路径
 script_path = Path(__file__).resolve()
 project_root = script_path.parent.parent.parent
-if str(project_root / 'src') not in sys.path:
-    sys.path.insert(0, str(project_root / 'src'))
+if str(project_root / "src") not in sys.path:
+    sys.path.insert(0, str(project_root / "src"))
 
 
 @dataclass
 class ResponseContext:
     """响应上下文"""
+
     user_profile: Dict[str, Any]
     conversation_history: List[Dict]
     retrieved_knowledge: List[Dict]
@@ -42,7 +45,7 @@ class ResponseGenerator:
     GREETINGS = [
         "你好！我是绿色低碳助手，很高兴为你服务！",
         "嗨！有什么关于绿色低碳的问题想聊吗？",
-        "欢迎来到绿色低碳助手！我们可以一起探讨低碳生活~"
+        "欢迎来到绿色低碳助手！我们可以一起探讨低碳生活~",
     ]
 
     # 通用低碳知识库（知识为空时的后备内容）
@@ -50,24 +53,24 @@ class ResponseGenerator:
         "碳": [
             "碳是指碳元素及其化合物。在低碳环保领域，'碳'通常指二氧化碳(CO2)等温室气体。",
             "碳足迹是指个人或组织在日常活动中直接或间接产生的二氧化碳总量。比如开车、用电都会产生碳足迹。",
-            "碳中和是指通过节能减排和植树造林等方式，抵消自己产生的碳排放，达到'净零排放'。"
+            "碳中和是指通过节能减排和植树造林等方式，抵消自己产生的碳排放，达到'净零排放'。",
         ],
         "节能": [
             "节能减排是指通过提高能源利用效率来减少能源消耗和污染物排放。日常生活中的节能包括随手关灯、合理设置空调温度等。",
-            "家庭节能可以从以下几个方面入手：1)选购节能电器；2)养成良好用电习惯；3)减少待机功耗；4)利用自然光和自然通风。"
+            "家庭节能可以从以下几个方面入手：1)选购节能电器；2)养成良好用电习惯；3)减少待机功耗；4)利用自然光和自然通风。",
         ],
         "出行": [
             "低碳出行是指采用对环境影响较小的交通方式，如步行、骑行、公交、地铁等。相比私家车，这些方式可以显著减少碳排放。",
-            "电动车的碳排放通常只有燃油车的约三分之一。即使考虑发电侧的排放，电动车的全生命周期碳足迹也明显更低。"
+            "电动车的碳排放通常只有燃油车的约三分之一。即使考虑发电侧的排放，电动车的全生命周期碳足迹也明显更低。",
         ],
         "分类": [
             "垃圾分类是指按照废弃物的一定标准将其分类投放、分类收集、分类运输、分类处理的行为。正确的分类是回收利用的前提。",
-            "中国大部分城市实行'可回收物/厨余垃圾/有害垃圾/其他垃圾'四分类标准。各地具体规则可能略有不同。"
+            "中国大部分城市实行'可回收物/厨余垃圾/有害垃圾/其他垃圾'四分类标准。各地具体规则可能略有不同。",
         ],
         "回收": [
             "废品回收可以减少资源开采和能源消耗。常见的可回收物包括废纸、塑料瓶、金属罐、旧衣物和电子垃圾等。",
-            "二手交易是延长物品使用寿命、减少资源消耗的好方法。书籍、家具、电子产品等都适合二手交易。"
-        ]
+            "二手交易是延长物品使用寿命、减少资源消耗的好方法。书籍、家具、电子产品等都适合二手交易。",
+        ],
     }
 
     def _get_fallback_knowledge(self, message: str) -> str:
@@ -77,36 +80,33 @@ class ResponseGenerator:
             if keyword in message_lower:
                 return random.choice(knowledge_list)
         # 默认回复
-        return random.choice([
-            "低碳生活是指在日常生活中通过选择环保产品、减少能源消耗、采用绿色出行方式等，降低个人对环境的影响。",
-            "环境保护需要每个人的参与。从减少一次性用品、节约水电、选择公共交通等小事做起，就能为地球减碳。",
-            "碳减排的核心是'开源节流'——一方面减少能源消耗，另一方面增加碳吸收（如植树造林）。"
-        ])
+        return random.choice(
+            [
+                "低碳生活是指在日常生活中通过选择环保产品、减少能源消耗、采用绿色出行方式等，降低个人对环境的影响。",
+                "环境保护需要每个人的参与。从减少一次性用品、节约水电、选择公共交通等小事做起，就能为地球减碳。",
+                "碳减排的核心是'开源节流'——一方面减少能源消耗，另一方面增加碳吸收（如植树造林）。",
+            ]
+        )
+
     RESPONSE_TEMPLATES = {
         "knowledge": {
             "start": "关于这个问题，让我来为你解答：",
-            "end": "希望这个回答对你有帮助！有什么其他问题吗？"
+            "end": "希望这个回答对你有帮助！有什么其他问题吗？",
         },
         "advice": {
             "start": "好的，根据你的情况，我来给你一些建议：",
-            "end": "从哪个开始行动比较合适呢？"
+            "end": "从哪个开始行动比较合适呢？",
         },
-        "encouragement": {
-            "start": "太棒了！",
-            "end": "继续保持！每一步都是在为地球做贡献~"
-        },
+        "encouragement": {"start": "太棒了！", "end": "继续保持！每一步都是在为地球做贡献~"},
         "acknowledgment": {
             "positive": "很高兴能帮到你！",
-            "negative": "理解你的顾虑，我们可以换个方案。"
+            "negative": "理解你的顾虑，我们可以换个方案。",
         },
-        "greeting": {
-            "start": "你好！我是绿色低碳助手，很高兴认识你！",
-            "end": "今天想聊点什么？"
-        },
+        "greeting": {"start": "你好！我是绿色低碳助手，很高兴认识你！", "end": "今天想聊点什么？"},
         "clarification": {
             "start": "抱歉，我不太确定你具体想了解什么。不过：",
-            "end": "还有其他想了解的吗？"
-        }
+            "end": "还有其他想了解的吗？",
+        },
     }
 
     # 行动建议列表
@@ -114,23 +114,23 @@ class ResponseGenerator:
         "出行": [
             "尝试每周一天不开车，选择公共交通或骑行",
             "短距离出行试试步行或骑行，既健康又环保",
-            "考虑购买电动车，长期来看更经济环保"
+            "考虑购买电动车，长期来看更经济环保",
         ],
         "饮食": [
             "可以尝试每周一天素食，减少碳排放",
             "尽量减少外卖，选择自己做饭",
-            "购买本地食材，减少运输碳排放"
+            "购买本地食材，减少运输碳排放",
         ],
         "家居": [
             "把家里灯泡换成LED，省电又耐用",
             "空调温度夏天调高1度，冬天调低1度",
-            "外出时拔掉电器插头，减少待机功耗"
+            "外出时拔掉电器插头，减少待机功耗",
         ],
         "消费": [
             "购物时自带环保袋，拒绝一次性塑料",
             "选择有环保认证的产品",
-            "考虑二手商品，延长物品使用寿命"
-        ]
+            "考虑二手商品，延长物品使用寿命",
+        ],
     }
 
     # 鼓励语
@@ -139,7 +139,7 @@ class ResponseGenerator:
         "小小的行动，大大的改变！",
         "坚持就是胜利，一起加油！",
         "你已经在为地球做贡献了！",
-        "低碳生活，从点滴开始~"
+        "低碳生活，从点滴开始~",
     ]
 
     def __init__(self, use_llm: bool = True):
@@ -152,6 +152,7 @@ class ResponseGenerator:
         if self._llm_client is None and self._use_llm:
             try:
                 from llm import get_llm_client, build_chat_prompt
+
                 self._llm_client = get_llm_client()
                 self._build_prompt = build_chat_prompt
             except ImportError as e:
@@ -165,7 +166,7 @@ class ResponseGenerator:
     def generate_with_llm(
         self,
         user_input: str,
-        context: 'ResponseContext',
+        context: "ResponseContext",
         rag_context: str = "",
         working_memory: str = "",
     ) -> str:
@@ -183,6 +184,7 @@ class ResponseGenerator:
         # P6.S.5: LLM_MOCK 强制路径(优先于工厂)
         if os.getenv("LLM_MOCK", "auto").strip().lower() in ("true", "1", "yes", "on"):
             from llm.client import MockLLMClient
+
             llm = MockLLMClient()
         else:
             llm = self._get_llm_client()
@@ -196,11 +198,14 @@ class ResponseGenerator:
         if not hasattr(self, "_build_prompt"):
             try:
                 from llm import build_chat_prompt
+
                 self._build_prompt = build_chat_prompt
             except ImportError as e:
                 import logging
+
                 logging.getLogger(__name__).warning(
-                    "[ResponseGenerator] build_chat_prompt 导入失败,回退模板: %s", e,
+                    "[ResponseGenerator] build_chat_prompt 导入失败,回退模板: %s",
+                    e,
                 )
                 return self.generate_response(user_input, context)["message"]
 
@@ -214,23 +219,35 @@ class ResponseGenerator:
             }
             if working_memory:
                 kwargs["working_memory"] = working_memory
+            # P6.S.23: 注入当前定位 — 让 LLM 知道用户在哪,可以基于位置回答
+            try:
+                personalization_info = getattr(context, "personalization_info", None) or {}
+                if isinstance(personalization_info, dict):
+                    loc = personalization_info.get("location") or {}
+                    if loc and loc.get("city"):
+                        kwargs["current_location"] = {
+                            "city": loc.get("city", ""),
+                            "region": loc.get("region", ""),
+                            "country": loc.get("country", "中国"),
+                            "source": loc.get("source", "unknown"),
+                        }
+            except Exception:
+                pass
             messages = self._build_prompt(**kwargs)
             response = llm.chat(messages)
-            if hasattr(response, 'content'):
-                return response.content if hasattr(response, 'content') else str(response)
+            if hasattr(response, "content"):
+                return response.content if hasattr(response, "content") else str(response)
             return str(response)
         except Exception as e:
             import logging
+
             logging.getLogger(__name__).warning(
-                "[ResponseGenerator] LLM调用失败,回退到模板: %s", e,
+                "[ResponseGenerator] LLM调用失败,回退到模板: %s",
+                e,
             )
             return self.generate_response(user_input, context)["message"]
 
-    def generate_response(
-        self,
-        user_input: str,
-        context: ResponseContext
-    ) -> Dict[str, Any]:
+    def generate_response(self, user_input: str, context: ResponseContext) -> Dict[str, Any]:
         """生成完整响应"""
 
         response_parts = []
@@ -272,12 +289,13 @@ class ResponseGenerator:
             "message": "\n\n".join(response_parts),
             "suggestions": suggestions,
             "knowledge_refs": knowledge_refs,
-            "response_type": response_type
+            "response_type": response_type,
         }
 
     def _determine_response_type(self, context: ResponseContext) -> str:
         """根据上下文确定响应类型(委托给 response_mapper)"""
         from agent.response_mapper import map_intent_to_response_type
+
         return map_intent_to_response_type(getattr(context, "intent_type", None))
 
     def _generate_greeting(self, context: ResponseContext) -> str:
@@ -332,24 +350,30 @@ class ResponseGenerator:
             # 基于用户知识水平调整回答深度
             knowledge_level = context.user_profile.get("eco_knowledge_level", "入门")
             if knowledge_level == "入门":
-                return ("低碳生活其实很简单！简单来说，就是从日常小事做起：\n"
-                        "• 少开空调多通风\n"
-                        "• 短距离出行选择步行或骑行\n"
-                        "• 做好垃圾分类\n"
-                        "• 随手关灯、拔掉电器插头\n"
-                        "你有什么具体想了解的吗？")
+                return (
+                    "低碳生活其实很简单！简单来说，就是从日常小事做起：\n"
+                    "• 少开空调多通风\n"
+                    "• 短距离出行选择步行或骑行\n"
+                    "• 做好垃圾分类\n"
+                    "• 随手关灯、拔掉电器插头\n"
+                    "你有什么具体想了解的吗？"
+                )
             else:
-                return random.choice([
-                    "关于绿色低碳，我可以从碳排放计算、节能减排技巧、低碳出行等多个角度为你解答。你更关注哪个方面？",
-                    "这个话题涉及多个维度。你想了解具体的减排方法、环境影响分析，还是实用的日常技巧？"
-                ])
+                return random.choice(
+                    [
+                        "关于绿色低碳，我可以从碳排放计算、节能减排技巧、低碳出行等多个角度为你解答。你更关注哪个方面？",
+                        "这个话题涉及多个维度。你想了解具体的减排方法、环境影响分析，还是实用的日常技巧？",
+                    ]
+                )
         elif context.intent_type == "advice":
             return self._generate_advice_response(context)
         else:
-            return random.choice([
-                "关于这个问题，让我分享一些实用的低碳知识...",
-                "这是个很好的问题！让我从几个方面来解答..."
-            ])
+            return random.choice(
+                [
+                    "关于这个问题，让我分享一些实用的低碳知识...",
+                    "这是个很好的问题！让我从几个方面来解答...",
+                ]
+            )
 
     def _generate_advice_response(self, context: ResponseContext) -> str:
         """生成建议类响应"""
@@ -366,7 +390,9 @@ class ResponseGenerator:
         # 添加具体建议
         category = self._infer_suggestion_category(context)
         if category in self.ACTION_SUGGESTIONS:
-            suggestions = random.sample(self.ACTION_SUGGESTIONS[category], min(2, len(self.ACTION_SUGGESTIONS[category])))
+            suggestions = random.sample(
+                self.ACTION_SUGGESTIONS[category], min(2, len(self.ACTION_SUGGESTIONS[category]))
+            )
             for i, suggestion in enumerate(suggestions, 1):
                 parts.append(f"\n{i}. {suggestion}")
 
@@ -423,7 +449,9 @@ class ResponseGenerator:
 
         # 基于用户画像添加个性化内容
         if context.recent_memories:
-            elements.append(f"\n提示：之前你提到过关注{context.recent_memories[0]}，这个信息可能有帮助。")
+            elements.append(
+                f"\n提示：之前你提到过关注{context.recent_memories[0]}，这个信息可能有帮助。"
+            )
 
         # 基于环保认知水平调整
         knowledge_level = context.user_profile.get("eco_knowledge_level", "入门")
@@ -454,7 +482,11 @@ class ResponseGenerator:
         if context.conversation_history:
             last_msg = context.conversation_history[-1]
             # 兼容 dict 和 langchain HumanMessage/AIMessage 对象
-            last_message = last_msg.get("content", "") if isinstance(last_msg, dict) else getattr(last_msg, "content", "")
+            last_message = (
+                last_msg.get("content", "")
+                if isinstance(last_msg, dict)
+                else getattr(last_msg, "content", "")
+            )
 
             if any(kw in last_message for kw in ["开车", "出行", "交通", "车"]):
                 return "出行"

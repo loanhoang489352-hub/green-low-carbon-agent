@@ -5,7 +5,6 @@
 """
 
 import sqlite3
-import os
 import sys
 import uuid
 import re
@@ -15,12 +14,13 @@ from datetime import datetime, timedelta
 from typing import Dict, List, Optional, Any
 
 # Windows UTF-8 encoding
-if sys.platform == 'win32':
+if sys.platform == "win32":
     import io
-    if hasattr(sys.stdout, 'buffer') and not isinstance(sys.stdout, io.TextIOWrapper):
+
+    if hasattr(sys.stdout, "buffer") and not isinstance(sys.stdout, io.TextIOWrapper):
         try:
-            sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8', errors='replace')
-            sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding='utf-8', errors='replace')
+            sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8", errors="replace")
+            sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding="utf-8", errors="replace")
         except Exception:
             pass
 
@@ -34,12 +34,14 @@ DB_PATH = str(data_dir / "accounts.db")
 # bcrypt 兼容：如果 bcrypt 不可用，使用内置的简单哈希
 try:
     import bcrypt
+
     BCRYPT_AVAILABLE = True
 except ImportError:
     BCRYPT_AVAILABLE = False
 
 # P5-F: 模块级 logger(无论 bcrypt 是否安装都需要)
 import logging
+
 _auth_logger = logging.getLogger("auth")
 
 if not BCRYPT_AVAILABLE:
@@ -49,36 +51,40 @@ if not BCRYPT_AVAILABLE:
 def _hash_password(password: str) -> str:
     """密码哈希"""
     if BCRYPT_AVAILABLE:
-        return bcrypt.hashpw(password.encode('utf-8'), bcrypt.gensalt()).decode('utf-8')
+        return bcrypt.hashpw(password.encode("utf-8"), bcrypt.gensalt()).decode("utf-8")
     else:
         # PBKDF2 fallback
         import hashlib
         import base64
+
         salt = secrets.token_hex(16)
-        key = hashlib.pbkdf2_hmac('sha256', password.encode('utf-8'), salt.encode('utf-8'), 100000)
+        key = hashlib.pbkdf2_hmac("sha256", password.encode("utf-8"), salt.encode("utf-8"), 100000)
         return f"$pbkdf2${salt}${base64.b64encode(key).decode('utf-8')}"
 
 
 def _check_password(password: str, hashed: str) -> bool:
     """验证密码"""
     # 如果是 bcrypt 哈希（以 $2 开头）
-    if hashed.startswith('$2'):
+    if hashed.startswith("$2"):
         if BCRYPT_AVAILABLE:
-            return bcrypt.checkpw(password.encode('utf-8'), hashed.encode('utf-8'))
+            return bcrypt.checkpw(password.encode("utf-8"), hashed.encode("utf-8"))
         else:
             return False  # bcrypt不可用但存的是bcrypt哈希，无法验证
     # PBKDF2 哈希（以 $pbkdf2$ 开头）
-    elif hashed.startswith('$pbkdf2$'):
+    elif hashed.startswith("$pbkdf2$"):
         import hashlib
         import base64
+
         try:
             parts = hashed.split("$")
             if len(parts) != 3:
                 return False
             salt = parts[1]
             stored_key = parts[2]
-            key = hashlib.pbkdf2_hmac('sha256', password.encode('utf-8'), salt.encode('utf-8'), 100000)
-            return base64.b64encode(key).decode('utf-8') == stored_key
+            key = hashlib.pbkdf2_hmac(
+                "sha256", password.encode("utf-8"), salt.encode("utf-8"), 100000
+            )
+            return base64.b64encode(key).decode("utf-8") == stored_key
         except Exception:
             return False
     else:
@@ -88,6 +94,7 @@ def _check_password(password: str, hashed: str) -> bool:
 def _get_connection() -> sqlite3.Connection:
     """获取数据库连接(P6.E: 使用连接池,60s 内同线程复用)"""
     from db.connection import get_connection
+
     return get_connection(DB_PATH)
 
 
@@ -97,7 +104,7 @@ def _init_database():
     cursor = conn.cursor()
 
     # 账号表
-    cursor.execute('''
+    cursor.execute("""
         CREATE TABLE IF NOT EXISTS accounts (
             account_id TEXT PRIMARY KEY,
             username TEXT UNIQUE NOT NULL,
@@ -106,10 +113,10 @@ def _init_database():
             last_login TEXT,
             is_active INTEGER DEFAULT 1
         )
-    ''')
+    """)
 
     # 会话表
-    cursor.execute('''
+    cursor.execute("""
         CREATE TABLE IF NOT EXISTS user_sessions (
             session_id TEXT PRIMARY KEY,
             account_id TEXT NOT NULL,
@@ -119,31 +126,31 @@ def _init_database():
             last_active TEXT,
             FOREIGN KEY (account_id) REFERENCES accounts(account_id)
         )
-    ''')
+    """)
 
     # 用户画像关联表
-    cursor.execute('''
+    cursor.execute("""
         CREATE TABLE IF NOT EXISTS account_profiles (
             account_id TEXT PRIMARY KEY,
             user_id TEXT UNIQUE NOT NULL,
             created_at TEXT NOT NULL,
             FOREIGN KEY (account_id) REFERENCES accounts(account_id)
         )
-    ''')
+    """)
 
     # 创建索引
-    cursor.execute('''
+    cursor.execute("""
         CREATE INDEX IF NOT EXISTS idx_accounts_username
         ON accounts(username)
-    ''')
-    cursor.execute('''
+    """)
+    cursor.execute("""
         CREATE INDEX IF NOT EXISTS idx_sessions_account
         ON user_sessions(account_id)
-    ''')
-    cursor.execute('''
+    """)
+    cursor.execute("""
         CREATE INDEX IF NOT EXISTS idx_sessions_expires
         ON user_sessions(expires_at)
-    ''')
+    """)
 
     conn.commit()
     conn.close()
@@ -179,7 +186,7 @@ class AccountManager:
         if len(username) < 3 or len(username) > 20:
             return {"success": False, "error": "用户名长度必须在3-20个字符之间"}
 
-        if not re.match(r'^[a-zA-Z0-9_]+$', username):
+        if not re.match(r"^[a-zA-Z0-9_]+$", username):
             return {"success": False, "error": "用户名只能包含字母、数字和下划线"}
 
         # 验证密码强度
@@ -191,7 +198,9 @@ class AccountManager:
             cursor = conn.cursor()
 
             # 检查用户名是否已存在
-            cursor.execute('SELECT account_id FROM accounts WHERE username = ? AND is_active = 1', (username,))
+            cursor.execute(
+                "SELECT account_id FROM accounts WHERE username = ? AND is_active = 1", (username,)
+            )
             if cursor.fetchone():
                 conn.close()
                 return {"success": False, "error": "用户名已存在"}
@@ -200,21 +209,20 @@ class AccountManager:
             account_id = str(uuid.uuid4())[:12]
             password_hash = _hash_password(password)
 
-            cursor.execute('''
+            cursor.execute(
+                """
                 INSERT INTO accounts (account_id, username, password_hash, created_at, is_active)
                 VALUES (?, ?, ?, ?, 1)
-            ''', (account_id, username, password_hash, datetime.now().isoformat()))
+            """,
+                (account_id, username, password_hash, datetime.now().isoformat()),
+            )
 
             conn.commit()
             conn.close()
 
             _auth_logger.info(f"[Auth] 新账号注册: {username} (account_id: {account_id})")
 
-            return {
-                "success": True,
-                "account_id": account_id,
-                "username": username
-            }
+            return {"success": True, "account_id": account_id, "username": username}
 
         except Exception as e:
             _auth_logger.warning(f"[Auth] 注册失败: {e}")
@@ -238,41 +246,56 @@ class AccountManager:
             cursor = conn.cursor()
 
             # 查询账号
-            cursor.execute('''
+            cursor.execute(
+                """
                 SELECT account_id, username, password_hash, is_active
                 FROM accounts
                 WHERE username = ?
-            ''', (username,))
+            """,
+                (username,),
+            )
             row = cursor.fetchone()
 
             if not row:
                 conn.close()
                 return {"success": False, "error": "用户名或密码错误"}
 
-            if not row['is_active']:
+            if not row["is_active"]:
                 conn.close()
                 return {"success": False, "error": "账号已被禁用"}
 
             # 验证密码
-            if not _check_password(password, row['password_hash']):
+            if not _check_password(password, row["password_hash"]):
                 conn.close()
                 return {"success": False, "error": "用户名或密码错误"}
 
-            account_id = row['account_id']
+            account_id = row["account_id"]
 
             # 更新最后登录时间
-            cursor.execute('''
+            cursor.execute(
+                """
                 UPDATE accounts SET last_login = ? WHERE account_id = ?
-            ''', (datetime.now().isoformat(), account_id))
+            """,
+                (datetime.now().isoformat(), account_id),
+            )
 
             # 创建会话
             session_id = str(uuid.uuid4())
             expires_at = (datetime.now() + timedelta(days=DEFAULT_SESSION_EXPIRY_DAYS)).isoformat()
 
-            cursor.execute('''
+            cursor.execute(
+                """
                 INSERT INTO user_sessions (session_id, account_id, created_at, expires_at, is_valid, last_active)
                 VALUES (?, ?, ?, ?, 1, ?)
-            ''', (session_id, account_id, datetime.now().isoformat(), expires_at, datetime.now().isoformat()))
+            """,
+                (
+                    session_id,
+                    account_id,
+                    datetime.now().isoformat(),
+                    expires_at,
+                    datetime.now().isoformat(),
+                ),
+            )
 
             conn.commit()
             conn.close()
@@ -284,7 +307,7 @@ class AccountManager:
                 "session_id": session_id,
                 "account_id": account_id,
                 "username": username,
-                "expires_at": expires_at
+                "expires_at": expires_at,
             }
 
         except Exception as e:
@@ -305,9 +328,12 @@ class AccountManager:
             conn = _get_connection()
             cursor = conn.cursor()
 
-            cursor.execute('''
+            cursor.execute(
+                """
                 UPDATE user_sessions SET is_valid = 0 WHERE session_id = ?
-            ''', (session_id,))
+            """,
+                (session_id,),
+            )
 
             conn.commit()
             affected = cursor.rowcount > 0
@@ -339,40 +365,49 @@ class AccountManager:
             conn = _get_connection()
             cursor = conn.cursor()
 
-            cursor.execute('''
+            cursor.execute(
+                """
                 SELECT account_id, expires_at, is_valid
                 FROM user_sessions
                 WHERE session_id = ?
-            ''', (session_id,))
+            """,
+                (session_id,),
+            )
             row = cursor.fetchone()
 
             if not row:
                 conn.close()
                 return None
 
-            if not row['is_valid']:
+            if not row["is_valid"]:
                 conn.close()
                 return None
 
             # 检查是否过期
-            expires_at = datetime.fromisoformat(row['expires_at'])
+            expires_at = datetime.fromisoformat(row["expires_at"])
             if expires_at < datetime.now():
                 # 标记为无效
-                cursor.execute('''
+                cursor.execute(
+                    """
                     UPDATE user_sessions SET is_valid = 0 WHERE session_id = ?
-                ''', (session_id,))
+                """,
+                    (session_id,),
+                )
                 conn.commit()
                 conn.close()
                 return None
 
             # 更新最后活跃时间
-            cursor.execute('''
+            cursor.execute(
+                """
                 UPDATE user_sessions SET last_active = ? WHERE session_id = ?
-            ''', (datetime.now().isoformat(), session_id))
+            """,
+                (datetime.now().isoformat(), session_id),
+            )
             conn.commit()
             conn.close()
 
-            return row['account_id']
+            return row["account_id"]
 
         except Exception as e:
             _auth_logger.warning(f"[Auth] 会话验证失败: {e}")
@@ -460,11 +495,14 @@ class AccountManager:
             conn = _get_connection()
             cursor = conn.cursor()
 
-            cursor.execute('''
+            cursor.execute(
+                """
                 SELECT account_id, username, created_at, last_login, is_active
                 FROM accounts
                 WHERE account_id = ?
-            ''', (account_id,))
+            """,
+                (account_id,),
+            )
             row = cursor.fetchone()
             conn.close()
 
@@ -472,11 +510,11 @@ class AccountManager:
                 return None
 
             return {
-                "account_id": row['account_id'],
-                "username": row['username'],
-                "created_at": row['created_at'],
-                "last_login": row['last_login'],
-                "is_active": bool(row['is_active'])
+                "account_id": row["account_id"],
+                "username": row["username"],
+                "created_at": row["created_at"],
+                "last_login": row["last_login"],
+                "is_active": bool(row["is_active"]),
             }
 
         except Exception as e:
@@ -497,13 +535,16 @@ class AccountManager:
             conn = _get_connection()
             cursor = conn.cursor()
 
-            cursor.execute('''
+            cursor.execute(
+                """
                 SELECT user_id FROM account_profiles WHERE account_id = ?
-            ''', (account_id,))
+            """,
+                (account_id,),
+            )
             row = cursor.fetchone()
             conn.close()
 
-            return row['user_id'] if row else None
+            return row["user_id"] if row else None
 
         except Exception as e:
             _auth_logger.warning(f"[Auth] 获取用户ID失败: {e}")
@@ -524,10 +565,13 @@ class AccountManager:
             conn = _get_connection()
             cursor = conn.cursor()
 
-            cursor.execute('''
+            cursor.execute(
+                """
                 INSERT OR REPLACE INTO account_profiles (account_id, user_id, created_at)
                 VALUES (?, ?, ?)
-            ''', (account_id, user_id, datetime.now().isoformat()))
+            """,
+                (account_id, user_id, datetime.now().isoformat()),
+            )
 
             conn.commit()
             conn.close()
@@ -553,7 +597,7 @@ class AccountManager:
             cursor = conn.cursor()
 
             # 获取账号信息
-            cursor.execute('SELECT password_hash FROM accounts WHERE account_id = ?', (account_id,))
+            cursor.execute("SELECT password_hash FROM accounts WHERE account_id = ?", (account_id,))
             row = cursor.fetchone()
 
             if not row:
@@ -561,15 +605,17 @@ class AccountManager:
                 return False
 
             # 验证密码
-            if not _check_password(password, row['password_hash']):
+            if not _check_password(password, row["password_hash"]):
                 conn.close()
                 return False
 
             # 软删除账号
-            cursor.execute('UPDATE accounts SET is_active = 0 WHERE account_id = ?', (account_id,))
+            cursor.execute("UPDATE accounts SET is_active = 0 WHERE account_id = ?", (account_id,))
 
             # 使所有会话无效
-            cursor.execute('UPDATE user_sessions SET is_valid = 0 WHERE account_id = ?', (account_id,))
+            cursor.execute(
+                "UPDATE user_sessions SET is_valid = 0 WHERE account_id = ?", (account_id,)
+            )
 
             conn.commit()
             conn.close()
@@ -593,10 +639,13 @@ class AccountManager:
             conn = _get_connection()
             cursor = conn.cursor()
 
-            cursor.execute('''
+            cursor.execute(
+                """
                 UPDATE user_sessions SET is_valid = 0
                 WHERE expires_at < ? AND is_valid = 1
-            ''', (datetime.now().isoformat(),))
+            """,
+                (datetime.now().isoformat(),),
+            )
 
             affected = cursor.rowcount
             conn.commit()
@@ -625,13 +674,16 @@ class AccountManager:
             conn = _get_connection()
             cursor = conn.cursor()
 
-            cursor.execute('''
+            cursor.execute(
+                """
                 SELECT s.session_id, s.account_id, s.created_at, s.expires_at, s.is_valid,
                        a.username
                 FROM user_sessions s
                 JOIN accounts a ON s.account_id = a.account_id
                 WHERE s.session_id = ?
-            ''', (session_id,))
+            """,
+                (session_id,),
+            )
             row = cursor.fetchone()
             conn.close()
 
@@ -639,12 +691,12 @@ class AccountManager:
                 return None
 
             return {
-                "session_id": row['session_id'],
-                "account_id": row['account_id'],
-                "username": row['username'],
-                "created_at": row['created_at'],
-                "expires_at": row['expires_at'],
-                "is_valid": bool(row['is_valid'])
+                "session_id": row["session_id"],
+                "account_id": row["account_id"],
+                "username": row["username"],
+                "created_at": row["created_at"],
+                "expires_at": row["expires_at"],
+                "is_valid": bool(row["is_valid"]),
             }
 
         except Exception as e:
@@ -665,22 +717,27 @@ class AccountManager:
             conn = _get_connection()
             cursor = conn.cursor()
 
-            cursor.execute('''
+            cursor.execute(
+                """
                 SELECT account_id, username, created_at, last_login, is_active
                 FROM accounts
                 ORDER BY created_at DESC
                 LIMIT ?
-            ''', (limit,))
+            """,
+                (limit,),
+            )
 
             accounts = []
             for row in cursor.fetchall():
-                accounts.append({
-                    "account_id": row['account_id'],
-                    "username": row['username'],
-                    "created_at": row['created_at'],
-                    "last_login": row['last_login'],
-                    "is_active": bool(row['is_active'])
-                })
+                accounts.append(
+                    {
+                        "account_id": row["account_id"],
+                        "username": row["username"],
+                        "created_at": row["created_at"],
+                        "last_login": row["last_login"],
+                        "is_active": bool(row["is_active"]),
+                    }
+                )
 
             conn.close()
             return accounts
