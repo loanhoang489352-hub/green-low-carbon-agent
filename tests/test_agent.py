@@ -77,10 +77,35 @@ class TestKnowledgeManager(unittest.TestCase):
 
 class TestShortTermMemory(unittest.TestCase):
     """测试短期记忆"""
-    
+
+    # 这些 conversation_id 必须在 setUp/tearDown 之间清掉,避免状态跨测试/跨进程泄漏
+    _TEST_CONV_IDS = ("test_conv", "test_conv_2", "test_conv_3")
+
     def setUp(self):
-        self.stm = ShortTermMemory()
-    
+        # 隔离:每个测试用独立的 sqlite 文件,不污染生产 short_term.db
+        self._test_db_path = project_root / "data" / "test_stm.db"
+        # 测试启动前清掉旧的(防止上一次失败留下的残留)
+        if self._test_db_path.exists():
+            try:
+                self._test_db_path.unlink()
+            except OSError:
+                pass
+        self.stm = ShortTermMemory(db_path=str(self._test_db_path))
+
+    def tearDown(self):
+        # 每个测试结束后清理本次用过的 conv_id(包括生产单例),避免跨测试累积
+        for cid in self._TEST_CONV_IDS:
+            try:
+                self.stm.delete_conversation(cid)
+            except Exception:
+                pass
+        # 关闭底层连接池引用(测试短生命周期)
+        if self._test_db_path.exists():
+            try:
+                self._test_db_path.unlink()
+            except OSError:
+                pass
+
     def test_add_message(self):
         """测试添加消息"""
         result = self.stm.add_message(
@@ -89,22 +114,22 @@ class TestShortTermMemory(unittest.TestCase):
             content="你好"
         )
         self.assertTrue(result)
-    
+
     def test_get_conversation_history(self):
         """测试获取对话历史"""
         conv_id = "test_conv_2"
         self.stm.add_message(conv_id, "user", "你好")
         self.stm.add_message(conv_id, "assistant", "你好，我是助手")
-        
+
         history = self.stm.get_conversation_history(conv_id)
         self.assertEqual(len(history), 2)
-    
+
     def test_working_memory(self):
         """测试工作记忆"""
         conv_id = "test_conv_3"
         for i in range(10):
             self.stm.add_message(conv_id, "user", f"消息 {i}")
-        
+
         working = self.stm.get_working_memory(conv_id)
         self.assertLessEqual(len(working), 20)  # 应该是最近的消息
 
@@ -149,18 +174,47 @@ class TestLongTermMemory(unittest.TestCase):
 
 class TestUserProfile(unittest.TestCase):
     """测试用户画像"""
-    
+
+    # 这些 user_id 在每个测试结束时清掉,防止增量累积(12 != 2 这类问题)
+    _TEST_USER_IDS = ("new_user", "test_user_profile", "test_user_stat")
+
     def setUp(self):
-        self.profile_manager = UserProfileManager(
-            db_path=str(project_root / "data" / "test_profile.db")
-        )
-    
+        self.db_path = project_root / "data" / "test_profile.db"
+        # 清理本次测试要用的 user_id(兼容之前残留的旧数据)
+        self._cleanup_test_users()
+        self.profile_manager = UserProfileManager(db_path=str(self.db_path))
+
+    def tearDown(self):
+        self._cleanup_test_users()
+        # 清掉进程内缓存,避免下一轮测试拿到旧对象
+        try:
+            self.profile_manager._profile_cache.clear()
+        except Exception:
+            pass
+
+    def _cleanup_test_users(self):
+        """删除 _TEST_USER_IDS 对应的行,让每个测试从 0 计数开始"""
+        from db.connection import get_connection
+
+        try:
+            conn = get_connection(str(self.db_path))
+            cursor = conn.cursor()
+            placeholders = ",".join("?" * len(self._TEST_USER_IDS))
+            cursor.execute(
+                f"DELETE FROM user_profiles WHERE user_id IN ({placeholders})",
+                self._TEST_USER_IDS,
+            )
+            conn.commit()
+        except Exception:
+            # 测试启动前 DB 还没建,忽略
+            pass
+
     def test_get_profile(self):
         """测试获取画像"""
         profile = self.profile_manager.get_profile("new_user")
         self.assertIsNotNone(profile)
         self.assertEqual(profile["user_id"], "new_user")
-    
+
     def test_update_profile(self):
         """测试更新画像"""
         user_id = "test_user_profile"
@@ -168,16 +222,16 @@ class TestUserProfile(unittest.TestCase):
             "eco_knowledge_level": "了解",
             "behavior_stage": "行动"
         })
-        
+
         profile = self.profile_manager.get_profile(user_id)
         self.assertEqual(profile["eco_knowledge_level"], "了解")
-    
+
     def test_increment_stat(self):
         """测试增加统计"""
         user_id = "test_user_stat"
         self.profile_manager.increment_stat(user_id, "questions_asked")
         self.profile_manager.increment_stat(user_id, "questions_asked")
-        
+
         profile = self.profile_manager.get_profile(user_id)
         self.assertEqual(profile["questions_asked"], 2)
 
