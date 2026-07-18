@@ -49,6 +49,17 @@ knowledge_base:
     - policy
     - guide
 
+# OCR 配置 (P9.OCR)
+# - 本地 PaddleOCR 3.x(中文 SOTA,Apache 2.0,免费)
+# - 置信度 < 0.6 时自动调阿里云 OCR(政府公开政策文件,可走云)
+# - 阿里云 SDK: aliyun-python-sdk-ocr + aliyun-python-sdk-core
+ocr:
+  use_local: true                  # 是否启用 PaddleOCR 本地
+  cloud_fallback: true             # 是否启用阿里云兜底
+  lang: "ch"                       # PaddleOCR 语言(ch / en / chinese_cht / japan / korean 等)
+  confidence_threshold: 0.6        # 本地结果阈值;低于此值触发云端
+  # ALIYUN_OCR_KEY / ALIYUN_OCR_SECRET 从 env 读,此处不落盘
+
 # 政策更新配置
 policy_updater:
   enabled: true
