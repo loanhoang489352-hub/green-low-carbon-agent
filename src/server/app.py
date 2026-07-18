@@ -131,7 +131,7 @@ class RoutedRequestHandler(BaseHTTPRequestHandler):
             raise APIError("BODY_TOO_LARGE", f"Body too large (max {MAX_BODY_SIZE})")
         if content_length < 0:
             raise APIError("BAD_REQUEST", "Invalid Content-Length")
-        return self.rfile.read(content_length).decode("utf-8") if content_length else ""
+        return self.rfile.read(content_length).decode("utf-8", errors="replace") if content_length else ""
 
     def _dispatch(self, method: str):
         parsed = urlparse(self.path)

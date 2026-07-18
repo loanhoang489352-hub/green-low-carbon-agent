@@ -165,7 +165,14 @@ def register_system_routes(registry) -> None:
                 return
             handler.send_json(engine.get_rebuild_status())
         except Exception as e:
-            handler.send_json({"state": "error", "message": str(e)}, status=500)
+            # P5-E: 不向客户端泄漏原始异常,只返统一错误码,详细原因落日志
+            import logging
+
+            logging.getLogger(__name__).exception("rag_status failed: %s", e)
+            from server.errors import APIError
+
+            ae = APIError("INTERNAL", "RAG 状态查询失败")
+            handler.send_json(ae.to_dict(), status=ae.status)
 
     def tools_skills_status(handler):
         """P6.S.15: 列出所有已注册的 tools + skills(用于调试和验证)
@@ -174,6 +181,8 @@ def register_system_routes(registry) -> None:
         - tools: [{name, description, category, tags}, ...]
         - skills: [{name, description, category, tools: [...]}, ...]
         """
+        import logging
+
         try:
             from agent.tools import get_registry as get_tool_registry
             from agent.skills import get_skill_executor
@@ -214,7 +223,12 @@ def register_system_routes(registry) -> None:
                 }
             )
         except Exception as e:
-            handler.send_json({"error": str(e)}, status=500)
+            # P5-E: 不向客户端泄漏原始异常,只返统一错误码,详细原因落日志
+            logging.getLogger(__name__).exception("tools_skills_status failed: %s", e)
+            from server.errors import APIError
+
+            ae = APIError("INTERNAL", "工具/技能状态查询失败")
+            handler.send_json(ae.to_dict(), status=ae.status)
 
     def mcp_status(handler):
         """P6.S.16: 列出所有 MCP server 状态 + 它们提供的 tool
@@ -321,7 +335,11 @@ def register_system_routes(registry) -> None:
             handler.end_headers()
             handler.wfile.write(data)
         except Exception as e:
-            handler.send_json({"ok": False, "error": f"高德静态图获取失败:{e}"}, status=502)
+            # P5-E: 不向客户端泄漏原始异常(只告知上游失败),详细原因落日志
+            import logging
+
+            logging.getLogger(__name__).exception("staticmap failed: %s", e)
+            handler.send_json({"ok": False, "error": "静态地图上游获取失败"}, status=502)
 
     def policy_latest(handler):
         updater = handler.policy_updater

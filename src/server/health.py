@@ -60,10 +60,10 @@ def _check_vector_store() -> Dict[str, Any]:
         from rag.rag_engine import get_rag_engine
 
         engine = get_rag_engine()
-        if engine is None or engine.vector_store is None:
+        if engine is None or engine._vector_store is None:
             return {"status": HealthStatus.OK, "detail": "vector store not configured"}
 
-        store = engine.vector_store
+        store = engine._vector_store
         # store 类型:ChromaVectorStore / FAISSVectorStore / InMemoryVectorStore
         store_type = type(store).__name__
         # 优先用 count(),失败就退到 len(_collection._collection.get()['ids'])

@@ -22,6 +22,7 @@ class IntentType(Enum):
     TRAVEL_PLANNING = "travel_planning"  # P6.S.3: 出行规划 — 调地图+天气
     LOCATION_QUERY = "location_query"  # P6.S.23: 当前位置查询(直接答 city,不绕 LLM)
     UNKNOWN = "unknown"  # 未知
+    OTHER = UNKNOWN  # 别名(部分下游/测试用 OTHER,与 UNKNOWN 等价,Python Enum alias 机制)
 
 
 @dataclass

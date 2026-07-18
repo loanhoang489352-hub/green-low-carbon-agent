@@ -1068,6 +1068,54 @@ class UserProfileManager:
 
         return success
 
+    def increment_stat(self, user_id: str, stat: str, delta: int = 1) -> int:
+        """增加指定统计字段的数值(原子操作),返回新值
+
+        同时写 statistics 子字段(规范位置)和顶层字段(方便测试与某些下游读取)。
+        兼容 history 写法,只往 statistics 子字典统计,顶层镜像同步。
+
+        Args:
+            user_id: 用户 ID
+            stat: 统计字段名(如 questions_asked/actions_reported)
+            delta: 增量(默认 1)
+
+        Returns:
+            增加后的字段值(若字段不存在则初始化为 delta)
+        """
+        profile = self.get_profile(user_id)
+        stats = profile.get("statistics", {})
+        if not isinstance(stats, dict):
+            stats = {}
+        current = stats.get(stat, 0)
+        if not isinstance(current, (int, float)):
+            current = 0
+        new_value = int(current) + delta
+        stats[stat] = new_value
+        profile["statistics"] = stats
+        # 顶层镜像(兼容直接 profile["questions_asked"] 的读取路径,如 test_agent.py)
+        profile[stat] = new_value
+        profile["updated_at"] = datetime.now().isoformat()
+
+        conn = get_connection(str(self.db_path))
+        cursor = conn.cursor()
+        try:
+            cursor.execute(
+                """
+                UPDATE user_profiles
+                SET profile_data = ?, updated_at = ?
+                WHERE user_id = ?
+            """,
+                (json.dumps(profile, ensure_ascii=False), profile["updated_at"], user_id),
+            )
+            conn.commit()
+        finally:
+            pass  # conn 池 60s TTL 自动关
+
+        if user_id in self._profile_cache:
+            del self._profile_cache[user_id]
+
+        return new_value
+
     def get_stats(self) -> Dict[str, Any]:
         """获取统计信息"""
         conn = get_connection(str(self.db_path))
