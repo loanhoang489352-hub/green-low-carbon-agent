@@ -24,9 +24,13 @@ if sys.platform == "win32":
 import uuid
 import warnings
 from pathlib import Path
-from typing import List, Dict, Any, Optional
+from typing import List, Dict, Any, Optional, TYPE_CHECKING
 from datetime import datetime
 import hashlib
+
+if TYPE_CHECKING:
+    # P3.P.3: 仅类型检查时导入,运行时由 _get_base() 懒加载(避免循环依赖)
+    from knowledge.base import KnowledgeDocument
 
 # P5-F: 模块级 logger
 try:

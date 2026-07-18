@@ -90,9 +90,9 @@ def log_mock_decision(provider: str, used_mock: bool) -> None:
 # Windows UTF-8 encoding setup - only if not already done
 if sys.platform == "win32" and hasattr(sys.stdout, "buffer"):
     try:
-        if sys.stdout.encoding != "utf-8" or not isinstance(sys.stdout, io.TextIOWrapper):
-            import io
+        import io
 
+        if sys.stdout.encoding != "utf-8" or not isinstance(sys.stdout, io.TextIOWrapper):
             sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8", errors="replace")
             sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding="utf-8", errors="replace")
     except Exception:

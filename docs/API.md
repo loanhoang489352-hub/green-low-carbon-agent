@@ -275,7 +275,7 @@ session_id 默认 7 天有效。
 字段:`id / user_id / action / target / ip / user_agent / status_code / detail / created_at`。
 `detail` 字段自动过 PII 脱敏(避免二次泄露)。
 
-## 指标(P5-B)
+## 指标(P5-B + P6.C)
 
 ### GET /api/metrics
 ```json
@@ -294,7 +294,25 @@ session_id 默认 7 天有效。
       "openai": {"calls": 30, "error_rate": 0.0, "tokens": 80000},
       "deepseek": {"calls": 12, "error_rate": 0.083, "tokens": 44567}
     },
-    "history_size": 1000
+    "history_size": 1000,
+    "query_cache": {
+      "hits": 1234,
+      "misses": 56,
+      "sets": 567,
+      "invalidations": 12,
+      "hit_rate": 0.957,
+      "size": 234,
+      "ttl_seconds": 3600
+    }
   }
 }
 ```
+
+**Query Cache 字段**(P6.C):
+- `hits` — LLM 缓存命中次数(命中后跳过真实 API 调用)
+- `misses` — 未命中次数
+- `sets` — 写入次数
+- `invalidations` — 画像更新触发的清除条数
+- `hit_rate` — 命中率(`hits / (hits + misses)`)
+- `size` — 当前缓存条目数
+- `ttl_seconds` — TTL(默认 3600 = 1h)

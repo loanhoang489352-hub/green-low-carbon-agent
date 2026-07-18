@@ -88,7 +88,11 @@ class SentenceTransformerEmbedder(Embedder):
             print(f"[嵌入器] 正在加载模型: {self.model_name}")
             print("[嵌入器] 首次使用需要下载模型（约100MB），请耐心等待...")
             self._model = SentenceTransformer(self.model_name)
-            new_dim = self._model.get_sentence_embedding_dimension()
+            # P7.R1: 兼容新旧 sentence-transformers API (>=2.7 用 get_embedding_dimension)
+            try:
+                new_dim = self._model.get_embedding_dimension()
+            except AttributeError:
+                new_dim = self._model.get_sentence_embedding_dimension()
             self._dimension = new_dim
             print(f"[嵌入器] 模型加载完成 (维度: {new_dim})")
         except Exception as e:

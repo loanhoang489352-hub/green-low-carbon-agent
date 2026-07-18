@@ -931,7 +931,7 @@ class GreenAgent:
                 prefix = ""
                 main_content = base_response["message"]
         else:
-            prefix = self._generate_prefix(intent_result, personalizacion)
+            prefix = self._generate_prefix(intent_result, personalization)
             main_content = base_response["message"]
 
         suffix = self._generate_suffix(intent_result, personalization)

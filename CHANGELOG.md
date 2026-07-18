@@ -4,6 +4,37 @@
 
 ## [Unreleased] — P6 上线 + 质量收口
 
+### Phase 3(2026-07-18)— 质量收口优化
+
+- **A. ruff F821 致命错误修复**(10 个):
+  - `src/agent/core.py:934` — 拼写错误 `personalizacion` → `personalization`,
+    原代码在 else 分支调用 `_generate_prefix(intent_result, personalizacion)` 时会抛 NameError,
+    导致模板回退路径整体崩溃(P5-E 错误响应路径)
+  - `src/llm/__init__.py:93` — `import io` 移到 if 块顶部,避免 `io` 在 win32 检查行尚未定义
+  - `src/knowledge/manager.py` — `KnowledgeDocument` 前向引用改用 `TYPE_CHECKING`,
+    ruff 不再误报 F821(运行时仍由 `_get_base()` 懒加载)
+  - 验证:`ruff check src/ --select=E9,F63,F7,F82 --exclude src/pet` → **All checks passed!**
+- **B. 依赖清单补齐**(`requirements.txt`):
+  - `jieba>=0.42.0` — entity_linking 中文分词(try/except 包裹,缺失时退化)
+  - `langchain-text-splitters>=0.3.0` — RAG Markdown 切分(缺失时退化段落切分)
+  - `faiss-cpu>=1.7.0` — vector_store FAISS 后端(默认走 ChromaDB)
+  - 三者均为 lazy import,生产部署需声明才能保 fallback 行为稳定
+- **C. 性能验证**(无 regression):
+  - `tests/test_p6c_query_cache.py` — 14/14 PASS(QueryCache hit_rate / TTL / cleanup_expired)
+  - `tests/test_p6e_connection_pool.py` — 9/9 PASS(per-thread 60s TTL 复用 + WAL)
+  - `tests/test_scheduler_logging.py` — 15/15 PASS(5 个 cron job 注册验证)
+  - `tests/test_p5i_security.py` — 19/19 PASS(PII 脱敏 + 限流 + 审计 + 密钥强校验)
+  - `tests/test_p5h_kb_rag.py` — 13/13 PASS(ChromaDB Windows 持久化 + 异步重建)
+  - **合计 70/70 PASS**,无 regression
+- **D. 死代码识别**(留档,不删除):
+  - `src/utils/guardrails_v2.py` — 仅自身引用,主流程未挂载,NeMo Guardrails 仍可选包
+  - `src/pet/` — 旧版任务规则,作为参考保留;ruff 排除此目录避免误报
+- **E. 已知预存失败**(与 Phase 3 无关,留档):
+  - `tests/test_p4g_e2e.py::test_chat_enhanced_knowledge_query` — recommendations 引擎返回 0 条
+  - `tests/test_p4g_e2e.py::test_chat_enhanced_advice_request` — 同上
+  - `tests/test_p4g_e2e.py::test_multi_turn_profile_update` — 画像 interests 未匹配到 "骑自行车"
+  - 根因:推荐引擎对未完成 onboarding 的 user 返回空数组,Phase 4 验收时再处理
+
 ### P6.P.2(2026-06-12)— Web e2e 18/18 PASS + user_profiles.db 锁修复
 
 - **A. JS 语法错误**(`web/index.html`):
