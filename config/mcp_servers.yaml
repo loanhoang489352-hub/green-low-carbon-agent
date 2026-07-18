@@ -6,6 +6,10 @@
 #   - stdio:           JSON-RPC 2.0 over stdio(每行一个 JSON),用 command + args 启动子进程
 #   - streamable-http: MCP 2025-11-25 Streamable HTTP,用 url + headers 调远端 server
 #
+# P11.C 新增:占位符展开 — 任何字符串字段中的 ${ENV_VAR} 会从环境变量取值
+# 未找到的 env 保留原样(${VAR_NAME}),便于排查
+# 例如:Authorization: Bearer ${GITHUB_TOKEN}
+#
 # 添加新 server: 复制下面一条,按 transport 改字段
 
 mcp_servers:
@@ -32,7 +36,49 @@ mcp_servers:
     connect_timeout_s: 10.0
     request_timeout_s: 30.0
 
-  # === 示例: 高德地图 MCP(若安装了对应 server,启用) ===
+  # ============================================================
+  # P11.C 真实 MCP server 模板(默认 enabled: false,需用户主动开)
+  # ============================================================
+
+  # === GitHub MCP server(github/github-mcp-server 官方) ===
+  # GitHub 托管的 Streamable HTTP 端点: https://api.githubcopilot.com/mcp/
+  # 需 GITHUB_TOKEN env(fine-grained PAT,至少包含 repo + read 权限)
+  # 启用后,agent 可调:create_issue / list_repos / get_file_contents / search_code 等
+  - name: github
+    description: GitHub 官方 MCP(Streamable HTTP) — create_issue / list_repos / get_file_contents
+    enabled: false
+    transport: streamable-http
+    url: https://api.githubcopilot.com/mcp/
+    headers:
+      Authorization: Bearer ${GITHUB_TOKEN}
+    origin: https://green-low-carbon-agent.local
+    connect_timeout_s: 10.0
+    request_timeout_s: 30.0
+    verify_ssl: true
+
+  # === Notion MCP server(官方 OAuth) ===
+  # Notion 官方 MCP: https://mcp.notion.com/mcp
+  # 首次启用需走 OAuth 2.1 授权(client_credentials / authorization_code)
+  # 配置前先去 https://www.notion.so/profile/integrations 创建 internal integration,
+  # 拿到 NOTION_CLIENT_ID / NOTION_CLIENT_SECRET
+  # 注:StreamableHTTPClient 当前 OAuth 为 stub(自动 bearer 注入,refresh 留 TODO)
+  # 真实用前可手工调 notion OAuth 拿 token 后填入下方 oauth_token
+  - name: notion
+    description: Notion 官方 MCP(Streamable HTTP) — 读 / 写 Notion 页面与数据库
+    enabled: false
+    transport: streamable-http
+    url: https://mcp.notion.com/mcp
+    origin: https://green-low-carbon-agent.local
+    connect_timeout_s: 10.0
+    request_timeout_s: 30.0
+    verify_ssl: true
+    # OAuth 2.1(填入后 oauth_token 优先级最高)
+    # oauth_token: ${NOTION_TOKEN}
+    # oauth_token_url: https://api.notion.com/v1/oauth/token
+    # oauth_client_id: ${NOTION_CLIENT_ID}
+    # oauth_client_secret: ${NOTION_CLIENT_SECRET}
+
+  # === 高德地图 MCP(若安装了对应 server,启用) ===
   # - name: amap_mcp
   #   description: 高德地图 MCP — 提供地理编码/路线规划
   #   enabled: false
@@ -41,18 +87,9 @@ mcp_servers:
   #   args:
   #     - path/to/amap_mcp_server.py
   #   env:
-  #     GAODE_API_KEY: your_key_here
+  #     GAODE_API_KEY: ${GAODE_API_KEY}
 
-  # === 示例: Notion MCP(需 token,2025-11 Streamable HTTP) ===
-  # - name: notion
-  #   description: Notion 官方 MCP(Streamable HTTP 端点)
-  #   enabled: false
-  #   transport: streamable-http
-  #   url: https://mcp.notion.com/mcp
-  #   headers:
-  #     Authorization: Bearer secret_xxx   # 替换为真实 token
-
-  # === 示例: 政策查询 MCP(可挂政策数据库) ===
+  # === 政策查询 MCP(可挂政策数据库) ===
   # - name: policy_db
   #   description: 政策数据库 MCP — 提供低碳政策查询
   #   enabled: false

@@ -20,6 +20,9 @@ P10.B: 遵循 MCP 2025-11-25 规范,使用 Streamable HTTP 传输(替代旧 SSE-
 - 与现有 stdio MCPClient 接口对齐:connect / disconnect / list_tools / call_tool
 - MCPRegistry 通过 transport 字段分发
 
+P11.C: 支持 YAML 中 ${ENV_VAR} 占位符展开(headers / oauth_* 字段),
+用于真实 MCP server(GitHub / Notion 等)的 token 注入。
+
 零新依赖:用现有 httpx(>=0.27)+ threading + queue
 """
 
@@ -27,7 +30,9 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 import queue
+import re
 import threading
 import time
 from dataclasses import dataclass, field
@@ -512,6 +517,9 @@ def build_streamable_http_config_from_yaml(yaml_dict: Dict[str, Any]) -> Streama
     """
     从 yaml dict 构造 StreamableHTTPClientConfig(供 MCPRegistry.load_config 用)
 
+    P11.C: 对 headers / oauth_* 等字符串字段做 ${ENV_VAR} 占位符展开。
+    未找到的环境变量保留原样(避免 silent loss,用户能看到未展开的占位符)。
+
     期望字段:
       name, url, transport: streamable-http, headers: {}, origin: ..., ...
     """
@@ -519,7 +527,7 @@ def build_streamable_http_config_from_yaml(yaml_dict: Dict[str, Any]) -> Streama
         name=yaml_dict.get("name", "mcp_http"),
         url=yaml_dict.get("url", ""),
         transport="streamable-http",
-        headers=yaml_dict.get("headers", {}) or {},
+        headers=_expand_env_in_mapping(yaml_dict.get("headers", {}) or {}),
         origin=yaml_dict.get("origin", DEFAULT_ORIGIN),
         allowed_origins=yaml_dict.get("allowed_origins", []) or [],
         protocol_version=yaml_dict.get("protocol_version", PROTOCOL_VERSION),
@@ -528,9 +536,56 @@ def build_streamable_http_config_from_yaml(yaml_dict: Dict[str, Any]) -> Streama
         verify_ssl=bool(yaml_dict.get("verify_ssl", True)),
         description=yaml_dict.get("description", ""),
         enabled=bool(yaml_dict.get("enabled", True)),
-        oauth_token=yaml_dict.get("oauth_token"),
-        oauth_refresh_token=yaml_dict.get("oauth_refresh_token"),
-        oauth_token_url=yaml_dict.get("oauth_token_url"),
-        oauth_client_id=yaml_dict.get("oauth_client_id"),
-        oauth_client_secret=yaml_dict.get("oauth_client_secret"),
+        oauth_token=_expand_env_in_string(yaml_dict.get("oauth_token")),
+        oauth_refresh_token=_expand_env_in_string(yaml_dict.get("oauth_refresh_token")),
+        oauth_token_url=_expand_env_in_string(yaml_dict.get("oauth_token_url")),
+        oauth_client_id=_expand_env_in_string(yaml_dict.get("oauth_client_id")),
+        oauth_client_secret=_expand_env_in_string(yaml_dict.get("oauth_client_secret")),
     )
+
+
+# ============ P11.C: ${ENV_VAR} 占位符展开 ============
+
+_ENV_PATTERN = re.compile(r"\$\{([A-Z_][A-Z0-9_]*)\}")
+
+
+def _expand_env_in_string(value: Any) -> Any:
+    """
+    展开字符串中的 ${ENV_VAR} 占位符。
+    - 若 value 不是字符串,直接返回
+    - 未找到的 env 保留原样(以 `${VAR_NAME}` 形式),便于 debug
+    """
+    if not isinstance(value, str):
+        return value
+
+    def _repl(m: "re.Match[str]") -> str:
+        var_name = m.group(1)
+        env_val = os.environ.get(var_name)
+        if env_val is None:
+            return m.group(0)  # 保留原占位符
+        return env_val
+
+    return _ENV_PATTERN.sub(_repl, value)
+
+
+def _expand_env_in_mapping(d: Dict[str, Any]) -> Dict[str, Any]:
+    """对 dict 的 value 做 ${ENV_VAR} 展开"""
+    return {k: _expand_env_in_string(v) for k, v in d.items()}
+
+
+def expand_mcp_yaml_placeholders(yaml_dict: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    对整个 MCP yaml dict 做 env 占位符展开(递归 dict / list / string)。
+    供 stdio 与 streamable-http 配置统一入口使用。
+    """
+    return _recursive_expand(yaml_dict)
+
+
+def _recursive_expand(obj: Any) -> Any:
+    if isinstance(obj, dict):
+        return {k: _recursive_expand(v) for k, v in obj.items()}
+    if isinstance(obj, list):
+        return [_recursive_expand(v) for v in obj]
+    if isinstance(obj, str):
+        return _expand_env_in_string(obj)
+    return obj

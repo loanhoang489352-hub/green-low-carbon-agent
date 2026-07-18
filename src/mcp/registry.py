@@ -6,6 +6,8 @@ MCP Registry — 集中管理所有 MCP client + 状态
 P10.B: 支持两种 transport 分发
   - stdio:           现有 MCPClient(子进程 + JSON-RPC over stdin/stdout)
   - streamable-http: 新增 StreamableHTTPClient(HTTP POST + SSE, 2025-11-25 规范)
+
+P11.C: 配置文件中支持 ${ENV_VAR} 占位符展开(用于 GitHub PAT / Notion OAuth 等真实 server)
 """
 
 from __future__ import annotations
@@ -27,6 +29,7 @@ from .streamable_client import (
     StreamableHTTPClient,
     StreamableHTTPClientConfig,
     StreamableHTTPServerInfo,
+    expand_mcp_yaml_placeholders,
 )
 
 _logger = logging.getLogger(__name__)
@@ -96,6 +99,8 @@ class MCPRegistry:
         # P10.B: 也支持 servers 字段(任务示例 yaml 用此名,兼容两种)
         if not servers_raw and isinstance(data.get("servers"), list):
             servers_raw = data.get("servers")
+        # P11.C: 全局 ${ENV_VAR} 展开(headers / env / oauth_* / url 等)
+        servers_raw = [expand_mcp_yaml_placeholders(s) for s in servers_raw]
         for s in servers_raw:
             try:
                 transport = (s.get("transport") or "stdio").strip().lower()

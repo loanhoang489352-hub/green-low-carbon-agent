@@ -4,6 +4,30 @@
 
 ## [Unreleased] — P6 上线 + 质量收口
 
+### P11.C(2026-07-18)— 接真实 MCP server(GitHub + Notion 模板)
+
+- **A. ${ENV_VAR} 占位符展开**(`src/mcp/streamable_client.py`):
+  - `_expand_env_in_string` / `_expand_env_in_mapping` / `expand_mcp_yaml_placeholders`
+    三个辅助函数,递归展开 dict / list / string 中的 `${ENV_VAR}`
+  - 未命中保留原样(`${VAR}` 不变),便于 debug 漏配
+  - MCPRegistry.load_config 入口处统一调用,影响所有 transport / 字段
+- **B. config/mcp_servers.yaml 加 GitHub MCP**:
+  - `name: github`, `transport: streamable-http`, `url: https://api.githubcopilot.com/mcp/`
+  - `Authorization: Bearer ${GITHUB_TOKEN}`,`enabled: false`(用户主动开)
+  - 需 fine-grained PAT(repo:Contents:Read + Issues:RW),文档给出步骤
+- **C. config/mcp_servers.yaml 加 Notion MCP 模板**:
+  - `name: notion`, `transport: streamable-http`, `url: https://mcp.notion.com/mcp`
+  - OAuth 2.1 字段预置(oauth_token / client_id / secret),`enabled: false`
+  - 当前 OAuth 走 stub bearer 注入,完整 authorization_code 流程留 P11.D
+- **D. 测试**:
+  - `tests/test_real_mcp_config.py` — 12 个 case(占位符展开 + 真实 yaml 加载 + token 缺失保留)
+  - `tests/test_real_mcp_github.py` — 8 个 case(mock GitHub MCP server,验证
+    connect / list_tools / call_tool['list_repos'|'create_issue'|'get_file_contents'] / 401)
+  - 全 20 case PASS,P10.B 既有 23 case 无 regression
+- **E. 文档**:
+  - `docs/learning/p11-real-mcp.md` — 15 分钟用户上手(GitHub PAT 创建 + env 注入 + yaml 启用 + 排错)
+  - `docs/operations/p11-real-mcp.md` — YAML schema 全字段表 + 4 个常见 server 配置示例 + 贡献指南
+
 ### Phase 3(2026-07-18)— 质量收口优化
 
 - **A. ruff F821 致命错误修复**(10 个):
