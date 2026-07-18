@@ -27,4 +27,112 @@
 {"query": "把对我的偏好调整一下,最近更关注碳足迹", "expected_skill": "profile_update", "expected_behavior": ["preference_update"], "category": "profile"}
 {"query": "今天我用了新能源车通勤,记到我的低碳记录里", "expected_skill": "profile_update", "expected_behavior": ["behavior_record"], "category": "profile"}
 {"query": "帮我看看我家附近的环保补贴怎么申请", "expected_skill": "policy_query", "expected_behavior": ["policy_search"], "category": "policy"}
-{"query": "今天出差打车 50 公里,排放怎么算,顺便记一笔", "expected_skill": "low_carbon_travel", "expected_behavior": ["carbon_calc"], "category": "travel"}
+{"query": "今天出差打车 50 公里,排放怎么算,顺便记一笔", "expected_skill": "profile_update", "expected_behavior": ["behavior_record"], "category": "multi-intent"}
+{"query": "广州到深圳的高铁和自驾哪个碳排放少", "expected_skill": "low_carbon_travel", "expected_behavior": ["carbon_calc"], "category": "explicit", "language": "zh"}
+{"query": "周一到周五开车上下班,帮我评估一下碳排放", "expected_skill": "low_carbon_travel", "expected_behavior": ["carbon_calc"], "category": "explicit", "language": "zh"}
+{"query": "打车去机场大概 40 公里,会不会很污染", "expected_skill": "low_carbon_travel", "expected_behavior": ["carbon_calc"], "category": "explicit", "language": "zh"}
+{"query": "从国贸到西单,坐地铁几号线最快", "expected_skill": "low_carbon_travel", "expected_behavior": ["transit_query"], "category": "explicit", "language": "zh"}
+{"query": "明天上海有雨,我该骑车还是坐地铁上班", "expected_skill": "low_carbon_travel", "expected_behavior": ["weather_check", "transit_query"], "category": "explicit", "language": "zh"}
+{"query": "公司离家 15 公里,走路和骑车哪个更低碳", "expected_skill": "low_carbon_travel", "expected_behavior": ["carbon_calc"], "category": "explicit", "language": "zh"}
+{"query": "想去浦东机场,最快又环保的方式推荐下", "expected_skill": "low_carbon_travel", "expected_behavior": ["transit_query"], "category": "explicit", "language": "zh"}
+{"query": "骑电动车上班 8 公里算不算低碳出行", "expected_skill": "low_carbon_travel", "expected_behavior": ["carbon_calc"], "category": "explicit", "language": "zh"}
+{"query": "高铁 500 公里大概多少碳排放", "expected_skill": "low_carbon_travel", "expected_behavior": ["carbon_calc"], "category": "explicit", "language": "zh"}
+{"query": "公交卡怎么充值最划算,顺便规划公交路线", "expected_skill": "low_carbon_travel", "expected_behavior": ["transit_query"], "category": "explicit", "language": "zh"}
+{"query": "我想减少通勤的碳足迹,有什么建议", "expected_skill": "low_carbon_travel", "expected_behavior": ["carbon_calc"], "category": "implicit", "language": "zh"}
+{"query": "怎么才能让我的上班路更环保一点", "expected_skill": "low_carbon_travel", "expected_behavior": ["carbon_calc"], "category": "implicit", "language": "zh"}
+{"query": "短距离出门我应该怎么选", "expected_skill": "low_carbon_travel", "expected_behavior": ["transit_query"], "category": "implicit", "language": "zh"}
+{"query": "顺风车属于低碳出行吗", "expected_skill": "low_carbon_travel", "expected_behavior": ["carbon_calc"], "category": "implicit", "language": "zh"}
+{"query": "我每天要出门,怎么安排最绿色", "expected_skill": "low_carbon_travel", "expected_behavior": ["transit_query"], "category": "implicit", "language": "zh"}
+{"query": "出差想少点碳,有啥办法", "expected_skill": "low_carbon_travel", "expected_behavior": ["carbon_calc"], "category": "implicit", "language": "zh"}
+{"query": "我和同事拼车上班,这个环保吗", "expected_skill": "low_carbon_travel", "expected_behavior": ["carbon_calc"], "category": "implicit", "language": "zh"}
+{"query": "从北京到石家庄咋走最环保", "expected_skill": "low_carbon_travel", "expected_behavior": ["transit_query"], "category": "edge", "language": "zh"}
+{"query": "明天去天津出差,咋去最省碳", "expected_skill": "low_carbon_travel", "expected_behavior": ["carbon_calc"], "category": "edge", "language": "zh"}
+{"query": "骑单车 5km 能减多少排", "expected_skill": "low_carbon_travel", "expected_behavior": ["carbon_calc"], "category": "edge", "language": "zh"}
+{"query": "我今天开车 60 公里,碳排怎么算啊", "expected_skill": "low_carbon_travel", "expected_behavior": ["carbon_calc"], "category": "edge", "language": "zh"}
+{"query": "下礼拜去承德玩,交通咋整最绿色", "expected_skill": "low_carbon_travel", "expected_behavior": ["transit_query"], "category": "edge", "language": "zh"}
+{"query": "我上班路上 6 公里,推荐嘛交通方式", "expected_skill": "low_carbon_travel", "expected_behavior": ["transit_query"], "category": "edge", "language": "zh"}
+{"query": "跨城市出门哪种方式最环保呢", "expected_skill": "low_carbon_travel", "expected_behavior": ["transit_query"], "category": "edge", "language": "zh"}
+{"query": "北京到雄安坐高铁碳排放高不", "expected_skill": "low_carbon_travel", "expected_behavior": ["carbon_calc"], "category": "edge", "language": "zh"}
+{"query": "How do I get from Beijing to Tianjin with low carbon emissions?", "expected_skill": "low_carbon_travel", "expected_behavior": ["transit_query"], "category": "english", "language": "en"}
+{"query": "Plan my daily commute to reduce my carbon footprint", "expected_skill": "low_carbon_travel", "expected_behavior": ["carbon_calc"], "category": "english", "language": "en"}
+{"query": "What's the carbon emission of driving 20 km?", "expected_skill": "low_carbon_travel", "expected_behavior": ["carbon_calc"], "category": "english", "language": "en"}
+{"query": "Best public transit route from Pudong to Puxi?", "expected_skill": "low_carbon_travel", "expected_behavior": ["transit_query"], "category": "english", "language": "en"}
+{"query": "Is cycling 10 km really zero carbon?", "expected_skill": "low_carbon_travel", "expected_behavior": ["carbon_calc"], "category": "english", "language": "en"}
+{"query": "Compare bus vs metro carbon emissions for a 30km trip", "expected_skill": "low_carbon_travel", "expected_behavior": ["transit_query", "carbon_calc"], "category": "english", "language": "en"}
+{"query": "Eco-friendly way to travel 500 km by train?", "expected_skill": "low_carbon_travel", "expected_behavior": ["transit_query", "carbon_calc"], "category": "english", "language": "en"}
+{"query": "国家发改委最近发布了哪些双碳相关政策", "expected_skill": "policy_query", "expected_behavior": ["policy_search"], "category": "explicit", "language": "zh"}
+{"query": "CCER 项目开发流程具体是什么", "expected_skill": "policy_query", "expected_behavior": ["policy_search"], "category": "explicit", "language": "zh"}
+{"query": "重点排放单位的核查流程怎么走", "expected_skill": "policy_query", "expected_behavior": ["policy_search"], "category": "explicit", "language": "zh"}
+{"query": "广东省最新的低碳园区扶持政策有哪些", "expected_skill": "policy_query", "expected_behavior": ["policy_search"], "category": "explicit", "language": "zh"}
+{"query": "我想申报绿色制造示范工厂,有哪些条件", "expected_skill": "policy_query", "expected_behavior": ["policy_search"], "category": "explicit", "language": "zh"}
+{"query": "上海新能源汽车上牌的法规有什么变化", "expected_skill": "policy_query", "expected_behavior": ["policy_search"], "category": "explicit", "language": "zh"}
+{"query": "碳达峰试点城市名单有哪些城市", "expected_skill": "policy_query", "expected_behavior": ["policy_search"], "category": "explicit", "language": "zh"}
+{"query": "光伏发电的补贴政策 2026 年还在执行吗", "expected_skill": "policy_query", "expected_behavior": ["policy_search"], "category": "explicit", "language": "zh"}
+{"query": "北京的老旧小区改造补贴怎么申请", "expected_skill": "policy_query", "expected_behavior": ["policy_search"], "category": "explicit", "language": "zh"}
+{"query": "工信部关于工业绿色发展的指导意见有哪些内容", "expected_skill": "policy_query", "expected_behavior": ["policy_search"], "category": "explicit", "language": "zh"}
+{"query": "环保税的减免条例适用于哪些企业", "expected_skill": "policy_query", "expected_behavior": ["policy_search"], "category": "explicit", "language": "zh"}
+{"query": "国家发改委发布的碳市场扩容方案是什么", "expected_skill": "policy_query", "expected_behavior": ["policy_search"], "category": "explicit", "language": "zh"}
+{"query": "企业要怎么参与碳交易", "expected_skill": "policy_query", "expected_behavior": ["policy_search"], "category": "implicit", "language": "zh"}
+{"query": "个人能申请 CCER 减排量吗,有什么条件", "expected_skill": "policy_query", "expected_behavior": ["policy_search"], "category": "implicit", "language": "zh"}
+{"query": "碳配额的清缴截止日是哪天", "expected_skill": "policy_query", "expected_behavior": ["policy_search"], "category": "implicit", "language": "zh"}
+{"query": "深圳前海有没有绿色金融试点的政策", "expected_skill": "policy_query", "expected_behavior": ["policy_search"], "category": "implicit", "language": "zh"}
+{"query": "全国碳市场扩容到哪些行业了", "expected_skill": "policy_query", "expected_behavior": ["policy_search"], "category": "implicit", "language": "zh"}
+{"query": "国家对企业碳排放报告有什么要求", "expected_skill": "policy_query", "expected_behavior": ["policy_search"], "category": "implicit", "language": "zh"}
+{"query": "现在双碳方面有哪些扶持办法", "expected_skill": "policy_query", "expected_behavior": ["policy_search"], "category": "implicit", "language": "zh"}
+{"query": "现在的双碳政策有啥", "expected_skill": "policy_query", "expected_behavior": ["policy_search"], "category": "edge", "language": "zh"}
+{"query": "CCER 咋申请", "expected_skill": "policy_query", "expected_behavior": ["policy_search"], "category": "edge", "language": "zh"}
+{"query": "碳交易跟碳市场有啥区别", "expected_skill": "policy_query", "expected_behavior": ["policy_search"], "category": "edge", "language": "zh"}
+{"query": "光伏补贴还发不发了", "expected_skill": "policy_query", "expected_behavior": ["policy_search"], "category": "edge", "language": "zh"}
+{"query": "企业低碳转型有啥扶持办法", "expected_skill": "policy_query", "expected_behavior": ["policy_search"], "category": "edge", "language": "zh"}
+{"query": "碳交易管理办法 2024 版有变动么", "expected_skill": "policy_query", "expected_behavior": ["policy_search"], "category": "edge", "language": "zh"}
+{"query": "What are China's carbon market regulations in 2026?", "expected_skill": "policy_query", "expected_behavior": ["policy_search"], "category": "english", "language": "en"}
+{"query": "Latest CBAM impact on Chinese exporters", "expected_skill": "policy_query", "expected_behavior": ["policy_search"], "category": "english", "language": "en"}
+{"query": "CCER methodology for forestry projects in China", "expected_skill": "policy_query", "expected_behavior": ["policy_search"], "category": "english", "language": "en"}
+{"query": "Carbon neutrality policy updates for 2026 in China", "expected_skill": "policy_query", "expected_behavior": ["policy_search"], "category": "english", "language": "en"}
+{"query": "EU green deal impact on Chinese trade compliance", "expected_skill": "policy_query", "expected_behavior": ["policy_search"], "category": "english", "language": "en"}
+{"query": "我最近对新能源汽车感兴趣,帮我记录一下", "expected_skill": "profile_update", "expected_behavior": ["behavior_record"], "category": "explicit", "language": "zh"}
+{"query": "把家庭画像里的关注领域加上节水", "expected_skill": "profile_update", "expected_behavior": ["preference_update"], "category": "explicit", "language": "zh"}
+{"query": "我决定以后多用公共交通,更新一下我的偏好", "expected_skill": "profile_update", "expected_behavior": ["preference_update"], "category": "explicit", "language": "zh"}
+{"query": "今天参加了社区的旧物交换,记到我的行为里", "expected_skill": "profile_update", "expected_behavior": ["behavior_record"], "category": "explicit", "language": "zh"}
+{"query": "更新一下我的减碳目标,本月要减少 50 公斤", "expected_skill": "profile_update", "expected_behavior": ["preference_update"], "category": "explicit", "language": "zh"}
+{"query": "把我的环保画像修改成更关注垃圾分类", "expected_skill": "profile_update", "expected_behavior": ["preference_update"], "category": "explicit", "language": "zh"}
+{"query": "标记一下,我今天用了可重复使用的购物袋", "expected_skill": "profile_update", "expected_behavior": ["behavior_record"], "category": "explicit", "language": "zh"}
+{"query": "我在我的行为日志里加一笔:今天步行上班", "expected_skill": "profile_update", "expected_behavior": ["behavior_record"], "category": "explicit", "language": "zh"}
+{"query": "调整我的兴趣偏好,我想加上节能家电", "expected_skill": "profile_update", "expected_behavior": ["preference_update"], "category": "explicit", "language": "zh"}
+{"query": "我的画像里没有节能灯具,帮我加上这个关注", "expected_skill": "profile_update", "expected_behavior": ["preference_update"], "category": "explicit", "language": "zh"}
+{"query": "记录一下,我这周已经绿色出行 5 天了", "expected_skill": "profile_update", "expected_behavior": ["behavior_record"], "category": "explicit", "language": "zh"}
+{"query": "我要修改环保目标,减碳 5 吨", "expected_skill": "profile_update", "expected_behavior": ["preference_update"], "category": "explicit", "language": "zh"}
+{"query": "我对节能灯挺感兴趣,帮我记一笔", "expected_skill": "profile_update", "expected_behavior": ["behavior_record"], "category": "implicit", "language": "zh"}
+{"query": "能关注一下我的节能行为吗", "expected_skill": "profile_update", "expected_behavior": ["behavior_record"], "category": "implicit", "language": "zh"}
+{"query": "想改下我的关注领域,加上节水", "expected_skill": "profile_update", "expected_behavior": ["preference_update"], "category": "implicit", "language": "zh"}
+{"query": "我对垃圾分类比较感兴趣,标记下我的兴趣", "expected_skill": "profile_update", "expected_behavior": ["behavior_record"], "category": "implicit", "language": "zh"}
+{"query": "麻烦把节能家电加入我的关注", "expected_skill": "profile_update", "expected_behavior": ["preference_update"], "category": "implicit", "language": "zh"}
+{"query": "希望调整一下我关注的领域,加上新能源", "expected_skill": "profile_update", "expected_behavior": ["preference_update"], "category": "implicit", "language": "zh"}
+{"query": "我对社区回收项目很有兴趣,帮我记到画像里", "expected_skill": "profile_update", "expected_behavior": ["behavior_record"], "category": "implicit", "language": "zh"}
+{"query": "我今天做了点环保的事,记一笔", "expected_skill": "profile_update", "expected_behavior": ["behavior_record"], "category": "edge", "language": "zh"}
+{"query": "我的关注领域能调整下不,加上点节水", "expected_skill": "profile_update", "expected_behavior": ["preference_update"], "category": "edge", "language": "zh"}
+{"query": "把我感兴趣的东西加上节能家电", "expected_skill": "profile_update", "expected_behavior": ["behavior_record", "interest_update"], "category": "edge", "language": "zh"}
+{"query": "我的画像更新下,加几个新偏好", "expected_skill": "profile_update", "expected_behavior": ["preference_update"], "category": "edge", "language": "zh"}
+{"query": "帮我在记录里加一笔:今天骑车 12 公里", "expected_skill": "profile_update", "expected_behavior": ["behavior_record"], "category": "edge", "language": "zh"}
+{"query": "我明天要改下我的兴趣,加上可再生能源", "expected_skill": "profile_update", "expected_behavior": ["behavior_record", "interest_update"], "category": "edge", "language": "zh"}
+{"query": "Update my profile - I'm now interested in solar panels", "expected_skill": "profile_update", "expected_behavior": ["behavior_record"], "category": "english", "language": "en"}
+{"query": "Save my low-carbon behavior: cycled 10km today", "expected_skill": "profile_update", "expected_behavior": ["behavior_record"], "category": "english", "language": "en"}
+{"query": "Record my new preference: prefer public transit over driving", "expected_skill": "profile_update", "expected_behavior": ["preference_update"], "category": "english", "language": "en"}
+{"query": "Add eco-travel to my interest areas", "expected_skill": "profile_update", "expected_behavior": ["preference_update"], "category": "english", "language": "en"}
+{"query": "Update my profile: changed my commute to cycling", "expected_skill": "profile_update", "expected_behavior": ["behavior_record"], "category": "english", "language": "en"}
+{"query": "你好", "expected_skill": null, "expected_behavior": [], "category": "negative", "language": "zh"}
+{"query": "今天天气不错", "expected_skill": null, "expected_behavior": [], "category": "negative", "language": "zh"}
+{"query": "1+1 等于几", "expected_skill": null, "expected_behavior": [], "category": "negative", "language": "zh"}
+{"query": "你能做什么", "expected_skill": null, "expected_behavior": [], "category": "negative", "language": "zh"}
+{"query": "推荐一部电影给我", "expected_skill": null, "expected_behavior": [], "category": "negative", "language": "zh"}
+{"query": "什么是人工智能", "expected_skill": null, "expected_behavior": [], "category": "negative", "language": "zh"}
+{"query": "明天股票会涨吗", "expected_skill": null, "expected_behavior": [], "category": "negative", "language": "zh"}
+{"query": "帮我写一首关于秋天的诗", "expected_skill": null, "expected_behavior": [], "category": "negative", "language": "zh"}
+{"query": "讲个笑话听听", "expected_skill": null, "expected_behavior": [], "category": "negative", "language": "zh"}
+{"query": "你叫什么名字", "expected_skill": null, "expected_behavior": [], "category": "negative", "language": "zh"}
+{"query": "今天星期几", "expected_skill": null, "expected_behavior": [], "category": "negative", "language": "zh"}
+{"query": "翻译成英文:你好世界", "expected_skill": null, "expected_behavior": [], "category": "negative", "language": "zh"}
+{"query": "北京的人口有多少", "expected_skill": null, "expected_behavior": [], "category": "negative", "language": "zh"}
+{"query": "我喜欢蓝色", "expected_skill": null, "expected_behavior": [], "category": "negative", "language": "zh"}
+{"query": "再见", "expected_skill": null, "expected_behavior": [], "category": "negative", "language": "zh"}
+{"query": "Hello, how are you?", "expected_skill": null, "expected_behavior": [], "category": "negative", "language": "en"}

@@ -466,8 +466,10 @@ class LowCarbonTravelSkill(Skill):
     category = "travel"
     # P10.A:Anthropic Skills 规范元数据
     version = "1.0.0"
+    # P11.B:扩展 when_to_use — 加英文关键词 + 弱信号(出门/上班/上学)
     when_to_use = (
-        "出行 / 通勤 / 公共交通 / 碳排放 / 公交 / 地铁 / 骑行 / 打车 / 天气 / 路线"
+        "出行 / 通勤 / 公共交通 / 碳排放 / 公交 / 地铁 / 骑行 / 打车 / 天气 / 路线 / 出门 / 上班 / 上学 / 交通 / 自驾 / 拼车 / 高铁 / 飞机 / 电动车 / 单车 / 步行 / 徒步 / 公里 / 怎么去 / 怎么样去 / 最环保 / 最省碳 / 最绿色 / "
+        "transit / commute / travel / carbon / route / weather / bike / cycle / drive / subway / bus / taxi / car / vehicle / emission / footprint / eco / low-carbon / train / flight / km / mile / ride"
     )
     allowed_tools: List[str] = ["weather_query", "carbon_calc", "public_transit"]
 
@@ -540,8 +542,10 @@ class PolicyQuerySkill(Skill):
     category = "policy"
     # P10.A:Anthropic Skills 规范元数据
     version = "1.0.0"
+    # P11.B:扩展 when_to_use — 加英文 + 政策文档类型(意见/通知/标准/指南/办法/要求/规定)
     when_to_use = (
-        "政策 / 法规 / 条例 / 补贴 / 碳交易 / 配额 / ccer / cbam / 碳市场 / 监管 / 申报"
+        "政策 / 法规 / 条例 / 补贴 / 碳交易 / 配额 / ccer / cbam / 碳市场 / 监管 / 申报 / 意见 / 通知 / 标准 / 指南 / 办法 / 要求 / 规定 / 低碳补贴 / 激励 / 扶持 / 减排方法学 / 试点 / 清单 / 名录 / "
+        "policy / regulation / law / subsidy / incentive / ccer / cbam / carbon market / compliance / carbon trade / allowance / carbon neutrality / emissions cap / emission standard / rule / directive / agreement / legislation"
     )
     allowed_tools: List[str] = ["policy_query"]
 
@@ -574,8 +578,10 @@ class ProfileUpdateSkill(Skill):
     category = "profile"
     # P10.A:Anthropic Skills 规范元数据
     version = "1.0.0"
+    # P11.B:扩展 when_to_use — 加英文 + 加一笔 / 减碳目标
     when_to_use = (
-        "画像 / 偏好 / 记录 / 关注 / 更新 / 修改 / 行为 / 记一笔 / 标记 / 兴趣"
+        "画像 / 偏好 / 记录 / 关注 / 更新 / 修改 / 行为 / 记一笔 / 标记 / 兴趣 / 加一笔 / 减碳 / 我的目标 / 环保目标 / 行为日志 / 我的兴趣 / 我的关注 / "
+        "profile / preference / record / behavior / log / update / interest / save / track / note / log my / save my / track my / add my"
     )
     allowed_tools: List[str] = ["profile_update"]
 
