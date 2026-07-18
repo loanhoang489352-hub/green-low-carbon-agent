@@ -239,6 +239,53 @@ cd src && python main.py    # 默认 :8000
 
 ---
 
+## 🔍 OCR 评估(P9)
+
+PDF / 图片 OCR 端到端质量评估,覆盖 4 类文档:
+
+```bash
+# 默认 mock 引擎(PyMuPDF 抽文本层 + Tesseract 兜底)
+python scripts/eval_ocr.py
+
+# 只跑 curated 子集(13 条,CI gate)
+python scripts/eval_ocr.py --subset curated
+
+# 全集 20 条信息性
+python scripts/eval_ocr.py --subset full
+
+# 真 OCR(PaddleOCR,需要先 pip install paddleocr)
+USE_REAL_OCR=1 python scripts/eval_ocr.py
+```
+
+**输出指标**:
+- `char_error_rate`(归一化编辑距离)平均 ≤ 0.10
+- `keyword_hit_rate` ≥ 0.85
+- `page_extraction_success` ≥ 1.0
+
+**Golden set 覆盖**(20 条,`tests/eval/ocr_golden_set.jsonl`):
+- `pdf_digital` × 5 — ReportLab 生成,文本层完美
+- `pdf_scanned` × 5 — 扫描件风格 PDF(浅灰底 + 印章)
+- `image_text` × 7 — PIL 绘制的中文 PNG/JPG
+- `mixed_layout` × 3 — 多栏 / 表格混排版式
+
+**样本生成**(`tests/eval/generate_samples.py`):
+```bash
+# 重新生成所有 20 个 mock 样本
+python tests/eval/generate_samples.py
+```
+
+**切换真 OCR 的步骤**:
+1. `pip install paddleocr` (PaddleOCR 主引擎)
+2. (可选) `pip install pytesseract` + 系统装 tesseract-ocr + 中文语言包(轻量 fallback)
+3. `USE_REAL_OCR=1 python scripts/eval_ocr.py` 或 `--engine real`
+4. 报告写入 `data/eval_report_ocr.md`
+
+**CI gate**(curated 子集):
+- `curated` 通过 → `exit 0`
+- 否则 → `exit 1`(便于 CI 卡门禁)
+
+---
+
 ## 🧪 跑测试
 
 ```bash
