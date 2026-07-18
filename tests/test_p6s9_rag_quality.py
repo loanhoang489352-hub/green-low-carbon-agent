@@ -61,8 +61,10 @@ def _make_engine_with_mock(mock_retriever, post_filter_threshold=0.1, initial_fe
         post_filter_threshold=post_filter_threshold,
         initial_fetch_multiplier=initial_fetch_multiplier,
         default_top_k=5,
+        rerank_enabled=False,  # P8.R1: 禁用引擎自带 BGE reranker，走 retriever 自带 mock
     )
     engine._retriever = mock_retriever
+    engine._reranker = None  # P8.R1 后 _reranker 变为 property backing，mock 需显式置空
     engine._initialized = True
     engine.stats = {
         "total_queries": 0,

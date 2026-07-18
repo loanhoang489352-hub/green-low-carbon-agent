@@ -243,6 +243,13 @@ class TestPolicyUpdater(unittest.TestCase):
         self.policy_updater = PolicyUpdater(
             db_path=str(project_root / "data" / "test_policy.db")
         )
+        # 清理示例政策，避免测试间状态泄漏（add_sample_policies 幂等，
+        # 若已存在则新增为 no-op，导致 test_add_sample_policies 断言失败）
+        import sqlite3
+        conn = sqlite3.connect(str(self.policy_updater.db_path))
+        conn.execute("DELETE FROM policies")
+        conn.commit()
+        conn.close()
     
     def test_add_policy(self):
         """测试添加政策"""
@@ -313,7 +320,11 @@ class TestIntegration(unittest.TestCase):
         self.agent.chat(user_id, "我今天骑行了10公里")
         
         profile = self.agent.get_user_profile(user_id)
-        self.assertGreater(profile["conversation_count"], 0)
+        # get_profile 返回的 JSON 里对话计数在 statistics.total_conversations，
+        # 顶层无 conversation_count（测试隔离修改，不破 production 接口）
+        self.assertGreater(
+            profile.get("statistics", {}).get("total_conversations", 0), 0
+        )
 
 
 def run_tests():
