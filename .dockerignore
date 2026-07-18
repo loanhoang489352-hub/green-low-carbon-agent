@@ -1,3 +1,7 @@
+# ========== 绿色低碳智能体 - .dockerignore (P5-J) ==========
+# Docker 构建上下文排除,减小镜像大小 + 避免泄露敏感文件
+
+# ========== Python 缓存 / 虚拟环境 ==========
 __pycache__
 *.pyc
 *.pyo
@@ -8,23 +12,95 @@ __pycache__
 *.egg-info
 dist
 build
-.git
-.gitignore
-.env
+.eggs
+pip-wheel-metadata
+
+# ========== 虚拟环境 ==========
 .venv
 venv/
 ENV/
 env/
 .tox/
-.coverage
+
+# ========== 测试 / 覆盖率 ==========
 .pytest_cache
-*.log
-*.db
-*.sqlite
-*.sqlite3
-.DS_Store
+.coverage
+.coverage.*
+htmlcov/
+coverage.xml
+.tox/
+.cache
+.ruff_cache
+.mypy_cache
+
+# ========== Git / 编辑器 ==========
+.git
+.gitignore
+.gitattributes
+.github/
+.gitlab-ci.yml
 .idea/
 .vscode/
+.cursor/
 *.swp
 *.swo
 *~
+
+# ========== 系统文件 ==========
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# ========== 敏感文件(P5-I 安全) ==========
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.crt
+*.pfx
+secrets/
+.backups/
+backups/
+
+# ========== 数据目录(运行时挂载,不打包进镜像) ==========
+data/*.db
+data/*.db-journal
+data/*.db-wal
+data/*.db-shm
+data/vector_db/
+data/logs/
+data/redis/
+data/sessions/
+data/*.sqlite
+data/*.sqlite3
+
+# ========== 知识库(可能很大,150+ markdown,运行时挂载) ==========
+# 如果希望镜像包含知识库,注释下面这行
+knowledge_base/
+
+# ========== 文档(开发文档不进镜像) ==========
+docs/
+开题报告/
+图片集/
+green_agent_roadmap_v2.png
+
+# ========== 备份 / 历史 ==========
+*.bak
+*.bak.*
+*.orig
+*.rej
+*.log.bak
+
+# ========== CI / 构建产物 ==========
+node_modules/
+*.tar.gz
+*.zip
+*.tgz
+
+# ========== 临时文件 ==========
+*.tmp
+*.temp
+tmp/
+temp/
+nul

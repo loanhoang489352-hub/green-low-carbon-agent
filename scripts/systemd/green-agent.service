@@ -1,0 +1,92 @@
+# ========== 绿色低碳智能体 - systemd service unit (P5-J) ==========
+# 安装:
+#   1. 复制到 /etc/systemd/system/green-agent.service
+#   2. sudo systemctl daemon-reload
+#   3. sudo systemctl enable --now green-agent
+# 日志:   sudo journalctl -u green-agent -f
+# 状态:   sudo systemctl status green-agent
+# 优雅重启: sudo systemctl reload green-agent   (走 SIGTERM → 等待 inflight ≤10s)
+
+[Unit]
+Description=Green Low-Carbon Agent (绿色低碳智能体 v2.0)
+Documentation=https://github.com/loanhoang489352-hub/green-agent
+After=network-online.target
+Wants=network-online.target
+# 如需对接 PostgreSQL / Redis 解开下一行
+# After=postgresql.service redis-server.service
+
+[Service]
+# ========== 类型与启动 ==========
+# Type=simple: Python 是主进程(P5-J 的 SIGTERM handler 由 Python 接管)
+Type=simple
+ExecStart=/usr/bin/python3 /opt/green-agent/src/main.py
+ExecReload=/bin/kill -TERM $MAINPID
+ExecStop=/bin/kill -TERM $MAINPID
+TimeoutStopSec=15
+KillMode=mixed
+KillSignal=SIGTERM
+
+# ========== 工作目录与用户 ==========
+WorkingDirectory=/opt/green-agent
+User=greenagent
+Group=greenagent
+# Python 路径
+Environment="PYTHONPATH=/opt/green-agent/src"
+Environment="PYTHONUNBUFFERED=1"
+# P5-I: 生产模式(API key 占位符强校验)
+Environment="ENV=production"
+# P5-B: 日志输出到 journald(JSON formatter 自动转 syslog)
+# 日志路径(可选,也可以走 journalctl)
+Environment="LOG_FILE=/var/log/green-agent/app.log"
+# 读外部 env 文件(前缀 - 表示文件不存在也不报错)
+# 安装: sudo mkdir -p /etc/green-agent && sudo cp .env /etc/green-agent/.env && sudo chmod 600 /etc/green-agent/.env
+EnvironmentFile=-/etc/green-agent/.env
+
+# ========== 资源限制 ==========
+# 防止内存泄漏拖垮 host
+MemoryMax=2G
+MemoryHigh=1G
+CPUQuota=200%
+TasksMax=256
+# 进程 nice 值
+Nice=-5
+
+# ========== 安全加固 ==========
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/opt/green-agent/data /var/log/green-agent
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+RestrictNamespaces=true
+LockPersonality=true
+RestrictRealtime=true
+RestrictSUIDSGID=true
+SystemCallArchitectures=native
+SystemCallFilter=@system-service
+SystemCallErrorNumber=EPERM
+
+# 允许写入的目录
+RuntimeDirectory=green-agent
+RuntimeDirectoryMode=0750
+StateDirectory=green-agent
+StateDirectoryMode=0750
+LogsDirectory=green-agent
+LogsDirectoryMode=0750
+
+# ========== 重启策略 ==========
+Restart=on-failure
+RestartSec=5s
+StartLimitBurst=3
+StartLimitIntervalSec=60s
+
+# ========== 健康检查(sd_notify 协议) ==========
+# Python 端启动时调 systemd-notify --ready(可选,见 src/server/app.py)
+# WatchdogSec=30  # 30s 内未发 watchdog keep-alive 视为挂掉
+# NotifyAccess=main
+
+[Install]
+WantedBy=multi-user.target

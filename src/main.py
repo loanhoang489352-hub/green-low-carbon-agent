@@ -191,50 +191,22 @@ def run_server(host="0.0.0.0", port=8000):
     print("=" * 50 + "\n", flush=True)
 
     try:
-        # P5-J: 注册 SIGTERM / SIGINT 优雅退出
+        # P5-J: 注册 SIGTERM / SIGINT 优雅退出(委托给 lifecycle 模块)
         # SIGTERM = K8s / docker stop / systemctl stop
         # SIGINT  = Ctrl+C / docker-compose down
-        import signal
         import threading
+        from server.lifecycle import install_signal_handlers
 
         shutdown_event = threading.Event()
 
-        def _signal_handler(signum, frame):
-            """P5-J: 收到终止信号后调 shutdown_app + server.shutdown"""
+        # 注册 SIGTERM / SIGINT / SIGBREAK(幂等)
+        installed = install_signal_handlers(server=server, timeout_s=10.0)
+        if installed:
             import logging
 
-            logger = logging.getLogger(__name__)
-            sig_name = signal.Signals(signum).name
-            logger.info("[Server] 收到 %s,开始优雅退出 (wait inflight ≤10s)", sig_name)
-            try:
-                # 1) 等待 inflight 请求完成(≤10s)
-                from server.app import shutdown_app, get_inflight_count
-
-                shutdown_app(timeout_s=10.0)
-                logger.info(
-                    "[Server] 优雅退出完成,剩余 inflight=%d",
-                    get_inflight_count(),
-                )
-            except Exception as e:
-                logger.warning("[Server] 优雅退出异常: %s", e)
-            finally:
-                # 2) 通知 serve_forever 退出
-                shutdown_event.set()
-                try:
-                    server.shutdown()
-                except Exception:
-                    pass
-
-        # 注册信号(Windows + Linux 通用)
-        try:
-            signal.signal(signal.SIGTERM, _signal_handler)
-        except (AttributeError, ValueError):
-            # Windows 子进程可能不支持 SIGTERM
-            pass
-        try:
-            signal.signal(signal.SIGINT, _signal_handler)
-        except (AttributeError, ValueError):
-            pass
+            logging.getLogger(__name__).info(
+                "[Server] P5-J 优雅退出已启用 (SIGTERM/SIGINT → 等 inflight ≤10s → 关闭 server/scheduler/DB)"
+            )
 
         # serve_forever() 阻塞,直到 server.shutdown() 被调用
         server.serve_forever()
@@ -244,12 +216,14 @@ def run_server(host="0.0.0.0", port=8000):
         # 兜底:Windows 某些场景 signal 不能完全注册,走 KeyboardInterrupt
         print("\n\n服务已停止")
         try:
-            from server.app import shutdown_app
+            from server.lifecycle import graceful_shutdown
 
-            shutdown_app(timeout_s=5.0)
+            graceful_shutdown(server=server, timeout_s=5.0)
         except Exception:
-            pass
-        server.shutdown()
+            try:
+                server.shutdown()
+            except Exception:
+                pass
 
 
 def run_cli():

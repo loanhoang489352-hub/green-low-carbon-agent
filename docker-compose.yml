@@ -84,6 +84,27 @@ services:
     networks:
       - green-agent-net
 
+  # ========== 可选:Redis(给未来 cache / rate-limit 共享) ==========
+  # 当前实现用内存 + SQLite WAL,不需要 Redis。
+  # 留作多实例部署时共享 rate-limit 计数 / session 缓存 / 分布式锁。
+  # 启用: 取消下面注释 + `docker compose --profile cache up`
+  # --------------------------------------------------------------------------
+  # redis:
+  #   image: redis:7-alpine
+  #   container_name: green-agent-redis
+  #   profiles: ["cache"]              # 仅 `cache` profile 启动时拉起
+  #   restart: unless-stopped
+  #   command: ["redis-server", "--maxmemory", "256mb", "--maxmemory-policy", "allkeys-lru"]
+  #   volumes:
+  #     - ./data/redis:/data
+  #   networks:
+  #     - green-agent-net
+  #   healthcheck:
+  #     test: ["CMD", "redis-cli", "ping"]
+  #     interval: 10s
+  #     timeout: 3s
+  #     retries: 3
+
 # ========== 网络 ==========
 networks:
   green-agent-net:
