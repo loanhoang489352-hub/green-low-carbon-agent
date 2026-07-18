@@ -42,6 +42,23 @@ def _daily_kb_update() -> None:
         logger.exception("[Scheduler] 每日知识更新失败: %s", e)
 
 
+def _ocr_incremental_job() -> None:
+    """P9.OCR:每日 02:30 — 轻量级 OCR 增量触发
+
+    只对 PDF / 图片源跑 OCR(knowledge.updater.process_pending_ocr),
+    不影响 _daily_kb_update 的现有断言(test_scheduler 期望的 job id 不变)。
+    失败不阻塞下一次调度。
+    """
+    try:
+        from knowledge.updater import KnowledgeUpdater
+
+        updater = KnowledgeUpdater()
+        n = updater.process_pending_ocr()
+        logger.info("[Scheduler] 增量 OCR 完成,处理 %d 个 PDF/图片源", n)
+    except Exception as e:
+        logger.exception("[Scheduler] 增量 OCR 失败: %s", e)
+
+
 def _memory_decay() -> None:
     """每日 03:00:长期记忆 importance 衰减(半衰期 30 天)"""
     try:
@@ -169,6 +186,16 @@ def start_scheduler() -> BackgroundScheduler:
             _daily_kb_update,
             CronTrigger.from_crontab("0 2 * * *"),
             id="daily_kb_update",
+            replace_existing=True,
+            max_instances=1,
+            coalesce=True,
+        )
+
+        # P9.OCR: 每日 02:30 — 轻量级 OCR 增量触发(PDF/图片源)
+        sched.add_job(
+            _ocr_incremental_job,
+            CronTrigger.from_crontab("30 2 * * *"),
+            id="ocr_incremental",
             replace_existing=True,
             max_instances=1,
             coalesce=True,

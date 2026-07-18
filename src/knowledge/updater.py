@@ -444,8 +444,12 @@ class KnowledgeUpdater:
         self.sources = [s for s in self.sources if s.name != name]
         self._save_sources()
 
-    def _fetch_html(self, url: str) -> Tuple[Optional[str], Optional[str]]:
-        """获取网页内容（带SSL错误处理和编码处理）"""
+    def _fetch_html(self, url: str) -> Tuple[Optional[str], Optional[str], str]:
+        """获取网页内容(带SSL错误处理和编码处理)
+
+        P9.OCR:扩展为返回 (text, last_modified, content_type)
+        - 上层 _check_source 据 content_type 决定走 HTML 还是 PDF/图片 OCR 路径
+        """
         import ssl
 
         # 创建不验证SSL的context
@@ -472,9 +476,12 @@ class KnowledgeUpdater:
                     with urllib.request.urlopen(req, timeout=15, context=ctx) as response:
                         raw_content = response.read()
                         content_type = response.getheader("Content-Type", "")
-                        return self._decode_html_content(
-                            raw_content, content_type
-                        ), response.getheader("Last-Modified", "")
+                        last_modified = response.getheader("Last-Modified", "")
+                        return (
+                            self._decode_html_content(raw_content, content_type),
+                            last_modified,
+                            content_type,
+                        )
                 except ssl.SSLError:
                     pass  # 尝试HTTP
 
@@ -482,12 +489,15 @@ class KnowledgeUpdater:
             with urllib.request.urlopen(req, timeout=15) as response:
                 raw_content = response.read()
                 content_type = response.getheader("Content-Type", "")
-                return self._decode_html_content(raw_content, content_type), response.getheader(
-                    "Last-Modified", ""
+                last_modified = response.getheader("Last-Modified", "")
+                return (
+                    self._decode_html_content(raw_content, content_type),
+                    last_modified,
+                    content_type,
                 )
 
         except Exception:
-            return None, None
+            return None, None, ""
 
     def _decode_html_content(self, raw_content: bytes, content_type: str = "") -> Optional[str]:
         """智能解码HTML内容，尝试多种编码"""
@@ -551,8 +561,11 @@ class KnowledgeUpdater:
         )
 
     def _fetch_content_hash(self, url: str) -> str:
-        """获取内容hash（用于检测变化, P5-H.D 分块 hash）"""
-        html, _ = self._fetch_html(url)
+        """获取内容hash（用于检测变化, P5-H.D 分块 hash）
+
+        P9.OCR:适配 _fetch_html 返回 3 元组(text, last_modified, content_type)
+        """
+        html, _, _ = self._fetch_html(url)
         if html:
             return self._compute_content_hash(html)
         return ""
@@ -607,9 +620,14 @@ class KnowledgeUpdater:
         return results
 
     def _check_source(self, source: UpdateSource) -> UpdateResult:
-        """检查单个源的更新"""
+        """检查单个源的更新
+
+        P9.OCR:按 MIME 分支
+        - application/pdf / image/* → _check_source_ocr()
+        - 默认 → 原 HTML 路径(_parse_html_content)
+        """
         try:
-            html, last_modified = self._fetch_html(source.url)
+            html, last_modified, content_type = self._fetch_html(source.url)
 
             if not html:
                 return UpdateResult(
@@ -619,6 +637,19 @@ class KnowledgeUpdater:
                     error="无法获取页面",
                     timestamp=datetime.now().isoformat(),
                 )
+
+            # P9.OCR:PDF / 图片 → 走 OCR 路径
+            mime = (content_type or "").split(";", 1)[0].strip().lower()
+            is_pdf = mime == "application/pdf" or (
+                source.url.lower().endswith(".pdf")
+                and not source.url.lower().endswith((".png", ".jpg", ".jpeg"))
+            )
+            is_image = mime.startswith("image/") or any(
+                source.url.lower().endswith(ext)
+                for ext in (".png", ".jpg", ".jpeg", ".webp", ".bmp", ".gif")
+            )
+            if is_pdf or is_image:
+                return self._check_source_ocr(source, mime)
 
             content_hash = self._compute_content_hash(html)
 
@@ -639,11 +670,22 @@ class KnowledgeUpdater:
 
                 source.last_hash = content_hash
 
+                # P9.OCR:HTML 内嵌的 <img>/<embed>/<iframe> PDF/图片也走 OCR 管道
+                media_texts: list = []
+                try:
+                    media_texts = self._extract_html_media_and_ocr(html, source.url)
+                except Exception as e:  # noqa: BLE001
+                    print(f"[KnowledgeUpdater] HTML 内嵌媒体 OCR 失败: {e}")
+
+                new_content_chunks: List[str] = [parsed.content]
+                if media_texts:
+                    new_content_chunks.extend(media_texts)
+
                 return UpdateResult(
                     source=source.name,
                     url=source.url,
                     has_update=True,
-                    new_content=[parsed.content],
+                    new_content=new_content_chunks,
                     update_time=parsed.update_time,
                     timestamp=datetime.now().isoformat(),
                 )
@@ -661,6 +703,49 @@ class KnowledgeUpdater:
                 url=source.url,
                 has_update=False,
                 error=str(e),
+                timestamp=datetime.now().isoformat(),
+            )
+
+    def _check_source_ocr(self, source: UpdateSource, mime: str) -> UpdateResult:
+        """P9.OCR:PDF/图片源走 IngestOrchestrator
+
+        失败 → 标记 error,但不抛;hash 仍按 URL hash 计
+        """
+        try:
+            from ingest.orchestrator import IngestOrchestrator
+            from ingest.ocr_cache import OCRCache
+
+            orch = IngestOrchestrator()
+            result = orch.ingest_url(source.url, content_type=mime)
+            if not result.ok or not result.text:
+                err = result.error or "ocr returned empty text"
+                return UpdateResult(
+                    source=source.name,
+                    url=source.url,
+                    has_update=False,
+                    error=f"OCR: {err[:120]}",
+                    timestamp=datetime.now().isoformat(),
+                )
+
+            # 用 content_hash 跟踪变化
+            new_hash = result.content_hash or self._compute_content_hash(result.text)
+            has_update = source.last_hash is not None and source.last_hash != new_hash
+            source.last_hash = new_hash
+
+            return UpdateResult(
+                source=source.name,
+                url=source.url,
+                has_update=has_update,
+                new_content=[result.text] if has_update else None,
+                update_time=None,
+                timestamp=datetime.now().isoformat(),
+            )
+        except Exception as e:  # noqa: BLE001
+            return UpdateResult(
+                source=source.name,
+                url=source.url,
+                has_update=False,
+                error=f"OCR 分支异常: {type(e).__name__}: {str(e)[:120]}",
                 timestamp=datetime.now().isoformat(),
             )
 
@@ -761,6 +846,87 @@ processed_at: {datetime.now().isoformat()}
         except Exception as e:
             print(f"[KnowledgeUpdater] 保存文档失败: {e}")
             return None
+
+    def _extract_html_media_and_ocr(self, html: str, base_url: str) -> List[str]:
+        """P9.OCR:从 HTML 提取 <img>/<embed>/<iframe> 媒体,逐个走 OCR 管道
+
+        Args:
+            html: 整页 HTML
+            base_url: 用于相对路径解析
+
+        Returns:
+            各媒体的 OCR 文本片段列表(空字符串已过滤)
+        """
+        try:
+            from ingest.html_media_extractor import HTMLMediaExtractor
+            from ingest.orchestrator import IngestOrchestrator
+            from ingest.front_matter import build_document
+        except Exception as e:  # noqa: BLE001
+            print(f"[KnowledgeUpdater] 导入 OCR 模块失败: {e}")
+            return []
+
+        extractor = HTMLMediaExtractor(max_items=5, base_url=base_url)
+        items = extractor.extract(html, base_url=base_url)
+        if not items:
+            return []
+
+        orch = IngestOrchestrator()
+        out: List[str] = []
+        for it in items:
+            try:
+                res = orch.ingest_url(it.url, content_type=it.mime_hint)
+                if not res.ok or not res.text:
+                    continue
+                doc = build_document(
+                    title=f"嵌入媒体: {it.url[-60:]}",
+                    body=res.text,
+                    ocr_engine=res.engine,
+                    ocr_confidence=res.confidence,
+                    source_url=it.url,
+                    mime=res.mime,
+                    page_count=res.page_count,
+                    content_hash=res.content_hash,
+                    cached=res.cached,
+                    extra={"parent_url": base_url, "kind": it.kind},
+                )
+                out.append(doc)
+            except Exception as e:  # noqa: BLE001
+                print(f"[KnowledgeUpdater] 媒体 OCR 失败 {it.url}: {e}")
+                continue
+        return out
+
+    def process_pending_ocr(self) -> int:
+        """P9.OCR:轻量级 OCR 增量检查
+
+        只对 PDF / 图片源做内容变化检测 + OCR 摄入;不重复跑 HTML 解析。
+        返回成功 OCR 摄入的条数。
+        """
+        try:
+            from ingest.orchestrator import IngestOrchestrator
+        except Exception as e:  # noqa: BLE001
+            print(f"[KnowledgeUpdater] process_pending_ocr 导入失败: {e}")
+            return 0
+
+        orch = IngestOrchestrator()
+        ok = 0
+        for source in self.sources:
+            url = source.url or ""
+            mime = ""
+            if url.lower().endswith(".pdf"):
+                mime = "application/pdf"
+            elif any(url.lower().endswith(ext) for ext in (".png", ".jpg", ".jpeg", ".webp", ".bmp", ".gif")):
+                mime = "image/jpeg"
+            else:
+                continue  # 只处理 PDF/图片
+
+            try:
+                res = orch.ingest_url(url, content_type=mime)
+                if res.ok and res.text:
+                    ok += 1
+            except Exception as e:  # noqa: BLE001
+                print(f"[KnowledgeUpdater] 增量 OCR 失败 {url}: {e}")
+                continue
+        return ok
 
     def save_updates(self, updates: List[UpdateResult]):
         """保存更新内容到知识库（兼容旧接口）"""

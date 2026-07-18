@@ -624,8 +624,13 @@ class PolicyUpdater:
 
     # ============== P4-E.3: 实际抓取 ==============
 
-    def _fetch_url(self, url: str, timeout: int = 30) -> Optional[str]:
-        """P4-E.3 增强:抓取 URL HTML,失败抛出明确错误(给调用方记录)"""
+    def _fetch_url(self, url: str, timeout: int = 30):
+        """P4-E.3 增强:抓取 URL,返回 (text, content_type)
+
+        P9.OCR:扩展为返回二元组,让上层按 MIME 分支(HTML/PDF/图片)。
+        返回格式保持向后兼容:调用方多数用 `html = self._fetch_url(url)` 这种
+        解构方式;若调用方只取第一元素,行为不变。
+        """
         import httpx
 
         # 精细 headers 提升 SSL/反爬兼容性
@@ -643,7 +648,8 @@ class PolicyUpdater:
                 r.encoding = "utf-8"
             except Exception:
                 pass
-        return r.text
+        content_type = r.headers.get("content-type", "") or ""
+        return r.text, content_type
 
     def _extract_content(self, html: str, source_url: str = "") -> str:
         """P4-E.3: 从 HTML 提取正文
@@ -697,6 +703,11 @@ class PolicyUpdater:
     def _fetch_and_ingest(self, source: Dict) -> tuple[int, Optional[str]]:
         """P4-E.3 增强:抓取源 → 提取 → 入库 → 发 KNOWLEDGE_UPDATED 事件
 
+        P9.OCR:按 MIME 分支
+        - application/pdf → IngestOrchestrator(PDFExtractor + OCR 兜底)
+        - image/png|jpeg  → IngestOrchestrator(图片 OCR)
+        - 默认 → 原 HTML 路径(_extract_content)
+
         Args:
             source: {name, url, type?, check_interval_hours?}
 
@@ -707,12 +718,25 @@ class PolicyUpdater:
         if not url:
             return 0, "url 为空"
         try:
-            html = self._fetch_url(url)
+            html, content_type = self._fetch_url(url)
         except Exception as e:
             return 0, f"抓取失败: {type(e).__name__}: {str(e)[:100]}"
         if not html:
             return 0, "抓取返回空"
 
+        # P9.OCR:按 MIME 分支
+        mime = (content_type or "").split(";", 1)[0].strip().lower()
+        is_pdf = mime == "application/pdf" or (
+            url.lower().endswith(".pdf") and not url.lower().endswith((".png", ".jpg", ".jpeg"))
+        )
+        is_image = mime.startswith("image/") or any(
+            url.lower().endswith(ext) for ext in (".png", ".jpg", ".jpeg", ".webp", ".bmp", ".gif")
+        )
+
+        if is_pdf or is_image:
+            return self._fetch_and_ingest_ocr(source, url, mime, is_pdf)
+
+        # 默认 HTML 路径(原逻辑,不动)
         try:
             content = self._extract_content(html, url)
         except Exception as e:
@@ -768,6 +792,58 @@ class PolicyUpdater:
             )
 
         return 1, None
+
+    def _fetch_and_ingest_ocr(
+        self, source: Dict, url: str, mime: str, is_pdf: bool
+    ) -> tuple[int, Optional[str]]:
+        """P9.OCR:PDF / 图片走 IngestOrchestrator 路径
+
+        try/except 兜底,失败也不阻塞其他源;返回 (count, error)
+        """
+        try:
+            from ingest.orchestrator import IngestOrchestrator, get_ocr_cache
+
+            orch = IngestOrchestrator()
+            result = orch.ingest_url(url, content_type=mime)
+            if not result.ok or not result.text:
+                err = result.error or "ocr returned empty text"
+                return 0, f"OCR 摄入失败: {err[:120]}"
+
+            # 入库
+            title = source.get("name", "未命名政策")
+            self.add_policy(
+                title=title,
+                content=result.text[:10000],
+                category=source.get("category", "其他"),
+                source=source.get("name", "unknown"),
+                source_url=url,
+                publish_date=datetime.now().strftime("%Y-%m-%d"),
+                summary=result.text[:200],
+                key_points=[],
+                impact_level="medium",
+            )
+
+            # 发事件
+            try:
+                from events import get_event_bus, EventType
+
+                get_event_bus().publish(
+                    EventType.KNOWLEDGE_UPDATED,
+                    paths=[url],
+                    count=1,
+                    source="policy_updater_ocr",
+                )
+            except Exception:
+                pass
+            return 1, None
+        except Exception as e:  # noqa: BLE001
+            # OCR 失败 → 降级:不阻塞其他抓取
+            import logging
+
+            logging.getLogger(__name__).warning(
+                "[PolicyUpdater] OCR 分支异常(%s): %s", url, e
+            )
+            return 0, f"OCR 分支异常: {type(e).__name__}: {str(e)[:80]}"
 
     def generate_policy_summary(self, days: int = 7) -> str:
         """
