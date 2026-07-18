@@ -11,6 +11,8 @@ langgraph-checkpoint-sqlite>=3.0.0
 chromadb>=1.5.0
 sentence-transformers>=5.0.0
 numpy>=2.0.0
+# P8.R1: BGE-reranker-base 精排(FlagEmbedding 官方包)
+FlagEmbedding>=1.2.0
 
 # 数据存储 / 持久化
 pydantic>=2.12.0

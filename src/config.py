@@ -194,6 +194,21 @@ class RAGConfig:
     collection_name: str = field(
         default_factory=lambda: os.environ.get("RAG_COLLECTION", "green_agent_knowledge")
     )
+    # P8.R1: BGE-reranker 重排
+    rerank_enabled: bool = field(
+        default_factory=lambda: _env_bool("RAG_RERANK_ENABLED", True)
+    )
+    rerank_model: str = field(
+        default_factory=lambda: os.environ.get(
+            "RAG_RERANK_MODEL", "BAAI/bge-reranker-base"
+        )
+    )
+    rerank_top_k_input: int = field(
+        default_factory=lambda: _env_int("RAG_RERANK_TOP_K_INPUT", 20)
+    )
+    rerank_use_fp16: bool = field(
+        default_factory=lambda: _env_bool("RAG_RERANK_FP16", False)
+    )
 
 
 @dataclass

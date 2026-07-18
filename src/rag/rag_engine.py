@@ -28,6 +28,7 @@ import threading
 from .embedder import Embedder, create_embedder
 from .vector_store import VectorStore, Document, create_vector_store
 from .retriever import Retriever, SemanticRetriever, HybridRetriever, RetrievalResult
+from .reranker import Reranker, RerankConfig, get_reranker
 
 # P5-F: 模块级 logger
 try:
@@ -65,6 +66,11 @@ class RAGConfig:
     initial_fetch_multiplier: int = 4
     # P6.S.9: 相对下界 — 仅保留 max_score * 此比例 以上的文档
     relative_threshold_ratio: float = 0.3
+    # P8.R1: Rerank 开关(默认开启,BGE-reranker-base 精排)
+    rerank_enabled: bool = True
+    rerank_model: str = "BAAI/bge-reranker-base"
+    rerank_top_k_input: int = 20  # 精排候选数(从 hybrid 召回多少)
+    rerank_use_fp16: bool = False  # FP16(需 GPU)
 
 
 class RAGEngine:
@@ -80,6 +86,8 @@ class RAGEngine:
         self._retriever: Optional[Retriever] = None
         self._bm25_documents: List[Dict] = []
         self._initialized = False
+        # P8.R1: Reranker 单例(懒加载,enabled 时才真正加载模型)
+        self._reranker: Optional[Reranker] = None
 
         # 索引统计
         self.stats = {
@@ -101,6 +109,23 @@ class RAGEngine:
     @property
     def is_enabled(self) -> bool:
         return self.config.enabled and self._initialized
+
+    @property
+    def reranker(self) -> Optional[Reranker]:
+        """P8.R1: 获取 reranker(懒初始化,仅当 enabled 时)"""
+        if not self.config.rerank_enabled:
+            return None
+        if self._reranker is None:
+            self._reranker = get_reranker(
+                RerankConfig(
+                    enabled=True,
+                    model_name=self.config.rerank_model,
+                    top_k_input=self.config.rerank_top_k_input,
+                    top_k_output=self.config.default_top_k,
+                    use_fp16=self.config.rerank_use_fp16,
+                )
+            )
+        return self._reranker
 
     def initialize(self, knowledge_base_path: str = None) -> bool:
         """
@@ -452,8 +477,16 @@ class RAGEngine:
             min_score=self.config.min_similarity,
         )
 
-        # 第二阶段: rerank 精排(若 retriever 配了 reranker)
-        if results and getattr(self._retriever, "reranker", None):
+        # 第二阶段: P8.R1 BGE-reranker 精排(top-20 → 重排 → 送入后置过滤)
+        # 优先用 RAGEngine 上的 Reranker(若 enabled),再退到 retriever 自带的
+        engine_reranker = self.reranker
+        if results and engine_reranker and engine_reranker.enabled:
+            try:
+                results = engine_reranker.rerank(query, results, top_k=len(results))
+            except Exception:
+                # rerank 失败回退到原序
+                pass
+        elif results and getattr(self._retriever, "reranker", None):
             try:
                 results = self._retriever.reranker.rerank(query, results)
             except Exception:
@@ -783,7 +816,7 @@ class RAGEngine:
 
     def get_stats(self) -> Dict[str, Any]:
         """获取统计信息"""
-        return {
+        stats = {
             **self.stats,
             "vector_store_count": self._vector_store.count() if self._vector_store else 0,
             "bm25_doc_count": len(self._bm25_documents),
@@ -793,8 +826,14 @@ class RAGEngine:
                 "embedding_model": self.config.embedding_model,
                 "vector_store_type": self.config.vector_store_type,
                 "hybrid_search": self.config.hybrid_search,
+                "rerank_enabled": self.config.rerank_enabled,
+                "rerank_model": self.config.rerank_model,
             },
         }
+        # P8.R1: 包含 reranker 统计
+        if self._reranker:
+            stats["reranker"] = self._reranker.get_stats()
+        return stats
 
 
 def create_rag_engine(config: RAGConfig = None) -> RAGEngine:

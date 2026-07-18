@@ -7,5 +7,14 @@ from .embedder import Embedder
 from .vector_store import VectorStore
 from .retriever import Retriever
 from .rag_engine import RAGEngine
+from .reranker import Reranker, RerankConfig, get_reranker
 
-__all__ = ["Embedder", "VectorStore", "Retriever", "RAGEngine"]
+__all__ = [
+    "Embedder",
+    "VectorStore",
+    "Retriever",
+    "RAGEngine",
+    "Reranker",
+    "RerankConfig",
+    "get_reranker",
+]

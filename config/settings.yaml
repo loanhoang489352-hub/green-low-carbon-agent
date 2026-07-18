@@ -18,6 +18,16 @@ vector_db:
   persist_directory: "./data/chroma_db"
   embedding_model: "paraphrase-multilingual-MiniLM-L12-v2"
 
+# P8.R1: BGE-reranker 重排配置
+# 启用后,retrieve top-20 → BGE-reranker-base 精排 → 取 top-5
+# 关闭时走原路径(hybrid 召回 + post_filter + 截断)
+rag_rerank:
+  enabled: true
+  model: "BAAI/bge-reranker-base"
+  top_k_input: 20     # 候选数(从 hybrid 召回多少条)
+  top_k_output: 5     # 最终输出(等于 default_top_k)
+  use_fp16: false     # GPU 半精度(CPU 关闭)
+
 # 短期记忆配置 (Redis)
 short_term_memory:
   enabled: false  # 本地开发时可关闭，使用内存模拟
