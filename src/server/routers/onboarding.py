@@ -55,45 +55,45 @@ def register_onboarding_routes(registry) -> None:
         handler.agent.profile_manager.update_profile(user_id, profile_data)
         handler.send_json({"status": "updated"})
 
-    # P6.S.18 fix: onboarding 全程公开(用户在登录前就需要走完 onboarding)
-    #   - 前端 onboarding/start → /answer → /status 全程没 session token
-    #   - 强制 auth 阻挡会致前端 401 死锁
-    #   - user.update 也改为公开(同 P6.S.14 chat 端点的修复逻辑)
+    # P5-D 鉴权策略:
+    #   - questions / status 保持公开(只读,无需鉴权)
+    #   - start / answer 翻转 auth_required=True(写入用户画像,需鉴权)
+    #   - user.register / user.update 保持公开(等同 auth/register,登录前可用)
     registry.add_route(
         "GET",
         "/api/onboarding/questions",
         onboarding_questions,
         auth_required=False,
-        description="获取引导问题",
+        description="获取引导问题(公开,只读)",
     )
     registry.add_route(
         "POST",
         "/api/onboarding/status",
         onboarding_status,
         auth_required=False,
-        description="引导状态",
+        description="引导状态(公开,只读)",
     )
     registry.add_route(
         "POST",
         "/api/onboarding/start",
         onboarding_start,
-        auth_required=False,
-        description="开始引导",
+        auth_required=True,
+        description="开始引导(P5-D:需鉴权,写入用户画像)",
     )
     registry.add_route(
         "POST",
         "/api/onboarding/answer",
         onboarding_answer,
-        auth_required=False,
-        description="回答引导问题",
+        auth_required=True,
+        description="回答引导问题(P5-D:需鉴权,写入用户画像)",
     )
     registry.add_route(
         "POST",
         "/api/user/register",
         user_register,
         auth_required=False,
-        description="注册用户(等同 auth/register)",
+        description="注册用户(等同 auth/register,公开)",
     )
     registry.add_route(
-        "POST", "/api/user/update", user_update, auth_required=False, description="更新用户画像"
+        "POST", "/api/user/update", user_update, auth_required=False, description="更新用户画像(公开,等同 onboarding 流程)"
     )

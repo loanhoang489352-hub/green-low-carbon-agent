@@ -48,26 +48,27 @@ def register_profile_routes(registry) -> None:
         history = handler.agent.get_conversation_history(conv_id)
         handler.send_json({"history": history})
 
-    # P6.S.7: profile/personalization/stats 改 False(前端 loadProfile 没传 token)
+    # P5-D 鉴权强制落地: profile/personalization/stats 全部需鉴权
+    # (user 隐私数据,无 token 不可访问;前端已带 token 调 loadProfile)
     registry.add_route(
-        "GET", "^/api/profile/", profile_get, auth_required=False, description="用户画像(GET)"
+        "GET", "^/api/profile/", profile_get, auth_required=True, description="用户画像(GET)"
     )
     registry.add_route(
         "GET",
         "^/api/personalization/",
         personalization_get,
-        auth_required=False,
+        auth_required=True,
         description="个性化上下文(GET)",
     )
     registry.add_route(
         "POST",
         "/api/personalization/context",
         personalization_context,
-        auth_required=False,
+        auth_required=True,
         description="个性化上下文(POST)",
     )
     registry.add_route(
-        "GET", "^/api/stats/", user_stats, auth_required=False, description="用户统计"
+        "GET", "^/api/stats/", user_stats, auth_required=True, description="用户统计"
     )
     registry.add_route(
         "GET",

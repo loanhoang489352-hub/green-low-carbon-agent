@@ -251,18 +251,18 @@ def register_chat_routes(registry) -> None:
         except Exception as e:
             emit("error", json.dumps({"error": str(e)[:200]}))
 
-    # P6.S.14: chat 端点对匿名 user_id 公开(避免浏览器无 token 时 401)
-    #   - 用 user_id(在 body 里)做身份,不再强制 Bearer session_id
-    #   - 浏览器 onboarding 后 / 匿名 user 都能直接聊天
-    #   - 仍支持 Bearer token:有则用 login user,无则用 body user_id
-    #   - 敏感端点(feedback/memory/profile)仍需 auth
-    registry.add_route("POST", "/api/chat", chat, auth_required=False, description="基础聊天")
+    # P5-D 鉴权强制落地:
+    #   - /api/chat 保持公开(浏览器匿名对话兜底,body 带 user_id)
+    #   - /api/chat/enhanced 需鉴权(走 RAG + 个性化,涉及 user 隐私数据)
+    #   - /api/recommendations 需鉴权(画像驱动,user 隐私)
+    #   - /api/conversation/{id} 已在 profile.py 中注册为 True
+    registry.add_route("POST", "/api/chat", chat, auth_required=False, description="基础聊天(匿名可用)")
     registry.add_route(
         "POST",
         "/api/chat/enhanced",
         chat_enhanced,
-        auth_required=False,
-        description="增强聊天(RAG+个性化)",
+        auth_required=True,
+        description="增强聊天(RAG+个性化,需鉴权)",
     )
     registry.add_route(
         "POST",
@@ -282,8 +282,8 @@ def register_chat_routes(registry) -> None:
         "POST",
         "/api/recommendations",
         recommendations,
-        auth_required=False,
-        description="个性化推荐",
+        auth_required=True,
+        description="个性化推荐(画像驱动,需鉴权)",
     )
     registry.add_route(
         "POST",
