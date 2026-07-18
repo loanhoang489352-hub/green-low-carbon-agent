@@ -464,6 +464,12 @@ class LowCarbonTravelSkill(Skill):
     name = "low_carbon_travel"
     description = "为用户规划低碳、环保的出行方案，综合考虑天气、碳排放、公共交通等因素"
     category = "travel"
+    # P10.A:Anthropic Skills 规范元数据
+    version = "1.0.0"
+    when_to_use = (
+        "出行 / 通勤 / 公共交通 / 碳排放 / 公交 / 地铁 / 骑行 / 打车 / 天气 / 路线"
+    )
+    allowed_tools: List[str] = ["weather_query", "carbon_calc", "public_transit"]
 
     @property
     def tools(self) -> List[BaseTool]:
@@ -532,6 +538,12 @@ class PolicyQuerySkill(Skill):
     name = "policy_query"
     description = "查询和解读低碳环保相关政策，为用户提供专业的政策解读"
     category = "policy"
+    # P10.A:Anthropic Skills 规范元数据
+    version = "1.0.0"
+    when_to_use = (
+        "政策 / 法规 / 条例 / 补贴 / 碳交易 / 配额 / ccer / cbam / 碳市场 / 监管 / 申报"
+    )
+    allowed_tools: List[str] = ["policy_query"]
 
     @property
     def tools(self) -> List[BaseTool]:
@@ -560,6 +572,12 @@ class ProfileUpdateSkill(Skill):
     name = "profile_update"
     description = "根据用户对话内容自动分析并更新用户画像，记录低碳行为偏好"
     category = "profile"
+    # P10.A:Anthropic Skills 规范元数据
+    version = "1.0.0"
+    when_to_use = (
+        "画像 / 偏好 / 记录 / 关注 / 更新 / 修改 / 行为 / 记一笔 / 标记 / 兴趣"
+    )
+    allowed_tools: List[str] = ["profile_update"]
 
     @property
     def tools(self) -> List[BaseTool]:

@@ -539,7 +539,19 @@ def _register_all_tools_and_skills() -> None:
         skill_exec = get_skill_executor()
         for SkillCls in [LowCarbonTravelSkill, PolicyQuerySkill, ProfileUpdateSkill]:
             try:
-                skill_exec.register(SkillCls())
+                skill_inst = SkillCls()
+                skill_exec.register(skill_inst)
+                # P10.A:注册后自动生成 SKILL.md(失败不阻塞启动)
+                try:
+                    skill_inst.write_skill_md()
+                except Exception as we:
+                    import logging
+
+                    logging.getLogger(__name__).warning(
+                        "[P10.A] SKILL.md 写入失败 %s: %s",
+                        skill_inst.name,
+                        we,
+                    )
             except Exception as e:
                 import logging
 

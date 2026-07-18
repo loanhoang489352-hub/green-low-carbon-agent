@@ -1,0 +1,30 @@
+{"query": "帮我规划从北京到天津的低碳出行", "expected_skill": "low_carbon_travel", "expected_behavior": ["transit_query", "carbon_calc"], "category": "travel"}
+{"query": "通勤应该选什么交通工具比较环保", "expected_skill": "low_carbon_travel", "expected_behavior": ["transit_query"], "category": "travel"}
+{"query": "从家到公司 5 公里,推荐什么出行方式", "expected_skill": "low_carbon_travel", "expected_behavior": ["transit_query"], "category": "travel"}
+{"query": "明天去上海出差,怎么去碳排放最少", "expected_skill": "low_carbon_travel", "expected_behavior": ["transit_query", "carbon_calc"], "category": "travel"}
+{"query": "公交和地铁哪个更环保", "expected_skill": "low_carbon_travel", "expected_behavior": ["transit_query"], "category": "travel"}
+{"query": "周末去郊区骑行 20 公里,大概多少碳排放", "expected_skill": "low_carbon_travel", "expected_behavior": ["carbon_calc"], "category": "travel"}
+{"query": "下雨天通勤建议怎么安排", "expected_skill": "low_carbon_travel", "expected_behavior": ["weather_check"], "category": "weather-travel"}
+{"query": "骑自行车 10 公里能减多少碳", "expected_skill": "low_carbon_travel", "expected_behavior": ["carbon_calc"], "category": "travel"}
+{"query": "打车 30 公里和坐地铁哪个碳排放少", "expected_skill": "low_carbon_travel", "expected_behavior": ["transit_query", "carbon_calc"], "category": "travel"}
+{"query": "查一下最新的国家碳排放权交易管理办法", "expected_skill": "policy_query", "expected_behavior": ["policy_search"], "category": "policy"}
+{"query": "碳交易市场的配额分配规则是什么", "expected_skill": "policy_query", "expected_behavior": ["policy_search"], "category": "policy"}
+{"query": "新能源汽车补贴政策 2026 年还有吗", "expected_skill": "policy_query", "expected_behavior": ["policy_search"], "category": "policy"}
+{"query": "我想了解 CCER 自愿减排的方法学", "expected_skill": "policy_query", "expected_behavior": ["policy_search"], "category": "policy"}
+{"query": "北京有什么针对企业的低碳补贴", "expected_skill": "policy_query", "expected_behavior": ["policy_search"], "category": "policy"}
+{"query": "深圳的垃圾分类政策有哪些最新规定", "expected_skill": "policy_query", "expected_behavior": ["policy_search"], "category": "policy"}
+{"query": "欧盟 CBAM 碳边境调节机制对中国企业有什么影响", "expected_skill": "policy_query", "expected_behavior": ["policy_search"], "category": "policy"}
+{"query": "国家碳达峰碳中和的总体目标是什么", "expected_skill": "policy_query", "expected_behavior": ["policy_search"], "category": "policy"}
+{"query": "上海有什么样的低碳社区激励政策", "expected_skill": "policy_query", "expected_behavior": ["policy_search"], "category": "policy"}
+{"query": "碳排放报告与核查的最新要求是什么", "expected_skill": "policy_query", "expected_behavior": ["policy_search"], "category": "policy"}
+{"query": "我想记录一下今天骑行了 10 公里", "expected_skill": "profile_update", "expected_behavior": ["behavior_record"], "category": "profile"}
+{"query": "更新一下我的出行偏好,以后主要想坐地铁", "expected_skill": "profile_update", "expected_behavior": ["behavior_record", "preference_update"], "category": "profile"}
+{"query": "我把家里的灯都换成了 LED,帮我记一下", "expected_skill": "profile_update", "expected_behavior": ["behavior_record"], "category": "profile"}
+{"query": "记录我今天参与了社区的垃圾分类活动", "expected_skill": "profile_update", "expected_behavior": ["behavior_record"], "category": "profile"}
+{"query": "修改我的环保关注领域,想加上节能家电", "expected_skill": "profile_update", "expected_behavior": ["preference_update"], "category": "profile"}
+{"query": "我已经一周没开车了,帮我更新一下画像", "expected_skill": "profile_update", "expected_behavior": ["behavior_record"], "category": "profile"}
+{"query": "今天出门坐了公交,顺便记录这个行为", "expected_skill": "profile_update", "expected_behavior": ["behavior_record"], "category": "profile"}
+{"query": "把对我的偏好调整一下,最近更关注碳足迹", "expected_skill": "profile_update", "expected_behavior": ["preference_update"], "category": "profile"}
+{"query": "今天我用了新能源车通勤,记到我的低碳记录里", "expected_skill": "profile_update", "expected_behavior": ["behavior_record"], "category": "profile"}
+{"query": "帮我看看我家附近的环保补贴怎么申请", "expected_skill": "policy_query", "expected_behavior": ["policy_search"], "category": "policy"}
+{"query": "今天出差打车 50 公里,排放怎么算,顺便记一笔", "expected_skill": "low_carbon_travel", "expected_behavior": ["carbon_calc"], "category": "travel"}
