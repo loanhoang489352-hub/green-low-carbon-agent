@@ -534,10 +534,11 @@ def _register_all_tools_and_skills() -> None:
             LowCarbonTravelSkill,
             PolicyQuerySkill,
             ProfileUpdateSkill,
+            EnergyPlanningSkill,
         )
 
         skill_exec = get_skill_executor()
-        for SkillCls in [LowCarbonTravelSkill, PolicyQuerySkill, ProfileUpdateSkill]:
+        for SkillCls in [LowCarbonTravelSkill, PolicyQuerySkill, ProfileUpdateSkill, EnergyPlanningSkill]:
             try:
                 skill_inst = SkillCls()
                 skill_exec.register(skill_inst)

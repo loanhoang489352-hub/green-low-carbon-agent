@@ -50,6 +50,17 @@ TRAVEL_STRONG_ZH = (
 # 注意:"天气"和"碳排放"从 STRONG 移到 WEAK(避免单独触发 travel)
 TRAVEL_WEAK_ZH = ("天气", "碳排放", "碳", "公里", "环保", "减排", "排", "少")
 
+# P12.4: lifestyle / energy 类别强信号 — 节能规划
+LIFESTYLE_STRONG_ZH = (
+    "节能", "节水", "节电", "节气", "家庭能源", "月度节能",
+    "环保方案", "节省电费", "节能方案", "节能技巧", "家庭节能",
+    "电费太高", "电费高", "水费", "燃气费",
+    "空调温度", "电热水器", "待机功耗", "保温",
+    "降碳", "减碳", "绿色生活", "低碳",
+    "滴漏", "漏气", "LED", "花洒",
+)
+LIFESTYLE_WEAK_ZH = ("节能", "环保", "减排", "电", "水", "气")
+
 # policy 类别强信号:政策/法规/补贴/碳市场
 POLICY_STRONG_ZH = (
     "政策", "法规", "条例", "办法", "通知", "补贴",
@@ -74,6 +85,11 @@ TRAVEL_STRONG_EN = (
     "bike", "cycle", "drive", "subway", "bus", "taxi", "car",
     "vehicle", "emission", "footprint", "eco", "low-carbon",
     "train", "flight", "ride", "km", "mile",
+)
+LIFESTYLE_STRONG_EN = (
+    "energy", "saving", "electricity", "utility", "power", "water", "gas",
+    "energy efficiency", "utility bill", "save energy", "home energy",
+    "appliance", "monthly bill", "reduce carbon", "eco home",
 )
 POLICY_STRONG_EN = (
     "policy", "regulation", "law", "subsidy", "incentive", "ccer",
@@ -103,6 +119,8 @@ def _strong_signals_for(category: str) -> Tuple[Tuple[str, ...], Tuple[str, ...]
         return POLICY_STRONG_ZH, POLICY_STRONG_EN
     if cat == "profile":
         return PROFILE_STRONG_ZH, PROFILE_STRONG_EN
+    if cat == "lifestyle":
+        return LIFESTYLE_STRONG_ZH, LIFESTYLE_STRONG_EN
     return ((), ())
 
 
@@ -211,11 +229,12 @@ def select_skill(query: str, skill_executor) -> Optional[str]:
     best_skill: Optional[str] = None
     best_score = 0.0
 
-    # 当分数相同时,优先级: profile > travel > policy
+    # 当分数相同时,优先级: profile > travel > lifestyle > policy
     # (用户更可能在表达"记录行为"而不是"查询政策"——reporting intent 优先)
     skill_priority = {
-        "profile_update": 3,
-        "low_carbon_travel": 2,
+        "profile_update": 4,
+        "low_carbon_travel": 3,
+        "energy_planning": 2,
         "policy_query": 1,
     }
 
@@ -298,6 +317,34 @@ def _skill_execute_mock(skill_executor, skill_name: str, query: str) -> List[str
                                     "加一笔", "加上", "减碳", "save", "record",
                                     "log", "track", "加一笔", "加")):
                 behaviors.append("behavior_record")
+
+    # P12.4: 节能规划专用工具 → behavior 映射
+    for tn in tool_names:
+        if tn == "household_profile":
+            if any(k in q for k in ("家庭", "画像", "人数", "面积", "家电",
+                                    "月费", "profile", "household", "home")):
+                behaviors.append("profile_load")
+        elif tn == "energy_planner":
+            # 任何节能/能源/电费/水费 query → plan_generated
+            if any(k in q for k in ("节能", "节水", "节电", "节气", "家庭能源",
+                                    "月度节能", "环保方案", "节省电费", "节能方案",
+                                    "电费太高", "电费高", "水费", "燃气费",
+                                    "空调温度", "电热水器", "待机功耗", "保温",
+                                    "降碳", "减碳", "绿色生活", "低碳",
+                                    "滴漏", "漏气", "LED", "花洒",
+                                    "energy", "saving", "electricity", "utility",
+                                    "power", "water", "gas", "utility bill",
+                                    "save energy", "home energy", "appliance",
+                                    "reduce carbon", "eco home")):
+                behaviors.append("plan_generated")
+            # 今天行动卡
+            if any(k in q for k in ("今日", "今天", "今天做", "today", "today card")):
+                behaviors.append("today_card_generated")
+        elif tn == "action_tracker":
+            if any(k in q for k in ("完成", "做到", "全做", "部分做", "未做",
+                                    "streak", "连续", "累计",
+                                    "mark", "completion", "done")):
+                behaviors.append("action_marked")
 
     # 画像 / 偏好 / 兴趣细分子类
     if "profile_update" in tool_names:
@@ -571,9 +618,10 @@ def main():
             LowCarbonTravelSkill,
             PolicyQuerySkill,
             ProfileUpdateSkill,
+            EnergyPlanningSkill,
         )
         skill_exec = get_skill_executor()
-        for SkillCls in [LowCarbonTravelSkill, PolicyQuerySkill, ProfileUpdateSkill]:
+        for SkillCls in [LowCarbonTravelSkill, PolicyQuerySkill, ProfileUpdateSkill, EnergyPlanningSkill]:
             inst = SkillCls()
             skill_exec.register(inst)
             # 也写 SKILL.md(便于 docs/check 直接验证)

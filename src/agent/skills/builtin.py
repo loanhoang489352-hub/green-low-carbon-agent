@@ -23,6 +23,9 @@ except Exception:
 from agent.tools.base import BaseTool, ToolResult
 from agent.skills.skill import Skill, SkillContext
 
+# P12.4: 节能规划 Skill(独立文件)
+from agent.skills.energy_planning_skill import EnergyPlanningSkill
+
 
 # ============ 基础工具实现 ============
 
@@ -610,3 +613,21 @@ class ProfileUpdateSkill(Skill):
             error=result.error,
             execution_time=time.time() - start,
         )
+
+
+# ============ 公共导出 ============
+
+__all__ = [
+    # Tools
+    "WeatherTool",
+    "CarbonCalcTool",
+    "PublicTransitTool",
+    "PolicyQueryTool",
+    "ProfileUpdateTool",
+    # Skills
+    "LowCarbonTravelSkill",
+    "PolicyQuerySkill",
+    "ProfileUpdateSkill",
+    # P12.4
+    "EnergyPlanningSkill",
+]

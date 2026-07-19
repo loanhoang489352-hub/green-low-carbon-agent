@@ -8,6 +8,9 @@ P10.A:Skills 合规性测试
 - write_skill_md() 实际落盘
 - 3 个 builtin Skill 的元数据完整性
 - get_schema() 包含新字段(向后兼容 — 老调用者多返字段不算破坏)
+
+P12.4 新增:
+- EnergyPlanningSkill 元数据校验 + SKILL.md 落盘 + when_to_use 触发关键词覆盖度
 """
 from __future__ import annotations
 
@@ -29,8 +32,9 @@ def _load_builtin_classes():
         LowCarbonTravelSkill,
         PolicyQuerySkill,
         ProfileUpdateSkill,
+        EnergyPlanningSkill,
     )
-    return LowCarbonTravelSkill, PolicyQuerySkill, ProfileUpdateSkill
+    return LowCarbonTravelSkill, PolicyQuerySkill, ProfileUpdateSkill, EnergyPlanningSkill
 
 
 # ============ 1. 字段存在性 ============
@@ -41,7 +45,7 @@ class TestSkillFields:
         from agent.skills.skill import Skill
 
         # 取一个最小具体实现 — PolicyQuerySkill 不依赖外部,直接看类属性
-        SkillCls, _, _ = _load_builtin_classes()
+        SkillCls, _, _, _ = _load_builtin_classes()
         assert hasattr(SkillCls, "version")
         # 子类显式覆写
         assert SkillCls.version == "1.0.0"
@@ -68,7 +72,7 @@ class TestBuiltinSkillMetadata:
         return _load_builtin_classes()
 
     def test_travel_skill_metadata(self, builtin_classes):
-        TravelCls, _, _ = builtin_classes
+        TravelCls, _, _, _ = builtin_classes
         skill = TravelCls()
         assert skill.name == "low_carbon_travel"
         assert skill.version == "1.0.0"
@@ -77,14 +81,14 @@ class TestBuiltinSkillMetadata:
         assert any(k in skill.when_to_use for k in ("出行", "通勤", "公共交通", "碳排放"))
 
     def test_policy_skill_metadata(self, builtin_classes):
-        _, PolicyCls, _ = builtin_classes
+        _, PolicyCls, _, _ = builtin_classes
         skill = PolicyCls()
         assert skill.name == "policy_query"
         assert skill.when_to_use
         assert any(k in skill.when_to_use for k in ("政策", "补贴", "碳交易"))
 
     def test_profile_skill_metadata(self, builtin_classes):
-        _, _, ProfileCls = builtin_classes
+        _, _, ProfileCls, _ = builtin_classes
         skill = ProfileCls()
         assert skill.name == "profile_update"
         assert skill.when_to_use
@@ -108,6 +112,94 @@ class TestBuiltinSkillMetadata:
             assert allowed.issubset(actual), (
                 f"{SkillCls.__name__}: allowed_tools {allowed - actual} 不在 self.tools"
             )
+
+    # ============ P12.4: EnergyPlanningSkill 专项 ============
+
+    def test_energy_skill_metadata(self, builtin_classes):
+        """P12.4: EnergyPlanningSkill 元数据校验"""
+        _, _, _, EnergyCls = builtin_classes
+        skill = EnergyCls()
+        assert skill.name == "energy_planning"
+        assert skill.version == "1.0.0"
+        assert skill.category == "lifestyle"
+        assert skill.when_to_use
+        # 必含节能/能源相关触发词
+        assert any(k in skill.when_to_use for k in ("节能", "节水", "节电", "节气"))
+        # allowed_tools 必含 3 个核心工具
+        assert "household_profile" in skill.allowed_tools
+        assert "energy_planner" in skill.allowed_tools
+        assert "action_tracker" in skill.allowed_tools
+
+    def test_energy_skill_validates(self, builtin_classes):
+        """P12.4: EnergyPlanningSkill 元数据应通过 validate()"""
+        _, _, _, EnergyCls = builtin_classes
+        inst = EnergyCls()
+        errors = inst.validate()
+        assert errors == [], f"EnergyPlanningSkill validate failed: {errors}"
+
+    def test_energy_skill_tools_match_allowed(self, builtin_classes):
+        """P12.4: allowed_tools 与 self.tools 一致"""
+        _, _, _, EnergyCls = builtin_classes
+        inst = EnergyCls()
+        actual = {t.name for t in inst.tools}
+        allowed = set(inst.allowed_tools)
+        assert allowed.issubset(actual), (
+            f"EnergyPlanningSkill: allowed_tools {allowed - actual} 不在 self.tools"
+        )
+
+    def test_energy_skill_when_to_use_5_keywords(self, builtin_classes):
+        """P12.4: when_to_use 命中至少 5 个 energy 关键词 query
+
+        P12.4 验收:以下 5+ query 至少都被 EnergyPlanningSkill 的 when_to_use 命中:
+          - "节能规划"
+          - "节水"
+          - "节电"
+          - "节气"
+          - "电费太高"
+          - "家庭能源"
+        """
+        _, _, _, EnergyCls = builtin_classes
+        skill = EnergyCls()
+        triggers = [t.lower() for t in skill._trigger_keywords()]  # noqa: SLF001
+        # 至少 5 个用户高频 query 应被 when_to_use 覆盖
+        sample_queries = [
+            "节能规划", "节水", "节电", "节气", "电费太高",
+            "家庭能源", "节能方案", "月用电", "空调温度",
+            "LED", "待机功耗", "滴漏", "保温",
+        ]
+        hits = 0
+        for q in sample_queries:
+            ql = q.lower()
+            if any(ql in t or t in ql for t in triggers):
+                hits += 1
+        assert hits >= 5, (
+            f"EnergyPlanningSkill when_to_use 命中率 {hits}/{len(sample_queries)} 不足 5 个"
+        )
+
+    def test_energy_skill_schema(self, builtin_classes):
+        """P12.4: get_schema 含新字段"""
+        _, _, _, EnergyCls = builtin_classes
+        inst = EnergyCls()
+        s = inst.get_schema()
+        assert s["name"] == "energy_planning"
+        assert s["version"] == "1.0.0"
+        assert s["category"] == "lifestyle"
+        assert "when_to_use" in s
+        assert "allowed_tools" in s
+        assert set(s["allowed_tools"]) == {
+            "household_profile", "energy_planner", "action_tracker"
+        }
+
+    def test_energy_skill_registered_in_executor(self, builtin_classes):
+        """P12.4: 注册到 SkillExecutor 后能被 list_all 找到"""
+        from agent.skills import get_skill_executor
+        _, _, _, EnergyCls = builtin_classes
+        ex = get_skill_executor()
+        ex.register(EnergyCls(), overwrite=True)
+        assert "energy_planning" in ex.list_all()
+        skill = ex.get("energy_planning")
+        assert skill is not None
+        assert skill.name == "energy_planning"
 
 
 # ============ 3. validate() 校验规则 ============
@@ -293,7 +385,7 @@ class TestSkillMdExport:
 
 class TestWriteSkillMd:
     def test_write_creates_dir_and_file(self, tmp_path: Path):
-        TravelCls, _, _ = _load_builtin_classes()
+        TravelCls, _, _, _ = _load_builtin_classes()
         skill = TravelCls()
         target = skill.write_skill_md(base_dir=tmp_path)
 
@@ -306,7 +398,7 @@ class TestWriteSkillMd:
 
     def test_write_default_path(self, tmp_path: Path, monkeypatch):
         """不传 base_dir 时默认写到 .claude/skills/<name>/"""
-        TravelCls, _, _ = _load_builtin_classes()
+        TravelCls, _, _, _ = _load_builtin_classes()
         skill = TravelCls()
 
         # patch PROJECT_ROOT → tmp_path
@@ -346,7 +438,7 @@ class TestWriteSkillMd:
                 bad_path = Path("/proc/\x00bad")
             inst = skill_mod.Skill  # 拿基类
             # 直接构造一个 dummy 测
-            TravelCls, _, _ = _load_builtin_classes()
+            TravelCls, _, _, _ = _load_builtin_classes()
             skill_inst = TravelCls()
             # 应不抛
             try:
@@ -364,7 +456,7 @@ class TestWriteSkillMd:
 
 class TestSchemaBackwardCompat:
     def test_schema_includes_new_fields(self):
-        TravelCls, _, _ = _load_builtin_classes()
+        TravelCls, _, _, _ = _load_builtin_classes()
         inst = TravelCls()
         s = inst.get_schema()
         # 老字段
@@ -383,13 +475,14 @@ class TestSchemaBackwardCompat:
             LowCarbonTravelSkill,
             PolicyQuerySkill,
             ProfileUpdateSkill,
+            EnergyPlanningSkill,
         )
 
         ex = get_skill_executor()
-        for Cls in (LowCarbonTravelSkill, PolicyQuerySkill, ProfileUpdateSkill):
+        for Cls in (LowCarbonTravelSkill, PolicyQuerySkill, ProfileUpdateSkill, EnergyPlanningSkill):
             ex.register(Cls(), overwrite=True)
         schemas = ex.get_all_schemas()
-        assert len(schemas) == 3
+        assert len(schemas) == 4
         for s in schemas:
             assert "name" in s
             assert "version" in s
@@ -404,6 +497,7 @@ class TestSkillSelector:
             LowCarbonTravelSkill,
             PolicyQuerySkill,
             ProfileUpdateSkill,
+            EnergyPlanningSkill,
         )
 
         import sys as _sys
@@ -411,11 +505,14 @@ class TestSkillSelector:
         from eval_skills import select_skill as _sel  # type: ignore
 
         ex = get_skill_executor()
-        for Cls in (LowCarbonTravelSkill, PolicyQuerySkill, ProfileUpdateSkill):
+        for Cls in (LowCarbonTravelSkill, PolicyQuerySkill, ProfileUpdateSkill, EnergyPlanningSkill):
             ex.register(Cls(), overwrite=True)
 
         assert _sel("帮我规划从北京到天津的出行", ex) == "low_carbon_travel"
         assert _sel("查一下最新的碳交易管理办法", ex) == "policy_query"
         assert _sel("更新一下我的画像偏好", ex) == "profile_update"
+        # P12.4: 节能规划触发
+        assert _sel("节能规划", ex) == "energy_planning"
+        assert _sel("我想看看月度节能方案", ex) == "energy_planning"
         # 无任何关键词 → fallback (用极端无关键词 query)
         assert _sel("你好世界", ex) is None
