@@ -99,3 +99,9 @@ data/logs/
 图片集/
 green_agent_roadmap_v2.png
 nul
+
+# 公网部署脚本产物(P6 一键公网启动)
+# 顶层 logs/ = start_public.bat 运行日志;data/logs/ 另由 data/logs/ 规则单独管控
+logs/
+# scripts/cloudflared/ = 54MB 二进制,本地下载不入仓
+scripts/cloudflared/
