@@ -13,7 +13,9 @@ from typing import Dict, List, Tuple
 from paths import (
     ACCOUNTS_DB,
     BEHAVIOR_TRACKER_DB,
+    ENERGY_ACTIONS_DB,
     FEEDBACK_DB,
+    HOUSEHOLDS_DB,
     LONG_TERM_MEMORY_DB,
     POLICY_UPDATES_DB,
     SHORT_TERM_DB,
@@ -300,6 +302,85 @@ SCHEMAS: List[Tuple[str, str, List[Tuple[str, str]]]] = [
             ),
         ],
     ),
+    # P12.1: 节能行动 & streak
+    (
+        str(ENERGY_ACTIONS_DB),
+        "energy_actions",
+        [
+            (
+                "energy_plans",
+                """
+                CREATE TABLE IF NOT EXISTS energy_plans (
+                    plan_id TEXT PRIMARY KEY,
+                    user_id TEXT NOT NULL,
+                    profile_snapshot TEXT NOT NULL,
+                    actions TEXT NOT NULL,
+                    total_saving_cny REAL DEFAULT 0,
+                    total_saving_co2_kg REAL DEFAULT 0,
+                    status TEXT DEFAULT 'draft',
+                    created_at TEXT NOT NULL
+                )
+            """,
+            ),
+            (
+                "energy_completions",
+                """
+                CREATE TABLE IF NOT EXISTS energy_completions (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    user_id TEXT NOT NULL,
+                    plan_id TEXT NOT NULL,
+                    action_id TEXT NOT NULL,
+                    action_date TEXT NOT NULL,
+                    completion_level TEXT NOT NULL CHECK(completion_level IN ('full','partial','none')),
+                    created_at TEXT NOT NULL,
+                    UNIQUE(user_id, action_id, action_date)
+                )
+            """,
+            ),
+            (
+                "energy_daily_streak",
+                """
+                CREATE TABLE IF NOT EXISTS energy_daily_streak (
+                    user_id TEXT NOT NULL,
+                    action_date TEXT NOT NULL,
+                    has_activity INTEGER DEFAULT 0,
+                    PRIMARY KEY (user_id, action_date)
+                )
+            """,
+            ),
+        ],
+    ),
+    # P12.2: 家庭画像 + 节能方案 household_profiles/household_plans
+    (
+        str(HOUSEHOLDS_DB),
+        "households",
+        [
+            (
+                "household_profiles",
+                """
+                CREATE TABLE IF NOT EXISTS household_profiles (
+                    user_id TEXT PRIMARY KEY,
+                    profile_json TEXT NOT NULL,
+                    delegation_level INTEGER DEFAULT 1,
+                    updated_at TEXT NOT NULL
+                )
+            """,
+            ),
+            (
+                "household_plans",
+                """
+                CREATE TABLE IF NOT EXISTS household_plans (
+                    plan_id TEXT PRIMARY KEY,
+                    user_id TEXT NOT NULL,
+                    variant_id TEXT,
+                    plan_json TEXT NOT NULL,
+                    status TEXT DEFAULT 'draft',
+                    created_at TEXT NOT NULL
+                )
+            """,
+            ),
+        ],
+    ),
 ]
 
 
@@ -315,6 +396,8 @@ def init_all_schemas() -> Dict[str, List[str]]:
 
     幂等:已存在的表不会重建
     P4-C: 对已存在的表,补齐新增列(intent_type / context / carbon_impact 等)
+    P12.1: energy_actions 新库 (energy_plans / energy_completions / energy_daily_streak)
+    P12.2: households.db 新库 (household_profiles / household_plans)
     """
     ensure_data_dirs()
     created: Dict[str, List[str]] = {}

@@ -24,6 +24,8 @@ POLICY_UPDATES_DB: Path = DATA_DIR / "policy_updates.db"
 SHORT_TERM_DB: Path = DATA_DIR / "short_term.db"  # P5-G: STM 持久化
 LONG_TERM_MEMORY_DB: Path = DATA_DIR / "long_term_memory.db"
 BEHAVIOR_TRACKER_DB: Path = DATA_DIR / "behavior_tracker.db"
+ENERGY_ACTIONS_DB: Path = DATA_DIR / "energy_actions.db"  # P12.1: 节能行动 & streak
+HOUSEHOLDS_DB: Path = DATA_DIR / "households.db"  # P12.2: 家庭画像 + 节能方案
 
 
 def ensure_data_dirs() -> None:

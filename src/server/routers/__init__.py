@@ -31,6 +31,7 @@ def register_all_routes(registry) -> None:
     ENABLE_PET: 是否注册宠物路由(default false,2026-06-14 用户撤销 UI 后设置)
     - false: pet router 不注册(后端 PetEngine 仍可 import / 调,但无 HTTP 入口)
     - true:  恢复 19 端点(后续重做前端 UI 时设 true)
+    ENABLE_ENERGY: 是否注册节能规划路由(default true,P12.2 上线)
     """
     register_system_routes(registry)
     register_chat_routes(registry)
@@ -40,6 +41,18 @@ def register_all_routes(registry) -> None:
     register_profile_routes(registry)
     register_policy_routes(registry)
     register_settings_routes(registry)
+    if os.environ.get("ENABLE_ENERGY", "true").lower() in ("1", "true", "yes", "on"):
+        from .energy import register_energy_routes
+        register_energy_routes(registry)
+        import logging
+        logging.getLogger("server.routers").info(
+            "[energy] 7 路由已注册(profile/plan/today/complete/stats/actions/delegation)"
+        )
+    else:
+        import logging
+        logging.getLogger("server.routers").info(
+            "[energy] ENABLE_ENERGY 未启用,节能规划路由不注册"
+        )
     if os.environ.get("ENABLE_PET", "false").lower() in ("1", "true", "yes", "on"):
         from .pet import register_pet_routes
         register_pet_routes(registry)
