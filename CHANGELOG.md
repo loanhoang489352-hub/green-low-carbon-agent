@@ -4,6 +4,31 @@
 
 ## [Unreleased] — P6 上线 + 质量收口
 
+### P12 节能规划(2026-07-19)— 家庭能源节约规划(直接服务知行鸿沟)
+
+- **A. 核心引擎**(`src/agent/energy/`):
+  - `models.py`: HouseholdProfile / EnergyAction / EnergyPlan / TodayCard 数据类;PlanStatus 加 BLOCKED
+  - `policies.py`: 7 城市阶梯电价(北京/上海/广州/深圳/成都/杭州/南京) + 13 电器节能潜力表(空调/热水器/冰箱/洗衣机/水/气)+ `lookup_city_pricing` 改返 `Optional[CityTierPricing]`
+  - `planner.py`: `EnergyPlanner.generate_plan` + 4 个 GUARD 守卫(UNKNOWN_CITY / ZERO_USAGE / NO_APPLIANCES / EXTREME_VALUES);每个 action 都有 `source_ref` 幻觉防火墙
+  - `tracker.py`: `ActionTracker.mark_completion` + `get_streak` + 累计统计;三级完成(全/部分/未),partial 也算 streak
+  - `delegation.py`: 委托级别 0-3 决策
+  - `household_store.py`: 画像 + 方案持久化,backfill 旧 plan 兼容
+- **B. HTTP API**(`src/server/routers/energy.py`):
+  - 7 个端点:`POST /api/energy/profile` / `POST /api/energy/plan` / `GET /api/energy/today` / `POST /api/energy/actions/{id}/complete` / `GET /api/energy/stats` / `POST /api/household/delegation` / `GET /api/energy/actions`
+  - 全部 `auth_required=True` (P5-D);写操作自动 audit_log (P5-I);错误统一 APIError (P5-E)
+  - Guard 触发返 200 + `{"blocked": true, "warning": "GUARD_XXX: ...", "plan": null}`
+- **C. 测试**(`tests/test_energy_*.py`):
+  - 单元 37 / API 59 / e2e 54 / 幻觉防火墙 34 = **184 个全过**(原 6 个 xfail 转 pass)
+  - `tests/eval/energy_golden_set.jsonl` 20 条真实家庭场景
+  - `scripts/eval_energy.py` 评估:hit_rate=1.0, hallucination_rate=0, coverage=1, realism=1
+- **D. Skill 集成**(`src/agent/skills/energy_planning_skill.py`):
+  - EnergyPlanningSkill(category=lifestyle, version=1.0.0) + 3 个内部 Tool
+  - `eval_skills.py` 138 条 query 全命中,trigger_accuracy=1.0
+  - SKILL.md 自动生成到 `.claude/skills/energy-planning/`
+- **E. 文档**:
+  - `docs/learning/p12-energy-planning.md` — 实习生 30 分钟入门
+  - `docs/operations/p12-energy-planning.md` — 运维排查手册
+
 ### P11.C(2026-07-18)— 接真实 MCP server(GitHub + Notion 模板)
 
 - **A. ${ENV_VAR} 占位符展开**(`src/mcp/streamable_client.py`):
