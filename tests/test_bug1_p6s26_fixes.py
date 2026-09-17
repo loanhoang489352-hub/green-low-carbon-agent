@@ -51,22 +51,13 @@ def test_distance_precision_smoke():
 # ---------------------------------------------------------------------------
 # 2. urlencode 坐标用 quote() 单独编码
 # ---------------------------------------------------------------------------
-def test_urllib_quote_used_for_coordinates():
-    """transit/integrated 和 bicycling 端点的 origin/destination 坐标必须用 quote()"""
+def test_coordinates_are_encoded_exactly_once():
+    """坐标必须交给 urlencode 一次编码，避免旧实现产生 %252C。"""
     content = (PROJECT_ROOT / "src/agent/tools/extended.py").read_text(encoding="utf-8")
-    # 公交端点
-    assert "urllib.parse.quote(origin_coord, safe=\"\")" in content, (
-        "公交端点 origin 坐标必须用 quote() 单独编码"
-    )
-    assert "urllib.parse.quote(dest_coord, safe=\"\")" in content, (
-        "公交端点 destination 坐标必须用 quote() 单独编码"
-    )
-    # 骑行端点
-    # 已经有 2 次 (transit + bicycling),再加 bicycling 端点的 quote
-    occurrences = content.count("urllib.parse.quote(origin_coord, safe=\"\")")
-    assert occurrences >= 2, (
-        f"origin_coord quote() 调用应至少 2 次(transit + bicycling),实际 {occurrences}"
-    )
+    assert '"origin": origin_coord' in content
+    assert '"destination": dest_coord' in content
+    assert 'urllib.parse.urlencode(params)' in content
+    assert 'quote(origin_coord, safe="")' not in content
 
 
 def test_urlencode_quote_preserves_comma():
@@ -158,7 +149,7 @@ def test_gaode_route_uses_logger_not_print():
     assert "_logger.error" in content, "extended.py 必须使用 _logger.error 记录错误"
     # 必须在 _gaode_route 内部使用
     gaode_route_match = re.search(
-        r"def _gaode_route\(self.*?def _gaode_geocode",
+        r"def _gaode_route\(.*?def _gaode_geocode",
         content, re.DOTALL,
     )
     assert gaode_route_match, "_gaode_route 方法未找到"

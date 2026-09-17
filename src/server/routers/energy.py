@@ -23,15 +23,11 @@ from typing import Any, Dict, List, Optional
 logger = logging.getLogger(__name__)
 
 
-def _current_user_id(handler, data: Dict) -> Optional[str]:
-    """从鉴权结果拿 user_id(由 _dispatch 注入 handler.current_user)"""
-    identity = getattr(handler, "current_user", None)
-    if isinstance(identity, dict):
-        uid = identity.get("user_id")
-        if uid:
-            return str(uid)
-    # 兜底:body 里有 user_id(anon)
-    return data.get("user_id")
+def _current_user_id(handler, data: Dict) -> str:
+    """统一从 server.identity.resolve_user_id 解析 user_id(与聊天端共用同一策略)"""
+    from server.identity import resolve_user_id
+
+    return resolve_user_id(handler, data)
 
 
 def _audit(action: str, user_id: Optional[str], target: Optional[str], detail: Optional[Dict] = None) -> None:
@@ -74,9 +70,9 @@ def _save_profile_impl(handler, data: Dict, user_id: str) -> Dict[str, Any]:
 
     # 构造 profile 对象(用 HouseholdProfile.from_dict 容错)
     raw = dict(data or {})
-    raw.setdefault("user_id", user_id)
+    raw["user_id"] = user_id
     # P12.2 fix: 用 DB 当前 level(避免 dataclass 默认 1 覆盖用户在 delegation 端点的设置)
-    raw.setdefault("delegation_level", level)
+    raw["delegation_level"] = level
     profile = HouseholdProfile.from_dict(raw)
 
     # 委托级别拦截
@@ -98,7 +94,7 @@ def _save_profile_impl(handler, data: Dict, user_id: str) -> Dict[str, Any]:
             "profile_echo": profile.to_dict(),
         }
 
-    if decision.variant_mode:
+    if decision.variant_mode and not (data or {}).get("confirm_profile"):
         # Level 2: 给 3 个 variants,等用户选
         variants = _build_profile_variants(profile)
         _audit(
@@ -149,39 +145,13 @@ def _build_profile_variants(base) -> List[Dict[str, Any]]:
     """
     from agent.energy.models import HouseholdProfile
 
-    v1 = HouseholdProfile.from_dict({**base.to_dict()})
-    v1.home_size_sqm = max(50.0, base.home_size_sqm * 0.7)
-    v1.appliances = [a for a in (base.appliances or [])[:3]] or ["空调", "热水器", "冰箱"]
-
-    v2 = HouseholdProfile.from_dict({**base.to_dict()})  # 默认
-
-    v3 = HouseholdProfile.from_dict({**base.to_dict()})
-    v3.home_size_sqm = base.home_size_sqm * 1.3
-    v3.appliances = list(set((base.appliances or []) + ["空调", "热水器", "冰箱", "洗衣机", "洗碗机"]))
-
-    return [
-        {
-            "variant_id": "small_apartment",
-            "title": "小户型(省钱快)",
-            "description": "电器少,行动少,省钱快",
-            "profile": v1.to_dict(),
-        },
-        {
-            "variant_id": "balanced",
-            "title": "标准家庭(平衡)",
-            "description": "你提供的默认画像",
-            "profile": v2.to_dict(),
-        },
-        {
-            "variant_id": "large_household",
-            "title": "大户家庭(潜力高)",
-            "description": "面积大电器多,节省潜力高",
-            "profile": v3.to_dict(),
-        },
-    ]
-
-
-# ========== 方案生成(按 delegation_level 拦截) ==========
+    variants = []
+    for key, title in (("easy", "少折腾"), ("money", "省钱优先"), ("comfort", "保持舒适")):
+        profile = HouseholdProfile.from_dict(base.to_dict())
+        profile.priority = key
+        variants.append({"variant_id": key, "title": title,
+                         "description": "保留真实家庭资料，只改变行动优先级", "profile": profile.to_dict()})
+    return variants
 
 
 def _generate_plan_impl(handler, data: Dict, user_id: str) -> Dict[str, Any]:
@@ -208,7 +178,10 @@ def _generate_plan_impl(handler, data: Dict, user_id: str) -> Dict[str, Any]:
         profile = load_profile(user_id)
         if profile is None:
             # 用默认画像
-            profile = HouseholdProfile(user_id=user_id)
+            profile = HouseholdProfile.from_dict({"user_id": user_id})
+
+    from agent.energy.weekly import WeeklyEnergy
+    profile.excluded_actions = list(set(profile.excluded_actions or []) | set(WeeklyEnergy().exclusions(user_id)))
 
     planner = EnergyPlanner()
 
@@ -251,7 +224,7 @@ def _generate_plan_impl(handler, data: Dict, user_id: str) -> Dict[str, Any]:
         }
 
     # Level 2: 给 3 个 plan(省钱 / 减碳 / 易执行),让用户选
-    if decision.variant_mode:
+    if decision.variant_mode and not (data or {}).get("variant_id"):
         base_plan = planner.generate_plan(profile)
         if base_plan.blocked:
             _audit(
@@ -289,6 +262,13 @@ def _generate_plan_impl(handler, data: Dict, user_id: str) -> Dict[str, Any]:
             "profile_echo": profile.to_dict(),
         }
 
+    variant_id = (data or {}).get("variant_id")
+    if variant_id and variant_id not in ("money_first", "co2_first", "easy_first"):
+        from server.errors import APIError
+        raise APIError("BAD_REQUEST", "无效的方案选项")
+    if variant_id:
+        profile.priority = "money" if variant_id == "money_first" else "easy"
+
     # Level 0/1: 生成 1 个 + 存
     plan = planner.generate_plan(profile)
 
@@ -315,12 +295,16 @@ def _generate_plan_impl(handler, data: Dict, user_id: str) -> Dict[str, Any]:
     target_status = (
         PlanStatus.ACTIVE.value if level == 0 else PlanStatus.DRAFT.value
     )
-    save_plan_variant(
+    plan.status = target_status
+    saved = save_plan_variant(
         user_id=user_id,
         plan=plan,
         variant_id="default",
         status=target_status,
     )
+    if not saved:
+        from server.errors import APIError
+        raise APIError("INTERNAL", "方案保存失败，请重试")
     _audit(
         "energy.plan.save",
         user_id,
@@ -437,6 +421,23 @@ def register_energy_routes(registry) -> None:
         result = _generate_plan_impl(handler, data, user_id)
         handler.send_json(result)
 
+    # ----- GET /api/energy/profile (读取已存画像) -----
+
+    def energy_profile_get(handler, data):
+        user_id = _current_user_id(handler, data)
+        if not user_id:
+            raise APIError("UNAUTHORIZED", "需要登录")
+        from agent.energy.household_store import load_profile
+
+        profile = load_profile(user_id)
+        handler.send_json(
+            {
+                "ok": True,
+                "user_id": user_id,
+                "profile": profile.to_dict() if profile else None,
+            }
+        )
+
     # ----- GET /api/energy/today -----
 
     def energy_today(handler, data):
@@ -449,18 +450,12 @@ def register_energy_routes(registry) -> None:
         from agent.energy.planner import EnergyPlanner
 
         plan = get_active_plan(user_id)
+        planner = EnergyPlanner()
         if plan is None:
-            profile = load_profile(user_id) or HouseholdProfile(user_id=user_id)
-            planner = EnergyPlanner()
-            plan = planner.generate_plan(profile)
-        else:
-            # plan actions 在 household_plans 里没存,需要重建
-            from agent.energy.household_store import load_profile
-            profile = load_profile(user_id) or HouseholdProfile(user_id=user_id)
-            planner = EnergyPlanner()
-            plan = planner.generate_plan(profile)
+            handler.send_json({"ok": True, "today_card": None, "plan_id": None,
+                               "message": "请先生成方案并选择开始一周行动。"})
+            return
 
-        # 守卫拦截 → blocked(返回 200 + 显式标记)
         if plan.blocked:
             handler.send_json(
                 {
@@ -501,44 +496,14 @@ def register_energy_routes(registry) -> None:
         plan_id = (data or {}).get("plan_id")
         note = (data or {}).get("note")
         action_date = (data or {}).get("action_date")
-        # estimated_saving_* 可选(查 action 详情或外部传入)
+        from agent.energy.household_store import get_active_plan
         from agent.energy.tracker import get_action_tracker
-
+        active = get_active_plan(user_id)
+        if active is None or (plan_id and plan_id != active.id) or action_id not in {a.id for a in active.actions}:
+            raise APIError("BAD_REQUEST", "请先选择自己的有效方案和行动")
+        plan_id = active.id
         tracker = get_action_tracker()
-        # 优先从 active plan 找 action 元数据
-        estimated_cny = 0.0
-        estimated_kwh = 0.0
-        estimated_co2 = 0.0
-        try:
-            from agent.energy.household_store import get_active_plan
-            active = get_active_plan(user_id)
-            if active:
-                from agent.energy.policies import appliance_potential
-                # 先从 energy_plans.db(老表)找
-                from agent.energy.planner import EnergyPlanner
-                ep = EnergyPlanner()
-                db_plans = ep.list_plans(user_id)
-                for p in db_plans:
-                    for a in p.actions:
-                        if a.id == action_id:
-                            estimated_cny = a.estimated_saving_cny
-                            estimated_kwh = a.estimated_saving_kwh
-                            estimated_co2 = a.estimated_saving_co2_kg
-                            if not plan_id:
-                                plan_id = p.id
-                            break
-                    if estimated_cny:
-                        break
-        except Exception:
-            pass
-        # body 显式传入的覆盖
-        if "estimated_saving_cny" in (data or {}):
-            estimated_cny = float(data["estimated_saving_cny"])
-        if "estimated_saving_kwh" in (data or {}):
-            estimated_kwh = float(data["estimated_saving_kwh"])
-        if "estimated_saving_co2_kg" in (data or {}):
-            estimated_co2 = float(data["estimated_saving_co2_kg"])
-
+        estimated_cny = estimated_kwh = estimated_co2 = 0.0
         result = tracker.mark_completion_extended(
             user_id=user_id,
             action_id=action_id,
@@ -573,6 +538,8 @@ def register_energy_routes(registry) -> None:
 
         tracker = get_action_tracker()
         stats = tracker.get_stats(user_id, period=period)
+        stats["measurement_status"] = "self_reported"
+        stats["verified_savings"] = None
         handler.send_json(stats)
 
     # ----- POST /api/household/delegation -----
@@ -636,7 +603,19 @@ def register_energy_routes(registry) -> None:
         from agent.energy.tracker import get_action_tracker
 
         tracker = get_action_tracker()
-        items = tracker.list_actions(user_id, status=status, limit=limit)
+        items = tracker.list_actions(user_id, status=status, limit=max(1, min(limit, 100)))
+        from agent.energy.weekly import WeeklyEnergy
+        week = WeeklyEnergy().get(user_id).get("week")
+        if week:
+            if status == "pending":
+                from datetime import date
+                done = {e["action_id"] for e in week["entries"] if e["date"] == str(date.today()) and e["level"] != "none"}
+                items = [] if week["completed"] else [{**a, "action_id": a["id"], "plan_id": week["plan_id"],
+                          "status": "done_today" if a["id"] in done else "pending"} for a in week["actions"]]
+            else:
+                items = [{"action_id": e["action_id"], "action_date": e["date"], "completion_level": e["level"],
+                          "barrier": e["barrier"], "plan_id": week["plan_id"]} for e in reversed(week["entries"])] + items
+                items = items[:max(1, min(limit, 100))]
         handler.send_json(
             {
                 "ok": True,
@@ -649,12 +628,56 @@ def register_energy_routes(registry) -> None:
 
     # ----- 注册(全部 auth_required=True,P5-D) -----
 
+    def energy_week(handler, data):
+        from agent.energy.weekly import WeeklyEnergy
+        from agent.energy.household_store import load_plan, save_plan_variant
+        user_id = _current_user_id(handler, data)
+        service = WeeklyEnergy()
+        if handler.command == "GET":
+            handler.send_json(service.get(user_id))
+            return
+        plan = load_plan((data or {}).get("plan_id", ""))
+        if plan is None or plan.user_id != user_id:
+            raise APIError("BAD_REQUEST", "请选择自己的已保存方案")
+        try:
+            result = service.start(user_id, plan, (data or {}).get("action_ids"))
+        except (ValueError, TypeError) as exc:
+            raise APIError("BAD_REQUEST", str(exc))
+        plan = load_plan(result["week"]["plan_id"])
+        selected_ids = {a["id"] for a in result["week"]["actions"]}
+        plan.actions = [a for a in plan.actions if a.id in selected_ids]
+        plan.status = "active"
+        if not save_plan_variant(user_id, plan, status="active"):
+            raise APIError("INTERNAL", "方案激活失败，请重试")
+        handler.send_json(result)
+
+    def energy_week_feedback(handler, data):
+        from agent.energy.weekly import WeeklyEnergy
+        user_id = _current_user_id(handler, data)
+        try:
+            result = WeeklyEnergy().feedback(user_id, data.get("week_id"), data.get("action_id"),
+                       data.get("level"), data.get("barrier", "none"), data.get("action_date"))
+        except (ValueError, TypeError) as exc:
+            raise APIError("BAD_REQUEST", str(exc))
+        handler.send_json(result)
+
+    registry.add_route("GET", "/api/energy/week", energy_week, auth_required=True)
+    registry.add_route("POST", "/api/energy/week", energy_week, auth_required=True)
+    registry.add_route("POST", "/api/energy/week/feedback", energy_week_feedback, auth_required=True)
+
     registry.add_route(
         "POST",
         "/api/energy/profile",
         energy_profile,
         auth_required=True,
         description="保存家庭画像(按 delegation_level 拦截)",
+    )
+    registry.add_route(
+        "GET",
+        "/api/energy/profile",
+        energy_profile_get,
+        auth_required=True,
+        description="读取已存家庭画像",
     )
     registry.add_route(
         "POST",

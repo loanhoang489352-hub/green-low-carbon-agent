@@ -53,6 +53,10 @@ class BaseTool(ABC):
     def __init__(self):
         self._status = ToolStatus.IDLE
 
+    # P16: 工具风险分级(low/medium/high),供工具级权限门(tool_permission)裁决。
+    # 默认 low(不改变现状);高风险工具(如涉及资金/不可逆/删除)覆写为 "high"。
+    risk: str = "low"
+
     @property
     @abstractmethod
     def name(self) -> str:

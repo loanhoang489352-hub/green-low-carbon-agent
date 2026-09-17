@@ -4,7 +4,14 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## 项目概述
 
-绿色低碳智能体是一个基于消费者偏好建模的个性化低碳生活助手,解决"知行鸿沟"(从知道绿色低碳到行动起来),通过**三层记忆(短+工作+长,P4-H)+ 用户画像图谱 + 实时知识同步 + 个性化行动推荐**,实现"个性化绿色低碳行为促进"。P0–P5-I + P5-J + P6.A–J 全部完成(共 36 commit),达到 **production-ready**;License MIT。
+绿色低碳智能体是一个基于消费者偏好建模的个性化低碳生活助手,解决"知行鸿沟"(从知道绿色低碳到行动起来),通过**三层记忆(短+工作+长,P4-H)+ 用户画像图谱 + 实时知识同步 + 个性化行动推荐**,实现"个性化绿色低碳行为促进"。当前进度:**P0–P6 全部完成,并新增 P12 家庭节能规划 + 插件式系统(plugin_system)+ 若干修复**;达到 **production-ready**;License MIT。
+
+> ⚠️ 文档与代码不同步提示(2026-07 更新):本文档曾描述旧结构。**实际代码**中 `user_profile` 位于 `src/user_profile/`(非 `src/agent/user_profile/`),并已新增:
+> - `src/agent/energy/` — P12 家庭节能规划(节水/节电/节气,含 source_ref 幻觉防火墙 + GUARD 守卫)。接入聊天:`chat_enhanced` 识别 `ENERGY_PLANNING` 意图后直接产出方案,无需独立门户。
+> - `src/plugin_system/` + `plugins/` — 插件式架构:往 `plugins/` 放一个 `.py`(提供 `register(api)`)即自动挂载工具/技能/路由。
+> - `src/server/identity.py` — 统一身份解析(聊天/节能/推荐共用同一 user_id)。
+> - `requirements-ocr.txt` — OCR 可选依赖(从 requirements.txt 拆出,避免 paddlepaddle 阻断核心安装)。
+> - 若干修复:`get_llm_client` 不再把 `OPENAI_API_KEY`(占位符)传给具体 provider(否则 DeepSeek 拿到假 key → 全 mock);`loadProfile` 带 token;画像/个性化接口以 token 身份为准。
 
 **P6 完成的 10 方向**(plan 之外):鉴权真落地 / 健康缓存 / Query Cache / 全链路回归 / SQLite 池(12.5x)/ 池扩 3 模块 / 灾备脚本 / LLM_MOCK / i18n / async LLM PoC / 拓源 7 源。
 
@@ -357,7 +364,8 @@ docs/
 
 ### 意图类型(IntentType)
 
-`KNOWLEDGE_QUERY`, `ADVICE_REQUEST`, `ACTION_REPORT`, `FEEDBACK`, `GREETING`, `OTHER`
+`KNOWLEDGE_QUERY`, `ADVICE_REQUEST`, `ACTION_REPORT`, `FEEDBACK`, `GREETING`, `QUESTION`, `TRAVEL_PLANNING`(出行规划), `ENERGY_PLANNING`(家庭节能规划,P12), `LOCATION_QUERY`, `SUGGESTION_ACCEPT`, `SUGGESTION_REJECT`, `UNKNOWN`。
+> 注:`ENERGY_PLANNING` 在 `chat_enhanced` 里走 `_handle_energy_planning`(节水/节电/节气方案),不依赖独立门户。
 
 ## 配置
 

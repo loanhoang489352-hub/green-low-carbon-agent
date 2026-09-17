@@ -65,6 +65,18 @@ class HouseholdProfile:
     delegation_level: int = 1
     created_at: str = ""
     updated_at: str = ""
+    uses_gas: Optional[bool] = None
+    has_incandescent: Optional[bool] = None
+    has_drip: Optional[bool] = None
+    priority: str = "easy"
+    already_doing: List[str] = field(default_factory=list)
+    excluded_actions: List[str] = field(default_factory=list)
+    shower_minutes: Optional[float] = None
+    shower_flow_lpm: Optional[float] = None
+    showers_per_person_week: Optional[float] = None
+    water_price_per_m3: Optional[float] = None
+    confirmed_fields: List[str] = field(default_factory=list)
+    intake_pending: bool = False
 
     def to_dict(self) -> dict:
         return asdict(self)
@@ -73,7 +85,14 @@ class HouseholdProfile:
     def from_dict(cls, data: dict) -> "HouseholdProfile":
         # 过滤多余字段,容错 None / missing keys
         known = {f for f in cls.__dataclass_fields__}
-        return cls(**{k: v for k, v in data.items() if k in known})
+        raw = {k: v for k, v in data.items() if k in known}
+        # Boundary input must not silently invent devices, people or bills.
+        for key in ("family_size", "home_size_sqm", "monthly_electricity_bill",
+                    "monthly_water_bill", "monthly_gas_bill", "ac_temp_setting"):
+            raw.setdefault(key, None)
+        raw.setdefault("city", "")
+        raw.setdefault("appliances", [])
+        return cls(**raw)
 
 
 @dataclass
@@ -92,6 +111,10 @@ class EnergyAction:
     difficulty: int                              # 1=易 2=中 3=难
     when_to_do: str                              # "今天晚上"|"周末"|"随时"
     source_ref: str                              # 数据来源:policy:<文件>|appliance:<名称>|standard:<来源>
+    estimate_period: str = "unknown"
+    estimate_kind: str = "qualitative"
+    estimate_note: str = "缺少可核对的周期和基线，仅提供行动建议。"
+    estimated_saving_water_m3: float = 0.0
 
     def to_dict(self) -> dict:
         return asdict(self)
@@ -127,6 +150,8 @@ class EnergyPlan:
             "status": self.status,
             "warning": self.warning,
             "blocked": self.blocked,
+            "estimate_period": "year",
+            "estimate_note": "年度参考潜力，不是实测收益；不同措施可能重叠，不承诺合计收益。",
         }
 
 

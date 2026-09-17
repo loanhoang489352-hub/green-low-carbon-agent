@@ -298,27 +298,40 @@ class DynamicProfileUpdater:
         """提取行动报告"""
         actions = []
 
+        def explicitly_negated(phrase: str) -> bool:
+            pos = message.find(phrase)
+            if pos < 0:
+                return False
+            prefix = message[max(0, pos - 5):pos]
+            return any(token in prefix for token in ("没", "没有", "未", "不曾", "并未"))
+
         for action_type, configs in self.ACTION_TYPES.items():
             for action in configs.get("positive", []):
-                if action in message:
+                if action in message and not explicitly_negated(action):
                     actions.append(
                         {
                             "type": action_type,
                             "sentiment": "positive",
                             "action": action,
                             "original_text": message,
+                            "source": "chat_explicit",
+                            "confidence": 0.85,
+                            "observed_at": datetime.now().isoformat(),
                         }
                     )
                     break
 
             for action in configs.get("negative", []):
-                if action in message:
+                if action in message and not explicitly_negated(action):
                     actions.append(
                         {
                             "type": action_type,
                             "sentiment": "negative",
                             "action": action,
                             "original_text": message,
+                            "source": "chat_explicit",
+                            "confidence": 0.85,
+                            "observed_at": datetime.now().isoformat(),
                         }
                     )
                     break

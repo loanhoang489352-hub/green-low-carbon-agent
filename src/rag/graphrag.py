@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import List, Dict, Optional
 from dataclasses import dataclass, field
 from collections import defaultdict
+from knowledge.ontology import get_low_carbon_ontology
 
 script_path = Path(__file__).resolve()
 project_root = script_path.parent.parent.parent
@@ -119,12 +120,20 @@ class EntityExtractor:
         "location": ["北京", "上海", "广州", "深圳", "中国", "全国", "各地", "城市", "农村"],
     }
 
+    def __init__(self):
+        # Merge the versioned ontology into legacy patterns so old queries keep
+        # working while new entity classes remain explicit and auditable.
+        self.patterns = {key: list(values) for key, values in self.ENTITY_PATTERNS.items()}
+        for entity_type, labels in get_low_carbon_ontology().labels_by_type().items():
+            bucket = self.patterns.setdefault(entity_type, [])
+            bucket.extend(label for label in labels if label not in bucket)
+
     def extract(self, text: str) -> List[Entity]:
         """从文本中提取实体"""
         entities = []
         found = set()
 
-        for entity_type, keywords in self.ENTITY_PATTERNS.items():
+        for entity_type, keywords in self.patterns.items():
             for keyword in keywords:
                 if keyword in text and keyword not in found:
                     entities.append(
@@ -356,7 +365,10 @@ class GraphRAGEngine:
         kb_path = Path(self.knowledge_base_path)
 
         # 收集所有markdown文件
-        md_files = list(kb_path.rglob("*.md"))
+        md_files = [
+            path for path in kb_path.rglob("*.md")
+            if not any(part.startswith("_") for part in path.relative_to(kb_path).parts[:-1])
+        ]
         print(f"[GraphRAG] 发现 {len(md_files)} 个文档")
 
         for md_file in md_files:

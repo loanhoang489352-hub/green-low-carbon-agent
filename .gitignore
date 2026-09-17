@@ -105,3 +105,8 @@ nul
 logs/
 # scripts/cloudflared/ = 54MB 二进制,本地下载不入仓
 scripts/cloudflared/
+
+# 本地 TLS 证书(mkcert 生成,含私钥,绝不可入仓)
+certs/
+# mkcert 本地二进制(生成上述证书的工具,不入仓)
+mkcert.exe

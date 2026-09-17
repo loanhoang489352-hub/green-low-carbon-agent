@@ -1,0 +1,20 @@
+# 绿色低碳智能体 — 可选 OCR 依赖(P9)
+#
+# ⚠️ 这些是「可选」依赖,不是核心 agent 运行所需。
+#   核心 agent(聊天/RAG/画像/节能规划)装 requirements.txt 即可,不依赖本文件。
+#
+# 用途:图片/PDF OCR(P9)。
+#   本地 PaddleOCR 缺失时,代码会降级到阿里云 OCR(aliyun-*);若两者都缺,OCR 功能不可用,
+#   但 agent 主体照常运行。
+#
+# 注意:paddlepaddle 目前可能没有为最新的 Python 版本(如 3.13/3.14)提供 wheel,
+#   若你的 Python 版本装不上,请跳过本文件,靠阿里云 OCR 兜底即可。
+
+# P9.OCR: 图片/PDF OCR(PaddleOCR 3.x + 阿里云 OCR 兜底)
+paddlepaddle>=2.5.0
+paddleocr>=2.7.0
+pdfplumber>=0.10.0
+Pillow>=10.0.0
+# 阿里云 OCR SDK(云端兜底用,缺失时本地 OCR 仍可用)
+aliyun-python-sdk-core>=2.13.0
+aliyun-python-sdk-ocr>=1.0.0

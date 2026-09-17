@@ -89,20 +89,10 @@ class HouseholdProfileTool(BaseTool):
             )
 
             if operation == "read":
-                p = load_profile(user_id)
-                if p is None:
-                    # 兜底:返回一个空画像的描述
-                    return ToolResult(
-                        success=True,
-                        data={"user_id": user_id, "profile": None,
-                              "note": "用户尚未建立画像,首次规划时会触发 blocked"},
-                        execution_time=time.time() - start,
-                    )
-                return ToolResult(
-                    success=True,
-                    data={"user_id": user_id, "profile": p.to_dict()},
-                    execution_time=time.time() - start,
-                )
+                from agent.energy.personalization import resolve_profile
+                from user_profile.user_profile import UserProfileManager
+                p, sources = resolve_profile(user_id, UserProfileManager().get_profile(user_id), load_profile(user_id))
+                return ToolResult(success=True, data={"user_id": user_id, "profile": p.to_dict(), "profile_sources": sources}, execution_time=time.time() - start)
 
             if operation == "write":
                 if not profile:
@@ -116,7 +106,7 @@ class HouseholdProfileTool(BaseTool):
                 if isinstance(profile, HouseholdProfile):
                     p = profile
                 else:
-                    p = HouseholdProfile.from_dict(dict(profile))
+                    p = HouseholdProfile.from_dict({**dict(profile), "user_id": user_id})
                 p.user_id = user_id
                 ok = save_profile(user_id, p)
                 return ToolResult(
@@ -140,6 +130,14 @@ class HouseholdProfileTool(BaseTool):
             )
 
 
+    @staticmethod
+    def _derive_from_chat_profile(user_id: str):
+        """Compatibility entry using the same live main-profile resolver."""
+        from agent.energy.personalization import resolve_profile
+        from user_profile.user_profile import UserProfileManager
+        return resolve_profile(user_id, UserProfileManager().get_profile(user_id))[0]
+
+
 class EnergyPlannerTool(BaseTool):
     """节能方案生成工具(无幻觉 + 守卫契约)"""
 
@@ -150,8 +148,8 @@ class EnergyPlannerTool(BaseTool):
     @property
     def description(self) -> str:
         return (
-            "根据家庭画像生成 5-12 条可执行节能方案(空调温度/电热水器时段/LED 替换/"
-            "低流量花洒/修滴漏/燃气保温等),含数值(元/kg CO2)溯源。今日行动卡自动抽 3 件易做。"
+            "根据实际设备和习惯生成适用节能建议，不强行补足类别(空调/热水器/LED/"
+            "修滴漏等)。数值必须按 estimate_period 和 estimate_note 展示；qualitative 不显示收益，不能把年度参考说成月度或实测。"
         )
 
     @property
@@ -184,6 +182,8 @@ class EnergyPlannerTool(BaseTool):
 
         start = time.time()
         profile = kwargs.get("profile")
+        # P12 修复:从 kwargs 读 user_id(原代码直接引用未定义变量导致 NameError)
+        user_id = kwargs.get("user_id", "")
         save_plan = bool(kwargs.get("save_plan", False))
         delegation_level = int(kwargs.get("delegation_level", 1) or 1)
 
@@ -203,7 +203,11 @@ class EnergyPlannerTool(BaseTool):
             if isinstance(profile, HouseholdProfile):
                 p = profile
             else:
-                p = HouseholdProfile.from_dict(dict(profile))
+                # 防御:profile dict 已含 user_id 时不覆盖;缺失则用 kwargs 注入
+                profile_d = dict(profile)
+                if not profile_d.get("user_id"):
+                    profile_d["user_id"] = user_id
+                p = HouseholdProfile.from_dict(profile_d)
 
             planner = EnergyPlanner()
             plan = planner.generate_plan(p)
@@ -431,6 +435,7 @@ class EnergyPlanningSkill(Skill):
     """
 
     name = "energy_planning"
+    name_cn = "家庭节能规划"
     description = (
         "根据家庭画像生成可执行的节能方案(节水/节电/节气),"
         "含幻觉防火墙 + 委托级别 0-3 控制,自动落今日行动卡"
@@ -506,6 +511,7 @@ class EnergyPlanningSkill(Skill):
                     profile=profile_dict,
                     save_plan=delegation_level in (0, 1),
                     delegation_level=delegation_level,
+                    user_id=user_id,  # P12 修复:把 user_id 传给 Tool
                 )
                 if not plan_result.success:
                     return ToolResult(

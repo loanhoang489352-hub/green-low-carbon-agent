@@ -5,10 +5,15 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>绿色低碳智能体</title>
     <!-- P6.L: Web UI i18n(浮动切换器 + data-i18n 替换 + fetch Accept-Language 注入) -->
-    <script src="/i18n.js?v=18"></script>
+    <script src="/i18n.js?v=19"></script>
     <!-- P6.S.24 + Bug15: 移除 Leaflet CDN(unpkg.com 国内屏蔽),改用国内高德静态地图代理 -->
-    <!-- P6.S.24 + Bug18: ?v=18 强制浏览器重载,避免渲染旧版 -->
-    <script src="/travel-map.js?v=18"></script>
+    <!-- P6.S.24 + Bug18: ?v=19 强制浏览器重载,避免渲染旧版 -->
+    <script src="/travel-map.js?v=20"></script>
+    <!-- P6.S.x: 高德 Web JS API 交互地图(需先在控制台把 localhost/127.0.0.1 加入白名单) -->
+    <script>
+        window._AMapSecurityConfig = { securityJsCode: '9453e89451bb9d26378240b13f9d19f9' };
+    </script>
+    <script src="https://webapi.amap.com/maps?v=2.0&key=be13c1dd1853736e72c3fef8e03bd08b"></script>
     <style>
         * {
             margin: 0;
@@ -1312,16 +1317,15 @@
         .travel-staticmap-wrap {
             position: relative;
             width: 100%;
-            height: 320px;
             background: #e0f2fe;
+            overflow: hidden;  /* 确保底图/折线不溢出 */
         }
         .travel-staticmap-bg {
-            position: absolute;
-            top: 0; left: 0;
+            display: block;      /* 普通流式块,确保底图一定显示 */
             width: 100%;
-            height: 100%;
+            height: 320px;       /* 固定高度,不依赖父容器 */
             object-fit: cover;
-            display: block;
+            z-index: 1;  /* 确保底图在折线之下、容器之上 */
         }
         .travel-overlay-svg {
             position: absolute;
@@ -1329,6 +1333,7 @@
             width: 100%;
             height: 100%;
             pointer-events: none;  /* 不阻挡底图交互 */
+            z-index: 2;  /* 折线/标记在底图之上 */
         }
         .travel-overlay-svg path {
             pointer-events: auto;  /* 路线可 hover */
@@ -1372,6 +1377,25 @@
             margin-top: 8px;
             font-size: 11px;
             color: #6b7280;
+        }
+        /* 高德导航按钮 */
+        .travel-nav-btn {
+            display: block;
+            margin-top: 10px;
+            padding: 10px 16px;
+            background: linear-gradient(135deg, #11998e 0%, #38ef7d 100%);
+            color: white;
+            border-radius: 22px;
+            text-align: center;
+            font-size: 13px;
+            font-weight: 600;
+            cursor: pointer;
+            user-select: none;
+            transition: transform 0.2s, filter 0.2s;
+        }
+        .travel-nav-btn:hover {
+            filter: brightness(1.05);
+            transform: translateY(-1px);
         }
 
         /* P6.S.24: Leaflet 地图容器 + 标记样式 */
@@ -1584,6 +1608,8 @@
         /* Bug10: header 右侧动作区,统一放语言切换 + 设置 */
         .top-right-actions {
             display: flex;
+            flex-wrap: wrap;
+            max-width: 100%;
             align-items: center;
             gap: 8px;
             margin-left: 12px;
@@ -1699,9 +1725,8 @@
 
         /* 连接状态 */
         .connection-status {
-            position: fixed;
-            top: 20px;
-            left: 20px;
+            position: static;
+            flex-shrink: 0;
             display: flex;
             align-items: center;
             gap: 6px;
@@ -2115,6 +2140,64 @@
             text-overflow: ellipsis;
             white-space: nowrap;
         }
+
+        /* 思考过程(trace)面板 */
+        .trace-panel {
+            margin-top: 10px;
+            padding: 8px 10px;
+            background: #f8fafc;
+            border: 1px solid #e2e8f0;
+            border-radius: 10px;
+            font-size: 12px;
+            color: #475569;
+        }
+        .trace-panel summary {
+            cursor: pointer;
+            font-weight: 600;
+            color: #0f766e;
+            user-select: none;
+        }
+        .trace-row {
+            padding: 3px 0;
+            border-bottom: 1px dashed #eef2f7;
+        }
+        .trace-row:last-child { border-bottom: none; }
+        .trace-label { font-weight: 500; }
+        .trace-detail { color: #64748b; }
+        .trace-st {
+            display: inline-block; margin-left: 6px; padding: 1px 7px; border-radius: 10px; font-size: 11px;
+        }
+        .trace-st.running { background: #fef3c7; color: #a16207; animation: tracePulse 1.2s infinite; }
+        .trace-st.skipped { background: #f1f5f9; color: #94a3b8; }
+        @keyframes tracePulse { 0%,100% { opacity: 1; } 50% { opacity: .5; } }
+        .trace-panel.live { border-color: #a7f3d0; background: #f0fdf9; }
+        .trace-live-body { margin-top: 4px; }
+
+        /* 命令面板(/ 自动补全) */
+        .input-wrapper { position: relative; }
+        .command-menu {
+            position: absolute;
+            bottom: calc(100% + 6px);
+            left: 0;
+            right: 0;
+            background: #fff;
+            border: 1px solid #e2e8f0;
+            border-radius: 12px;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.14);
+            max-height: 280px;
+            overflow-y: auto;
+            z-index: 60;
+        }
+        .command-menu-item {
+            padding: 9px 12px;
+            cursor: pointer;
+            font-size: 13px;
+            border-bottom: 1px solid #f1f5f9;
+        }
+        .command-menu-item:last-child { border-bottom: none; }
+        .command-menu-item:hover { background: #f0fdf4; }
+        .command-menu-item .cmd { color: #0f766e; font-weight: 600; display: inline-block; min-width: 92px; }
+        .command-menu-item .desc { color: #64748b; }
     </style>
 
         <div class="container">
@@ -2141,6 +2224,11 @@
             </div>
             <!-- Bug10: header 右上动作区(语言 + 设置) -->
             <div class="top-right-actions">
+    <!-- 连接状态 -->
+    <div class="connection-status status-disconnected" id="connection-status">
+        <span class="status-dot"></span>
+        <span id="connection-text">连接中...</span>
+    </div>
                 <button class="api-key-btn" type="button" onclick="showApiKeyModal()">⚙️ 设置</button>
             </div>
         </div>
@@ -2164,7 +2252,7 @@
                         <p>我可以帮你解答低碳环保问题，提供个性化建议</p>
                         <div class="quick-actions">
                             <button class="quick-btn" onclick="sendQuickMessage('什么是碳中和？')">什么是碳中和？</button>
-                            <button class="quick-btn" onclick="sendQuickMessage('给我一些低碳生活建议')">低碳生活建议</button>
+                            <button class="quick-btn" onclick="sendQuickMessage('给我规划一下我家如何节电节水')">家庭节能规划</button>
                             <button class="quick-btn" onclick="sendQuickMessage('电动车和燃油车哪个更环保？')">电动车vs燃油车</button>
                             <button class="quick-btn" onclick="sendQuickMessage('有什么最新的环保政策？')">最新环保政策</button>
                         </div>
@@ -2183,6 +2271,7 @@
                             onkeydown="handleKeyDown(event)"
                         ></textarea>
                         <button class="send-btn" onclick="sendMessage()">➤</button>
+                        <div class="command-menu" id="command-menu" hidden></div>
                     </div>
                 </div>
             </div>
@@ -2245,11 +2334,7 @@
         </div>
     </div>
 
-    <!-- 连接状态 -->
-    <div class="connection-status status-disconnected" id="connection-status">
-        <span class="status-dot"></span>
-        <span id="connection-text">连接中...</span>
-    </div>
+
 
     <script>
         // 全局变量
@@ -2685,7 +2770,11 @@ hideOnboardingModal();
             try {
                 const response = await fetch('/api/user/register', {
                     method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
+                    headers: {
+                        'Content-Type': 'application/json',
+                        // 已登录用户带 token:后端据此把引导写入账号关联画像,而非新建游离 id
+                        ...(sessionId ? { 'Authorization': 'Bearer ' + sessionId } : {})
+                    },
                     body: JSON.stringify({ user_info: userInfo })
                 });
 
@@ -2827,8 +2916,10 @@ hideOnboardingModal();
                     }
                 }
             }
-            addMessage('user', message);
-            messageCount++;
+            if (retryMessage == null) {
+                addMessage('user', message);
+                messageCount++;
+            }
             updateStats();
             _lastUserMessage = message;
 
@@ -2845,14 +2936,18 @@ hideOnboardingModal();
 
             try {
                 // 优先使用账号ID(已登录),否则使用临时用户ID
-                const effectiveUserId = accountId || userId;
-                const endpoint = isRegistered ? '/api/chat/enhanced' : '/api/chat';
+                await authReady;
+                const effectiveUserId = sessionId ? userId : 'anonymous';
+                const endpoint = sessionId ? '/api/chat/stream-trace' : '/api/chat';
                 console.log('[Chat] 发送请求到:', endpoint, 'userId:', effectiveUserId);
 
                 // 逐步更新状态,让用户知道进度
                 updateTypingStatus('正在思考...');
 
-                // P6.S.22: 浏览器定位(若已授权) — 加进请求体,server 优先用
+                // P6.S.22: 发送前先请求一次实时定位(拿到最新坐标;若已授权则快速返回,拒绝/失败用已有缓存)
+                try {
+                    await ensureBrowserLocation(6000);
+                } catch (_) {}
                 const browserLocation = localStorage.getItem('green_agent_browser_location');
                 const requestBody = {
                     user_id: effectiveUserId,
@@ -2867,12 +2962,12 @@ hideOnboardingModal();
                     } catch (_) {}
                 }
 
+                const streamLive = endpoint === '/api/chat/stream-trace';
                 const response = await fetch(endpoint, {
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/json',
-                        // P6.S.2 fix: 已登录用户带 Bearer token,不然 /api/chat/enhanced 返 401
-                        ...(sessionId ? { 'Authorization': 'Bearer ' + sessionId } : {})
+                        ...getAuthHeaders()
                     },
                     body: JSON.stringify(requestBody),
                     signal: controller.signal
@@ -2880,29 +2975,87 @@ hideOnboardingModal();
 
                 clearTimeout(timeoutId);
 
+                if (response.status === 401) {
+                    clearAuthSession();
+                    renderGuestStatus();
+                    const error = new Error("登录已失效，请重新登录后重试这条消息。");
+                    error.authRequired = true;
+                    throw error;
+                }
                 if (!response.ok) {
                     throw new Error(`HTTP ${response.status}: ${response.statusText}`);
                 }
 
-                updateTypingStatus('正在检索知识库...');
+                // 实时执行轨迹(SSE)面板:边收边渲染"思考过程"
+                let liveTraceBox = null;
+                function appendLiveTrace(entry) {
+                    if (!liveTraceBox) return;
+                    const body = liveTraceBox.querySelector('.trace-live-body');
+                    if (!body) return;
+                    // 跳过 start/end 这类无 label/step 的控制事件,避免渲染成"• undefined"
+                    if (!entry || (!entry.label && !entry.step)) return;
+                    const icon = { intent:'🧭', rag:'📚', memory:'🧠', recommendations:'💡', llm:'🤖', tool:'🔧', skill:'🎯', energy_planning:'⚡', travel_planning:'🚲', location:'📍', done:'✅', react:'🔁', command:'⌘' };
+                    let dd = '';
+                    if (entry.detail) { dd = typeof entry.detail === 'string' ? escapeHtml(entry.detail) : escapeHtml(Object.keys(entry.detail).map(k=>k+': '+entry.detail[k]).join(' · ')); }
+                    const st = entry.status === 'running' ? '<span class="trace-st running">思考中…</span>' : (entry.status === 'skipped' ? '<span class="trace-st skipped">跳过</span>' : '');
+                    const row = document.createElement('div');
+                    row.className = 'trace-row';
+                    row.innerHTML = `${icon[entry.step]||'•'} <span class="trace-label">${escapeHtml(entry.label)}</span>${st}${dd?`<span class="trace-detail"> — ${dd}</span>`:''}`;
+                    body.appendChild(row);
+                    liveTraceBox.open = true;
+                }
+                if (streamLive && response.body) {
+                    liveTraceBox = document.createElement('details');
+                    liveTraceBox.className = 'trace-panel live';
+                    liveTraceBox.innerHTML = '<summary>🔍 思考过程(实时)</summary><div class="trace-live-body"></div>';
+                    const ti = document.getElementById('typing-indicator');
+                    (ti ? ti.parentNode : document.getElementById('chat-container')).insertBefore(liveTraceBox, ti ? ti.nextSibling : null);
+                }
 
-                const data = await response.json();
+                // 流式读取 SSE(或普通 JSON)
+                let data;
+                if (streamLive && response.body) {
+                    const reader = response.body.getReader();
+                    const decoder = new TextDecoder();
+                    let buf = '', finalData = null;
+                    while (true) {
+                        const { done, value } = await reader.read();
+                        if (done) break;
+                        buf += decoder.decode(value, { stream: true });
+                        let idx;
+                        while ((idx = buf.indexOf('\n\n')) >= 0) {
+                            const chunk = buf.slice(0, idx); buf = buf.slice(idx + 2);
+                            const evLine = chunk.split('\n').find(l => l.startsWith('event:'));
+                            const dtVal = chunk.split('\n').filter(l => l.startsWith('data:')).map(l => l.slice(5).trim()).join('\n');
+                            const ev = evLine ? evLine.slice(6).trim() : 'message';
+                            if (!dtVal) continue;
+                            let obj; try { obj = JSON.parse(dtVal); } catch(_) { obj = {}; }
+                            if (ev === 'trace') appendLiveTrace(obj);
+                            else if (ev === 'done') finalData = obj;
+                            else if (ev === 'error') throw new Error(obj.error || '回答生成失败，请重试');
+                        }
+                    }
+                    if (!finalData) throw new Error("连接中断，未收到完整回答，请重试");
+                    data = finalData;
+                } else {
+                    data = await response.json();
+                }
 
                 updateTypingStatus('正在整理回答...');
-
-                conversationId = data.conversation_id;
-
-                // 显示完成状态
+                conversationId = data.conversation_id || conversationId;
                 updateTypingStatus('✓ 回答完成');
-
-                // 短暂显示完成状态后移除
                 setTimeout(() => {
                     removeTypingIndicator();
                     _isSending = false;
                     setSendButtonLoading(false);
+                    // 保留实时思考框,不再移除(避免被 addMessage 静态面板替代)
+                    if (liveTraceBox && liveTraceBox.parentNode) {
+                        liveTraceBox.open = true;
+                        const summary = liveTraceBox.querySelector('summary');
+                        if (summary) summary.textContent = '🔍 思考过程';
+                    }
                 }, 300);
 
-                // P6.S.23: 透传 toolResult(出行)+ location(定位标签)给 addMessage
                 addMessage(
                     'assistant',
                     data.message,
@@ -2910,7 +3063,9 @@ hideOnboardingModal();
                     data.knowledge_refs,
                     data.recommendations,
                     data.tool_result || null,
-                    data.location || null
+                    data.location || null,
+                    null,   // 实时框已渲染 trace,不再二次渲染静态面板
+                    true
                 );
                 messageCount++;
                 updateStats();
@@ -2918,12 +3073,12 @@ hideOnboardingModal();
                 if (data.personalization) {
                     updatePersonalizationIndicator(data.personalization);
                 }
-
                 if (data.profile_updates && Object.keys(data.profile_updates).length > 0) {
                     showPersonalizationIndicator('画像已更新 ✨');
                 }
 
             } catch (error) {
+                clearTimeout(timeoutId);
                 removeTypingIndicator();
                 _isSending = false;
                 setSendButtonLoading(false);
@@ -2944,8 +3099,11 @@ hideOnboardingModal();
                     const retryBtn = document.createElement('button');
                     retryBtn.className = 'retry-btn';
                     retryBtn.type = 'button';
-                    retryBtn.innerHTML = '🔄 重试';
-                    retryBtn.setAttribute('data-retry', _lastUserMessage);
+                    retryBtn.textContent = error.authRequired ? '登录后重试' : '🔄 重试';
+                    retryBtn.onclick = () => {
+                        if (error.authRequired && !sessionId) { showAuthModal('login'); return; }
+                        sendMessage(message);
+                    };
                     lastAssistant[lastAssistant.length - 1].querySelector('.message-content').appendChild(retryBtn);
                 }
             }
@@ -3078,11 +3236,41 @@ hideOnboardingModal();
                 console.error('[TravelRoute] no toolResult available, 缓存丢失');
                 return;
             }
-            // 重新渲染地图
-            if (typeof window.renderTravelMap === 'function') {
-                window.renderTravelMap(mapPlaceholder, toolResult, routeIndex);
-                console.log('[TravelRoute] re-rendered map, focusIndex:', routeIndex);
+            // 重新渲染地图:先显示"加载中",再重画该方案(不同方案不同颜色)
+            if (mapPlaceholder && typeof window.renderTravelMap === 'function') {
+                if (window.AMap && mapPlaceholder._amapMap) {
+                    // AMap:继续用原地图实例,只重画 overlay(更快)
+                    window.renderTravelMap(mapPlaceholder, toolResult, routeIndex);
+                    console.log('[TravelRoute] re-rendered AMap, focusIndex:', routeIndex);
+                } else {
+                    // 非 AMap:显示加载中再重画
+                    mapPlaceholder.innerHTML = '<div class="travel-map-loading">🔄 加载该方案线路…</div>';
+                    setTimeout(function () {
+                        window.renderTravelMap(mapPlaceholder, toolResult, routeIndex);
+                    }, 100);
+                }
             }
+        }
+
+        // 高德导航:用卡片上的起终点坐标打开高德 app/网页导航
+        function openAMapNav(e) {
+            e.preventDefault();
+            const btn = e.target.closest('.travel-nav-btn');
+            const card = btn ? btn.closest('.travel-card') : null;
+            if (!card) return;
+            let tr = null;
+            try { tr = JSON.parse(card.getAttribute('data-tool-result') || '{}'); } catch (_) { tr = {}; }
+            const oc = tr.origin_coord, dc = tr.destination_coord;
+            if (!oc || !dc || !oc.lng || !oc.lat || !dc.lng || !dc.lat) {
+                showFeedbackToast('缺少起终点坐标，无法导航', 'error');
+                return;
+            }
+            const from = oc.lng + ',' + oc.lat;
+            const to = dc.lng + ',' + dc.lat;
+            // 高德 uri.amap.com 导航(默认坐标 gcj02)
+            const url = 'https://uri.amap.com/navigation?from=' + from + '&to=' + to +
+                '&mode=bus&policy=1&coordinate=gcj02&callnative=1';
+            window.open(url, '_blank');
         }
 
         // P6.S.24 + Bug7: 缓存最近一次出行 toolResult(供 selectTravelRoute 用)
@@ -3123,7 +3311,7 @@ hideOnboardingModal();
         //  2) suggestions 改事件委托 + data-suggestion,避免 XSS(原 onclick 拼接只转单引号不全)
         //  3) toolResult 存在且含 routes 时,渲染出行卡片(P6.S.24: 占位)
         //  4) location 存在时,在助手消息右上角加"📍 {city} · {source}"小标签
-        function addMessage(role, content, suggestions = [], knowledgeRefs = [], recommendations = [], toolResult = null, location = null) {
+        function addMessage(role, content, suggestions = [], knowledgeRefs = [], recommendations = [], toolResult = null, location = null, trace = null, typewrite = false) {
             const container = document.getElementById('chat-container');
 
             const messageDiv = document.createElement('div');
@@ -3222,8 +3410,10 @@ hideOnboardingModal();
                                 const isRec = recommended && (r === recommended || r.type === recommended.type);
                                 const dist = (r.distance_km || 0).toFixed(1);
                                 const dur = Math.round(r.duration_min || 0);
-                                const carbon = (r.carbon_kg || 0).toFixed(2);
-                                const cost = (r.cost_yuan || 0).toFixed(1);
+                                const carbon = (r.carbon_kg === null || r.carbon_kg === undefined)
+                                    ? '暂不可核验' : Number(r.carbon_kg).toFixed(2) + 'kg CO₂';
+                                const cost = (r.cost_yuan === null || r.cost_yuan === undefined)
+                                    ? '未知' : '¥' + Number(r.cost_yuan).toFixed(1);
                                 const isFocus = i === focusIdx;
                                 return `
                                 <div class="travel-route ${isRec ? 'recommended' : ''} ${isFocus ? 'focused' : ''}"
@@ -3240,8 +3430,8 @@ hideOnboardingModal();
                                     <div class="travel-route-stats">
                                         <span title="距离">📏 ${dist}km</span>
                                         <span title="时长">⏱️ ${dur}min</span>
-                                        <span title="费用">💰 ¥${cost}</span>
-                                        <span title="碳排放" class="carbon-stat">🌱 ${carbon}kg CO₂</span>
+                                        <span title="费用">💰 ${cost}</span>
+                                        <span title="碳排放" class="carbon-stat">🌱 ${carbon}</span>
                                     </div>
                                 </div>`;
                             }).join('')}
@@ -3257,6 +3447,11 @@ hideOnboardingModal();
                             const extras = [tempStr, humi, wind].filter(Boolean).join(' ');
                             return `<div class="travel-card-weather">🌤️ ${escapeHtml(desc)} ${escapeHtml(extras)}</div>`;
                         })() : ''}
+                        ${toolResult.origin_coord && toolResult.destination_coord ? `
+                            <div class="travel-nav-btn" onclick="openAMapNav(event)" title="用高德地图导航前往目的地">
+                                🚗 高德导航
+                            </div>
+                        ` : ''}
                     </div>
                 `;
             }
@@ -3303,10 +3498,33 @@ hideOnboardingModal();
                 feedbackHtml = `<span class="message-timestamp user-timestamp">${escapeHtml(timeStr)}</span>`;
             }
 
+            // 节点透明度:可展开的"思考过程"面板(仅 assistant 且后端返了 trace)
+            let traceHtml = '';
+            if (role === 'assistant' && Array.isArray(trace) && trace.length > 0) {
+                const tIcon = { intent:'🧭', rag:'📚', memory:'🧠', recommendations:'💡', llm:'🤖', tool:'🔧', skill:'🎯', energy_planning:'⚡', travel_planning:'🚲', location:'📍', done:'✅', template:'📄' };
+                const rows = trace.map(t => {
+                    const ic = tIcon[t.step] || '•';
+                    let dd = '';
+                    if (t.detail) {
+                        if (typeof t.detail === 'string') {
+                            dd = escapeHtml(t.detail);
+                        } else {
+                            dd = escapeHtml(Object.keys(t.detail).map(k => `${k}: ${t.detail[k]}`).join(' · '));
+                        }
+                    }
+                    const st = t.status === 'running'
+                        ? '<span class="trace-st running">思考中…</span>'
+                        : (t.status === 'skipped' ? '<span class="trace-st skipped">跳过</span>' : '');
+                    return `<div class="trace-row">${ic} <span class="trace-label">${escapeHtml(t.label)}</span>${st}${dd ? `<span class="trace-detail"> — ${dd}</span>` : ''}</div>`;
+                }).join('');
+                traceHtml = `<details class="trace-panel"><summary>🔍 思考过程</summary>${rows}</details>`;
+            }
+
             messageDiv.innerHTML = `
                 <div class="message-avatar">${avatar}</div>
                 <div class="message-content">
-                    ${formatContent(content)}
+                    ${traceHtml}
+                    ${typewrite ? '<span class="typewriter-text"></span>' : formatContent(content)}
                     ${locationTagHtml}
                     ${knowledgeRefHtml}
                     ${recommendationsHtml}
@@ -3318,6 +3536,23 @@ hideOnboardingModal();
 
             container.appendChild(messageDiv);
             container.scrollTop = container.scrollHeight;
+
+            // 打字效果:逐字打出最终回答(打完再格式化)
+            if (typewrite && role === 'assistant' && content) {
+                const tw = messageDiv.querySelector('.typewriter-text');
+                if (tw) {
+                    const full = String(content);
+                    let i = 0;
+                    const timer = setInterval(() => {
+                        i += 2;
+                        tw.textContent = full.slice(0, i);
+                        if (i >= full.length) {
+                            clearInterval(timer);
+                            tw.innerHTML = formatContent(full);
+                        }
+                    }, 18);
+                }
+            }
 
             // P6.S.24 + Bug7 fix: 如果出行卡片有 polyline,调 Leaflet 渲染地图
             if (role === 'assistant' && hasMapPolyline && toolResult && typeof window.renderTravelMap === 'function') {
@@ -3344,15 +3579,35 @@ hideOnboardingModal();
         }
 
         // P6.S.23: 格式化内容 — 先转义再标记化,避免 XSS
-        // LLM 偶尔会塞 <script>/<img onerror>,此处只允许 **加粗** 简单 markdown
+        // 支持的 markdown 子集:**加粗**、[文字](http链接)、裸 http(s) URL 自动链接。
+        // 链接统一 target=_blank + rel=noopener,且只放行 http/https(防 javascript: 注入)。
         function formatContent(content) {
             if (content == null) return '';
-            const escaped = escapeHtml(String(content));
-            return escaped
-                .replace(/\n\n/g, '</p><p>')
-                .replace(/\n/g, '<br>')
-                .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
-                .replace(/^(.*)/s, '<p>$1</p>');
+            let s = escapeHtml(String(content));
+
+            // 1) markdown 链接 [文字](http://...) → <a>,先用 <N> 占位隔离(转义后内容无裸 <)
+            const links = [];
+            s = s.replace(/\[([^\]]+)\]\((https?:\/\/[^)\s]+)\)/g, function (m, text, url) {
+                const id = '<' + links.length + '>';
+                links.push('<a href="' + url + '" target="_blank" rel="noopener noreferrer">' + text + '</a>');
+                return id;
+            });
+
+            // 2) 裸 http(s) URL → 链接(去掉句尾标点)
+            s = s.replace(/(https?:\/\/[^\s<>"']+)/g, function (m, url) {
+                const clean = url.replace(/[.,;:!?)\]"']+$/, '');
+                return '<a href="' + clean + '" target="_blank" rel="noopener noreferrer">' + clean + '</a>';
+            });
+
+            // 3) 还原 markdown 链接占位符
+            s = s.replace(/<(\d+)>/g, function (m, i) { return links[+i]; });
+
+            // 4) 加粗
+            s = s.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
+
+            // 5) 段落 + 换行
+            s = s.replace(/\n\n/g, '</p><p>').replace(/\n/g, '<br>');
+            return '<p>' + s + '</p>';
         }
 
         // 显示反馈成功提示
@@ -3371,6 +3626,11 @@ hideOnboardingModal();
 
         // 账号相关全局变量
         let sessionId = localStorage.getItem('green_agent_session_id') || null;
+
+        // 统一鉴权头:只要已登录就带 Bearer token(画像/个性化/聊天共用同一来源)
+        function getAuthHeaders() {
+            return sessionId ? { 'Authorization': 'Bearer ' + sessionId } : {};
+        }
         let accountId = localStorage.getItem('green_agent_account_id') || null;
         let loggedInUsername = localStorage.getItem('green_agent_username') || null;
         let authModalVisible = false;
@@ -3379,7 +3639,7 @@ hideOnboardingModal();
         function checkAuthStatus() {
             if (sessionId && accountId) {
                 // 验证会话是否有效
-                fetch('/api/auth/check', {
+                return fetch('/api/auth/check', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ session_id: sessionId })
@@ -3388,6 +3648,7 @@ hideOnboardingModal();
                 .then(data => {
                     if (data.valid) {
                         loggedInUsername = data.username;
+                        if (data.user_id) { userId = data.user_id; localStorage.setItem('green_agent_user_id', userId); }
                         renderLoggedInStatus();
                     } else {
                         clearAuthSession();
@@ -3395,12 +3656,7 @@ hideOnboardingModal();
                     }
                 })
                 .catch(() => {
-                    // 网络错误时显示本地状态
-                    if (accountId) {
-                        renderLoggedInStatus();
-                    } else {
-                        renderGuestStatus();
-                    }
+                    renderGuestStatus();
                 });
             } else {
                 renderGuestStatus();
@@ -3577,17 +3833,19 @@ hideOnboardingModal();
                 const data = await response.json();
 
                 if (response.ok && data.status === 'success') {
-                    // 保存登录信息
+                    // 保存登录信息 —— 用账号关联的画像 user_id(data.user_id),不是 account_id(两者是不同的 uuid)
                     sessionId = data.session_id;
                     accountId = data.account_id;
                     loggedInUsername = data.username;
+                    const identityUserId = data.user_id || accountId;  // 后端 /api/auth/login 返回的 user_id = 账号关联的用户画像 id
 
                     localStorage.setItem('green_agent_session_id', sessionId);
                     localStorage.setItem('green_agent_account_id', accountId);
                     localStorage.setItem('green_agent_username', loggedInUsername);
+                    localStorage.setItem('green_agent_user_id', identityUserId);  // 关键:与画像/节能共用同一 user_id
 
-                    // 同步用户ID到全局变量
-                    userId = accountId;
+                    // 同步用户ID到全局变量 = 账号关联 user_id(之前误用 accountId 导致画像查空)
+                    userId = identityUserId;
 
                     hideAuthModal();
                     renderLoggedInStatus();
@@ -3694,6 +3952,9 @@ hideOnboardingModal();
             sessionId = null;
             accountId = null;
             loggedInUsername = null;
+            conversationId = null;
+            localStorage.removeItem('green_energy_token');
+            localStorage.removeItem('green_energy_user');
             localStorage.removeItem('green_agent_session_id');
             localStorage.removeItem('green_agent_account_id');
             localStorage.removeItem('green_agent_username');
@@ -4016,6 +4277,54 @@ hideOnboardingModal();
             this.style.height = Math.min(this.scrollHeight, 120) + 'px';
         });
 
+        // 命令面板(/ 自动补全)—— 对标 Claude Code / DSH 的快捷指令选择
+        const SLASH_COMMANDS = [
+            { cmd: '/help',    desc: '列出所有快捷指令' },
+            { cmd: '/energy',  desc: '家庭节能规划(节水/节电/节气)' },
+            { cmd: '/profile', desc: '查看我的画像摘要' },
+            { cmd: '/skills',  desc: '列出已注册技能' },
+            { cmd: '/tools',   desc: '列出已注册工具' },
+            { cmd: '/tool',    desc: '调用工具: /tool 工具名 [参数]' },
+            { cmd: '/skill',   desc: '调用技能: /skill 技能名' },
+        ];
+        function updateCommandMenu() {
+            const input = document.getElementById('message-input');
+            const menu = document.getElementById('command-menu');
+            if (!input || !menu) return;
+            const val = input.value.trimStart();
+            // 只在"输入以 / 开头且尚未出现空格"时弹出(即正在敲命令名);敲完命令加空格写参数后再隐藏
+            if (!val.startsWith('/') || val.includes(' ')) {
+                menu.hidden = true;
+                return;
+            }
+            const prefix = (val.split(/\s/)[0] || '/').toLowerCase();
+            const matches = SLASH_COMMANDS.filter(c => c.cmd.startsWith(prefix));
+            if (!matches.length) { menu.hidden = true; return; }
+            menu.innerHTML = matches.map(c =>
+                `<div class="command-menu-item" data-cmd="${c.cmd}"><span class="cmd">${c.cmd}</span><span class="desc">${c.desc}</span></div>`
+            ).join('');
+            menu.hidden = false;
+            menu.querySelectorAll('.command-menu-item').forEach(el => {
+                el.addEventListener('click', (e) => {
+                    e.preventDefault();
+                    input.value = el.getAttribute('data-cmd') + ' ';
+                    menu.hidden = true;
+                    input.focus();
+                });
+            });
+        }
+        document.getElementById('message-input').addEventListener('input', updateCommandMenu);
+        document.addEventListener('click', (e) => {
+            const menu = document.getElementById('command-menu');
+            if (menu && !menu.hidden && !menu.contains(e.target) && e.target.id !== 'message-input') {
+                menu.hidden = true;
+            }
+        });
+        // Esc 关闭命令面板
+        document.addEventListener('keydown', (e) => {
+            if (e.key === 'Escape') { const m = document.getElementById('command-menu'); if (m) m.hidden = true; }
+        });
+
         // 更新统计
         function updateStats() {
             document.getElementById('msg-count').textContent = messageCount;
@@ -4162,15 +4471,18 @@ hideOnboardingModal();
             console.log('[Profile] 加载画像, isRegistered:', isRegistered, 'userId:', userId);
 
             // P6.S.8: API-first — 软化 guest gate
-            // 1. 没 userId → 真正空状态,显示引导
-            if (!userId) {
+            // 1. 没 userId 且没登录 → 真正空状态;已登录(sessionId 在)时后端用 token 身份,不需 userId
+            if (!userId && !sessionId) {
                 return renderProfileEmpty('请先开始一次对话');
             }
 
             console.log('[Profile] 调用 API, userId:', userId);
 
             try {
-                const response = await fetch(`/api/personalization/${userId}`);
+                // 画像/个性化接口是 auth_required=True,必须带 Bearer token(与 chat/enhanced 一致)
+                const response = await fetch(`/api/personalization/${userId}`, {
+                    headers: getAuthHeaders()
+                });
                 console.log('[Profile] API响应状态:', response.status);
 
                 // 401/403 → 后端明确拒绝,显示注册引导
@@ -4361,7 +4673,7 @@ hideOnboardingModal();
         checkConnection();
 
         // 检查登录状态
-        checkAuthStatus();
+        const authReady = checkAuthStatus();
 
         // API Key 相关函数
         const MODEL_RECOMMENDATIONS = {
@@ -4495,7 +4807,7 @@ hideOnboardingModal();
                 .then(response => {
                     if (response.ok) {
                         statusEl.className = 'connection-status status-connected';
-                        textEl.textContent = '已连接';
+                        textEl.textContent = '服务已连接';
                     } else {
                         statusEl.className = 'connection-status status-disconnected';
                         textEl.textContent = '连接异常';
@@ -4523,9 +4835,11 @@ hideOnboardingModal();
             setTimeout(() => {
                 navigator.geolocation.getCurrentPosition(
                     (pos) => {
-                        // 反向地理编码(用 Nominatim 免费 API,免 key)
                         const lat = pos.coords.latitude;
                         const lng = pos.coords.longitude;
+                        // 关键是"先立即存坐标",后台再补城市/详细地址 —— 保证缓存永远有坐标,发送必带
+                        localStorage.setItem('green_agent_browser_location', JSON.stringify({lat, lng, city: '', detail: '', region: '', country: '中国'}));
+                        // 反向地理编码(用 Nominatim 免费 API,免 key)
                         fetch(`https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lng}&accept-language=zh-CN`)
                             .then(r => r.json())
                             .then(data => {
@@ -4550,6 +4864,36 @@ hideOnboardingModal();
                 );
             }, 3000);
         })();
+
+        // P6.S.22: 发送消息前请求实时定位(拿到最新坐标;拒绝/失败用已有缓存)。每次出行规划都用最新定位。
+        function ensureBrowserLocation(timeoutMs) {
+            return new Promise(function (resolve) {
+                if (!navigator.geolocation) { resolve(); return; }
+                navigator.geolocation.getCurrentPosition(
+                    function (pos) {
+                        var lat = pos.coords.latitude, lng = pos.coords.longitude;
+                        // 先立即存坐标,保证缓存有坐标可发;后台再补城市/详细地址
+                        localStorage.setItem('green_agent_browser_location', JSON.stringify({ lat: lat, lng: lng, city: '', detail: '', region: '', country: '中国' }));
+                        fetch('https://nominatim.openstreetmap.org/reverse?format=json&lat=' + lat + '&lon=' + lng + '&accept-language=zh-CN')
+                            .then(function (r) { return r.json(); })
+                            .then(function (data) {
+                                var a = data.address || {};
+                                var city = a.city || a.town || a.county || a.state || '';
+                                var district = a.city_district || a.county || a.suburb || '';
+                                var road = a.road || a.neighbourhood || a.residential || '';
+                                var detail = [district, road].filter(Boolean).join('') || city;
+                                localStorage.setItem('green_agent_browser_location', JSON.stringify({ lat: lat, lng: lng, city: city, detail: detail, region: a.state || '', country: a.country || '中国' }));
+                                resolve();
+                            })
+                            .catch(function () {
+                                resolve();  // 反查失败:坐标已存,保留
+                            });
+                    },
+                    function () { resolve(); },  // 拒绝/失败 → 用已有缓存
+                    { timeout: timeoutMs || 6000, maximumAge: 0, enableHighAccuracy: false }
+                );
+            });
+        }
     </script>
 </body>
 </html>

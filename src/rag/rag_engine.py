@@ -22,6 +22,7 @@ sys.path.insert(0, str(project_root / "src"))
 from typing import List, Dict, Any, Optional
 from dataclasses import dataclass
 import uuid
+import hashlib
 import time
 import threading
 
@@ -29,6 +30,7 @@ from .embedder import Embedder, create_embedder
 from .vector_store import VectorStore, Document, create_vector_store
 from .retriever import Retriever, SemanticRetriever, HybridRetriever, RetrievalResult
 from .reranker import Reranker, RerankConfig, get_reranker
+from knowledge.ontology import normalize_document_metadata
 
 # P5-F: 模块级 logger
 try:
@@ -105,6 +107,8 @@ class RAGEngine:
             "message": "",
         }
         self._rebuild_lock = threading.Lock()
+        # 初始化幂等锁:调度器启动线程与 GreenAgent 首次请求可能同时 initialize 同一单例
+        self._init_lock = threading.Lock()
 
     @property
     def is_enabled(self) -> bool:
@@ -141,6 +145,16 @@ class RAGEngine:
             _logger.warning("RAG 功能已禁用")
             return False
 
+        # 幂等 + 防并发:调度器启动线程与 GreenAgent 首次请求可能同时 initialize 同一单例
+        if self._initialized:
+            return True
+        with self._init_lock:
+            if self._initialized:
+                return True
+            return self._do_initialize(knowledge_base_path)
+
+    def _do_initialize(self, knowledge_base_path: str = None) -> bool:
+        """实际初始化逻辑(在 initialize 的锁保护下执行)"""
         try:
             print("🔧 初始化 RAG 引擎...")
 
@@ -224,6 +238,8 @@ class RAGEngine:
 
         # 扫描所有 markdown 文件
         for md_file in base_path.rglob("*.md"):
+            if any(part.startswith("_") for part in md_file.relative_to(base_path).parts[:-1]):
+                continue
             # 检查分类
             if categories:
                 relative = md_file.relative_to(base_path)
@@ -236,8 +252,9 @@ class RAGEngine:
                     content = f.read()
 
                 # 解析 YAML front matter（如果有）
-                metadata = self._parse_metadata(content)
-                metadata["source"] = str(md_file.relative_to(base_path))
+                metadata = normalize_document_metadata(self._parse_metadata(content), content)
+                metadata["source_path"] = str(md_file.relative_to(base_path))
+                metadata["source"] = metadata["source_path"]
                 metadata["category"] = md_file.parent.name if len(md_file.parts) > 1 else "root"
 
                 # 分块
@@ -394,7 +411,7 @@ class RAGEngine:
                 # (不修改 key 名,直接保留 langchain 返回的 h1/h2/h3)
                 chunks.append(
                     {
-                        "id": str(uuid.uuid4()),
+                        "id": self._stable_chunk_id(metadata.get("source", "unknown"), len(chunks)),
                         "content": sub,
                         "metadata": merged,
                     }
@@ -423,7 +440,9 @@ class RAGEngine:
                 if current_chunk:
                     chunks.append(
                         {
-                            "id": str(uuid.uuid4()),
+                            "id": self._stable_chunk_id(
+                                metadata.get("source", "unknown"), len(chunks)
+                            ),
                             "content": current_chunk.strip(),
                             "metadata": metadata.copy(),
                         }
@@ -435,12 +454,25 @@ class RAGEngine:
         if current_chunk.strip():
             chunks.append(
                 {
-                    "id": str(uuid.uuid4()),
+                    "id": self._stable_chunk_id(
+                        metadata.get("source", "unknown"), len(chunks)
+                    ),
                     "content": current_chunk.strip(),
                     "metadata": metadata.copy(),
                 }
             )
         return chunks
+
+    @staticmethod
+    def _stable_chunk_id(source: str, index: int) -> str:
+        """稳定 chunk id:同一 (source, index) 永远得到同一 id
+
+        修复:ChromaDB 与 BM25 双索引必须用相同 id,否则 HybridRetriever
+        按 id 合并时同一文档被拆成两条(各得一半分)。uuid4 每次不同,
+        导致"已有索引"路径(_populate_bm25_only 重新切块)与 Chroma 的 id 对不上。
+        """
+        raw = f"{source}::{index}"
+        return hashlib.md5(raw.encode("utf-8")).hexdigest()[:16]
 
     def retrieve(
         self, query: str, top_k: int = None, filter_metadata: Dict[str, Any] = None
@@ -450,7 +482,7 @@ class RAGEngine:
 
         P6.S.9: 二段式召回
         1. 初始: 取 top_k * multiplier 候选(默认 20) → 保留高分候选
-        2. 后置: 严格 score >= post_filter_threshold(默认 0.5)兜底
+        2. 后置: 严格 score >= post_filter_threshold(默认 0.005)兜底
         3. rerank: 若 retriever 配了 reranker,精排
         4. 截断: 返回 top_k
 
@@ -483,20 +515,20 @@ class RAGEngine:
         if results and engine_reranker and engine_reranker.enabled:
             try:
                 results = engine_reranker.rerank(query, results, top_k=len(results))
-            except Exception:
+            except Exception as e:
                 # rerank 失败回退到原序
-                pass
+                _logger.warning("[RAG] rerank 失败,回退原序: %s", e)
         elif results and getattr(self._retriever, "reranker", None):
             try:
                 results = self._retriever.reranker.rerank(query, results)
-            except Exception:
+            except Exception as e:
                 # rerank 失败回退到原序
-                pass
+                _logger.warning("[RAG] retriever rerank 失败,回退原序: %s", e)
 
         # 第三阶段: 后置兜底过滤
         # P6.S.9: 用绝对下界 + 相对下界组合(适应不同评分尺度)
         #   - 绝对下界 (post_filter_threshold): 0.005,仅挡完全不相关
-        #   - 相对下界: max_score * 0.3,砍掉与最相关文档差距太大的
+        #   - 相对下界: max_score * relative_threshold_ratio(默认 0.3),砍掉与最相关文档差距太大的
         # 注: MiniLM + ChromaDB 1/(1+d²) 真实召回分常在 0.01-0.04,
         #     单纯 0.5/0.1 绝对阈值会砍光真实召回,所以两者取大
         abs_threshold = self.config.post_filter_threshold
@@ -504,8 +536,8 @@ class RAGEngine:
         if results:
             max_score = max(r.score for r in results)
             # 关键:abs_threshold 应是绝对下界(很低的最小值),不是主要过滤
-            # max(0.005, max*0.3) → 真实召回 max=0.02 → 阈值 0.006 → 5 个全过
-            rel_threshold = max(abs_threshold, max_score * 0.3)
+            # max(abs, max*ratio) → 真实召回 max=0.02 → 阈值 0.006 → 5 个全过
+            rel_threshold = max(abs_threshold, max_score * self.config.relative_threshold_ratio)
         else:
             rel_threshold = abs_threshold
         results = [r for r in results if r.score >= rel_threshold]
@@ -619,13 +651,18 @@ class RAGEngine:
         from rag.retriever import HybridRetriever
 
         base_path = Path(base_path)
+        # 重新切块前清空,避免重复 populate 导致 BM25 文档翻倍(与 Chroma 的 id 才对得上)
+        self._bm25_documents.clear()
         documents = []
         for md_file in base_path.rglob("*.md"):
+            if any(part.startswith("_") for part in md_file.relative_to(base_path).parts[:-1]):
+                continue
             try:
                 with open(md_file, "r", encoding="utf-8") as f:
                     content = f.read()
-                metadata = self._parse_metadata(content)
-                metadata["source"] = str(md_file.relative_to(base_path))
+                metadata = normalize_document_metadata(self._parse_metadata(content), content)
+                metadata["source_path"] = str(md_file.relative_to(base_path))
+                metadata["source"] = metadata["source_path"]
                 metadata["category"] = md_file.parent.name if len(md_file.parts) > 1 else "root"
                 chunks = self._chunk_document(content, metadata)
                 for chunk in chunks:
@@ -708,6 +745,9 @@ class RAGEngine:
     def add_documents(self, paths: List[str], base_path: Optional[str] = None) -> int:
         """增量加入指定 markdown 文件(不重建全量)
 
+        查重:同一 source(文件)已在索引中时跳过;chunk 级再按稳定 id
+        过滤,避免重复添加同一文件导致无限追加 / ChromaDB 重复 id 报错。
+
         Args:
             paths: 要加入的 markdown 路径列表(绝对或相对 base_path)
             base_path: 用于计算 metadata.source 的根目录;不传则用 path.parent
@@ -718,6 +758,11 @@ class RAGEngine:
             return 0
 
         base = Path(base_path) if base_path else None
+        # 按 source 去重:已在索引中的文件直接跳过
+        existing_sources = {
+            self._norm_source(d.get("metadata", {}).get("source", ""))
+            for d in self._bm25_documents
+        }
         documents: List[Document] = []
         bm25_new: List[Dict] = []
 
@@ -726,11 +771,29 @@ class RAGEngine:
             if not md_file.exists() or md_file.suffix.lower() != ".md":
                 _logger.warning("[RAG] add_documents 跳过(不存在或非 md): %s", md_file)
                 continue
+            if any(part in {"_quarantine", "_versions"} for part in md_file.parts):
+                _logger.info("[RAG] add_documents 跳过隔离/内部目录: %s", md_file)
+                continue
+            guard_base = base or md_file.parent
+            try:
+                relative = md_file.resolve().relative_to(guard_base.resolve())
+                if any(part.startswith("_") for part in relative.parts[:-1]):
+                    _logger.info("[RAG] add_documents 跳过隔离/内部目录: %s", md_file)
+                    continue
+            except ValueError:
+                pass
             try:
                 content = md_file.read_text(encoding="utf-8")
-                metadata = self._parse_metadata(content)
-                metadata["source"] = str(md_file.relative_to(base)) if base else str(md_file.name)
+                metadata = normalize_document_metadata(self._parse_metadata(content), content)
+                metadata["source_path"] = str(md_file.relative_to(base)) if base else str(md_file.name)
+                metadata["source"] = metadata["source_path"]
                 metadata["category"] = md_file.parent.name if md_file.parent else "root"
+                if self._norm_source(metadata["source"]) in existing_sources:
+                    _logger.info(
+                        "[RAG] add_documents 跳过(该 source 已在索引中): %s",
+                        metadata["source"],
+                    )
+                    continue
                 for chunk in self._chunk_document(content, metadata):
                     documents.append(
                         Document(
@@ -749,6 +812,23 @@ class RAGEngine:
                     )
             except Exception as e:
                 _logger.warning("[RAG] add_documents 读失败 %s: %s", md_file, e)
+
+        if not documents:
+            return 0
+
+        # chunk 级兜底查重:即便 BM25 列表为空(如刚重启未 populate),
+        # 也不对 ChromaDB 里已有的稳定 id 重复添加
+        get_existing = getattr(self._vector_store, "get_existing_ids", None)
+        if get_existing is not None:
+            try:
+                existing_ids = set(get_existing([d.id for d in documents]))
+            except Exception:
+                existing_ids = set()
+            if existing_ids:
+                keep = [i for i, d in enumerate(documents) if d.id not in existing_ids]
+                documents = [documents[i] for i in keep]
+                bm25_new = [bm25_new[i] for i in keep]
+                _logger.info("[RAG] add_documents 过滤 %d 个已存在的 chunk", len(existing_ids))
 
         if not documents:
             return 0
@@ -846,16 +926,40 @@ _rag_engine_instance: Optional["RAGEngine"] = None
 _rag_engine_lock = threading.Lock()
 
 
+def _default_rag_config() -> RAGConfig:
+    """单例默认配置:与聊天引擎同一 collection + P6.S.9 调参
+
+    修复:聊天(agent.core)与调度/订阅者必须共用同一个引擎实例和
+    同一个 collection,否则政策更新重建的是单例,聊天用的实例永不重建。
+    """
+    return RAGConfig(
+        enabled=True,
+        provider="sentence-transformers",
+        embedding_model="paraphrase-multilingual-MiniLM-L12-v2",
+        vector_store_type="chroma",
+        persist_directory=str(project_root / "data" / "vector_db"),
+        collection_name="green_agent_knowledge",
+        default_top_k=5,
+        # P6.S.9: 预过滤 + 后置 score>=0.005 兜底(真实召回分常在 0.01-0.04)
+        min_similarity=0.05,
+        hybrid_search=True,
+        semantic_weight=0.6,
+        post_filter_threshold=0.005,
+        initial_fetch_multiplier=4,
+    )
+
+
 def get_rag_engine(config: RAGConfig = None) -> RAGEngine:
     """获取 RAG 引擎单例(P4-E.1)
 
-    首次调用时若传 config,则用该 config;之后忽略。
+    首次调用时若传 config,则用该 config;否则用 _default_rag_config()
+    (统一 collection=green_agent_knowledge + 生产调参)。之后忽略 config。
     """
     global _rag_engine_instance
     if _rag_engine_instance is None:
         with _rag_engine_lock:
             if _rag_engine_instance is None:
-                _rag_engine_instance = RAGEngine(config or RAGConfig())
+                _rag_engine_instance = RAGEngine(config or _default_rag_config())
     return _rag_engine_instance
 
 

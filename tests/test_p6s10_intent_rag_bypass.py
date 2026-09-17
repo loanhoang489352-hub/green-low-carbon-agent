@@ -203,8 +203,9 @@ def test_chat_enhanced_intent_runs_before_rag():
     chat_enhanced_end = src.find("\n    def ", chat_enhanced_start + 10)
     body = src[chat_enhanced_start:chat_enhanced_end]
 
-    intent_pos = body.find("intent_result = self.intent_recognizer.recognize(message)")
-    rag_pos = body.find("self.rag_engine.retrieve(message, top_k=5)")
+    # 当前先经 DemandInterpreter 形成带槽位/置信度的统一意图，再决定是否检索。
+    intent_pos = body.find("intent_result = demand.intent_result()")
+    rag_pos = body.find("self.rag_engine.retrieve(")
     travel_pos = body.find("if intent_result.intent == IntentType.TRAVEL_PLANNING:")
 
     assert intent_pos > 0, "intent_result 应在 chat_enhanced 内"

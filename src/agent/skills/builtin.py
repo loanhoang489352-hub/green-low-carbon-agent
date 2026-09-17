@@ -21,6 +21,7 @@ except Exception:
     _DEFAULT_CITY = "北京"
 
 from agent.tools.base import BaseTool, ToolResult
+from agent.travel.carbon import assess_route_carbon
 from agent.skills.skill import Skill, SkillContext
 
 # P12.4: 节能规划 Skill(独立文件)
@@ -96,7 +97,7 @@ class WeatherTool(BaseTool):
 
 
 class CarbonCalcTool(BaseTool):
-    """碳排放计算工具"""
+    """证据约束的出行碳排工具。"""
 
     @property
     def name(self) -> str:
@@ -104,7 +105,7 @@ class CarbonCalcTool(BaseTool):
 
     @property
     def description(self) -> str:
-        return "计算不同出行方式的碳排放量，帮助用户选择低碳出行方案。"
+        return "仅在活动数据和适用因子充分时计算出行碳排；信息不足时明确返回不可核验。"
 
     @property
     def parameters(self) -> List[Dict[str, Any]]:
@@ -136,37 +137,22 @@ class CarbonCalcTool(BaseTool):
                 success=False, error="距离必须大于0", execution_time=time.time() - start
             )
 
-        # 碳排放系数 (kg CO2/人/km)
-        emission_factors = {
-            "driving": 0.16,  # 私家车
-            "taxi": 0.18,  # 出租车
-            "transit": 0.08,  # 公交/地铁
-            "cycling": 0.0,  # 骑行
-            "walking": 0.0,  # 步行
-            "high_speed_rail": 0.06,  # 高铁
-            "flight": 0.18,  # 飞机
+        mode_map = {
+            "driving": "自驾", "transit": "公交+地铁", "cycling": "骑行",
+            "walking": "步行", "taxi": "自驾", "metro": "地铁", "bus": "公交",
         }
-
-        factor = emission_factors.get(mode, 0.08)
-        carbon_kg = distance * factor
-
-        # 低碳建议
-        suggestions = []
-        if mode == "driving":
-            suggestions.append("建议改为公交或骑行，减少碳排放")
-        elif carbon_kg < 0.5:
-            suggestions.append("这是低碳出行，继续保持！")
+        assessment = assess_route_carbon(mode_map.get(mode, mode))
 
         return ToolResult(
             success=True,
             data={
                 "distance_km": distance,
                 "transport_mode": mode,
-                "carbon_kg": round(carbon_kg, 3),
-                "carbon_saved_kg": round(distance * 0.16 - carbon_kg, 3)
-                if mode != "driving"
-                else 0,
-                "suggestions": suggestions,
+                **assessment,
+                "carbon_saved_kg": None,
+                "suggestions": (["请补充车辆能源类型、实际能耗和乘员人数"]
+                                if mode in {"driving", "taxi"} and assessment["carbon_kg"] is None
+                                else []),
             },
             execution_time=time.time() - start,
         )
@@ -279,15 +265,13 @@ class PublicTransitTool(BaseTool):
 
                 distance = int(t.get("distance", 0)) // 1000
                 duration = int(t.get("duration", 0)) // 60
-                carbon_kg = distance * 0.08  # 公交人均碳排放
-
                 routes.append(
                     {
                         "type": "公交/地铁",
                         "line": " → ".join(segments) if segments else "公交",
                         "duration_min": duration,
                         "distance_km": distance,
-                        "carbon_kg": round(carbon_kg, 3),
+                        **assess_route_carbon("公交+地铁"),
                         "cost_yuan": int(t.get("cost", 0)),
                     }
                 )
@@ -462,85 +446,50 @@ class ProfileUpdateTool(BaseTool):
 
 
 class LowCarbonTravelSkill(Skill):
-    """低碳出行规划 Skill"""
+    """低碳出行规划 Skill —— 真实路线、天气和证据约束的碳排状态。"""
 
     name = "low_carbon_travel"
-    description = "为用户规划低碳、环保的出行方案，综合考虑天气、碳排放、公共交通等因素"
+    name_cn = "低碳出行规划"
+    description = "结合实时定位、城市消歧和天气生成真实多方式路线；仅展示可核验边界内的碳排结果"
     category = "travel"
     # P10.A:Anthropic Skills 规范元数据
-    version = "1.0.0"
+    version = "2.0.0"
     # P11.B:扩展 when_to_use — 加英文关键词 + 弱信号(出门/上班/上学)
     when_to_use = (
         "出行 / 通勤 / 公共交通 / 碳排放 / 公交 / 地铁 / 骑行 / 打车 / 天气 / 路线 / 出门 / 上班 / 上学 / 交通 / 自驾 / 拼车 / 高铁 / 飞机 / 电动车 / 单车 / 步行 / 徒步 / 公里 / 怎么去 / 怎么样去 / 最环保 / 最省碳 / 最绿色 / "
         "transit / commute / travel / carbon / route / weather / bike / cycle / drive / subway / bus / taxi / car / vehicle / emission / footprint / eco / low-carbon / train / flight / km / mile / ride"
     )
-    allowed_tools: List[str] = ["weather_query", "carbon_calc", "public_transit"]
+    # 真实关联 travel_planning 工具(含天气/碳排/路线),而非旧的不存在工具
+    allowed_tools: List[str] = ["travel_planning"]
 
     @property
     def tools(self) -> List[BaseTool]:
-        return [WeatherTool(), CarbonCalcTool(), PublicTransitTool()]
+        from agent.tools.extended import TravelPlanningTool
+
+        return [TravelPlanningTool()]
 
     def execute(self, context: SkillContext) -> ToolResult:
+        from agent.tools.extended import TravelPlanningTool
         import time
 
         start = time.time()
-
-        destination = context.metadata.get("destination", "")
+        origin = context.metadata.get("origin", "当前位置")
+        destination = context.metadata.get("destination", "") or (context.message or "")
         user_id = context.user_id
 
         if not destination:
             return ToolResult(success=False, error="缺少目的地", execution_time=time.time() - start)
 
-        results = {}
-
-        # 1. 查询天气
-        weather_tool = WeatherTool()
-        weather_result = weather_tool.execute(city=destination)
-        results["weather"] = weather_result.data if weather_result.success else None
-
-        # 2. 获取公交路线
-        origin = context.metadata.get("origin", _DEFAULT_CITY)
-        transit_tool = PublicTransitTool()
-        transit_result = transit_tool.execute(origin=origin, destination=destination)
-        results["transit"] = transit_result.data if transit_result.success else None
-
-        # 3. 计算骑行碳排放（如果有适合骑行的距离）
-        distance = context.metadata.get("distance_km", 10)
-        carbon_tool = CarbonCalcTool()
-        carbon_result = carbon_tool.execute(distance_km=distance, transport_mode="cycling")
-        results["carbon"] = carbon_result.data if carbon_result.success else None
-
-        # 4. 生成建议
-        suggestions = []
-        if results.get("weather"):
-            suggestions.append(f"目的地天气：{results['weather']}")
-        if results.get("transit"):
-            routes = results["transit"].get("routes", [])
-            if routes:
-                suggestions.append(
-                    f"推荐路线：{routes[0].get('line', '')}，约{routes[0].get('duration_min', '')}分钟"
-                )
-        if results.get("carbon"):
-            carbon_data = results["carbon"]
-            suggestions.append(f"骑行{distance}公里碳排放仅{carbon_data.get('carbon_kg', 0)}kg")
-
-        return ToolResult(
-            success=True,
-            data={
-                "destination": destination,
-                "weather": results.get("weather"),
-                "transit_routes": results.get("transit"),
-                "carbon_info": results.get("carbon"),
-                "suggestions": suggestions,
-            },
-            execution_time=time.time() - start,
-        )
+        tool = TravelPlanningTool()
+        result = tool.execute(origin=origin, destination=destination, mode="all", user_id=user_id)
+        return result
 
 
 class PolicyQuerySkill(Skill):
     """政策查询 Skill"""
 
     name = "policy_query"
+    name_cn = "政策查询"
     description = "查询和解读低碳环保相关政策，为用户提供专业的政策解读"
     category = "policy"
     # P10.A:Anthropic Skills 规范元数据
@@ -577,6 +526,7 @@ class ProfileUpdateSkill(Skill):
     """用户画像管理 Skill"""
 
     name = "profile_update"
+    name_cn = "画像管理"
     description = "根据用户对话内容自动分析并更新用户画像，记录低碳行为偏好"
     category = "profile"
     # P10.A:Anthropic Skills 规范元数据

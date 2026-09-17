@@ -51,7 +51,7 @@ class AgentNodes:
             return
 
         from agent.intent import IntentRecognizer
-        from rag.rag_engine import RAGEngine, RAGConfig
+        from rag.rag_engine import get_rag_engine
         from user_profile.user_profile import UserProfileManager
         from user_profile.dynamic_updater import get_profile_updater
         from user_profile.personalized_recommender import PersonalizedRecommendationEngine
@@ -61,16 +61,14 @@ class AgentNodes:
         self._profile_manager = UserProfileManager()
         self._dynamic_updater = get_profile_updater()
         self._recommendation_engine = PersonalizedRecommendationEngine()
-        self._response_generator = ResponseGenerator(use_llm=False)
+        self._response_generator = ResponseGenerator(use_llm=False)  # 实验特性: LangGraph 分支暂不接 LLM
 
         try:
-            rag_config = RAGConfig(
-                enabled=True,
-                provider="sentence-transformers",
-                persist_directory=str(project_root / "data" / "vector_db"),
-            )
-            self._rag_engine = RAGEngine(rag_config)
-            self._rag_engine.initialize(str(_KB_DIR))
+            # 统一用 RAGEngine 单例(与 agent.core 同一实例 + 同一 collection),
+            # 避免 LangGraph 模式加载第三份 embedding 模型/索引
+            self._rag_engine = get_rag_engine()
+            if not self._rag_engine.is_enabled:
+                self._rag_engine.initialize(str(_KB_DIR))
         except Exception as e:
             print(f"RAG 引擎初始化失败: {e}")
             self._rag_engine = None
@@ -166,8 +164,16 @@ class AgentNodes:
                 for item in rag_items:
                     content = item.get("content", "")[:200]
                     source = item.get("source", "未知来源")
-                    context_parts.append(f"[{source}]\n{content}")
-                    refs.append(source)
+                    metadata = item.get("metadata") or {}
+                    grade = metadata.get("evidence_status", "unverified")
+                    rule = {
+                        "verified_current": "可用于事实结论",
+                        "verified_historical": "可用于对应历史年份，不代表当前年份",
+                        "source_linked": "有来源但有效期未核验，具体数值需谨慎",
+                        "unverified": "仅作背景线索，不可据此断言具体数值、政策或标准",
+                    }.get(grade, "仅作背景线索")
+                    context_parts.append(f"[{source} | 证据:{grade} | 限制:{rule}]\n{content}")
+                    refs.append(f"{metadata.get('source_url') or source} (证据:{grade})")
 
                 rag_context = "\n\n---\n\n".join(context_parts)
             else:
@@ -392,7 +398,11 @@ class AgentNodes:
                 eco["primary_interests"] = sorted(existing)
                 profile["eco_profile"] = eco
             # 行为阶段更新
-            new_stage = updates.get("behavior_stage")
+            indicators = updates.get("behavior_indicators") or []
+            indicator = indicators[0] if indicators and isinstance(indicators[0], dict) else {}
+            new_stage = updates.get("behavior_stage") or (
+                indicator.get("stage") if indicator.get("confidence", 0) > 0.6 else None
+            )
             if new_stage:
                 eco["behavior_stage"] = new_stage
                 profile["eco_profile"] = eco
@@ -405,7 +415,10 @@ class AgentNodes:
                         {
                             "action": act.get("action", ""),
                             "carbon_saved": act.get("carbon_saved"),
-                            "context": act.get("context", ""),
+                            "context": act.get("original_text", act.get("context", "")),
+                            "source": act.get("source", "chat_inferred"),
+                            "confidence": act.get("confidence", 0.5),
+                            "observed_at": act.get("observed_at"),
                         }
                     )
                 elif isinstance(act, str):

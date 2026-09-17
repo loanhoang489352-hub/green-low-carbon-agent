@@ -20,6 +20,7 @@ class IntentType(Enum):
     SUGGESTION_REJECT = "suggestion_reject"  # 拒绝建议
     QUESTION = "question"  # 一般问题
     TRAVEL_PLANNING = "travel_planning"  # P6.S.3: 出行规划 — 调地图+天气
+    ENERGY_PLANNING = "energy_planning"  # P12: 家庭节能规划 — 节水/节电/节气,走 EnergyPlanner
     LOCATION_QUERY = "location_query"  # P6.S.23: 当前位置查询(直接答 city,不绕 LLM)
     UNKNOWN = "unknown"  # 未知
     OTHER = UNKNOWN  # 别名(部分下游/测试用 OTHER,与 UNKNOWN 等价,Python Enum alias 机制)
@@ -220,6 +221,31 @@ class IntentRecognizer:
             "查导航",
             "查路况",
         ],
+        # P12: 家庭节能规划 — 节水/节电/节气/省电费(在对话里出方案,不依赖独立门户)
+        IntentType.ENERGY_PLANNING: [
+            "节能规划",
+            "家庭节能",
+            "节能方案",
+            "节水",
+            "节电",
+            "节气",
+            "省电",
+            "省水",
+            "省气",
+            "节省电费",
+            "电费太高",
+            "电费高",
+            "水费高",
+            "燃气费高",
+            "怎么节能",
+            "如何节能",
+            "节能减排",
+            "家庭能源",
+            "家用电器省电",
+            "energy saving",
+            "save energy",
+            "household energy",
+        ],
     }
 
     # 实体关键词
@@ -366,6 +392,7 @@ class IntentRecognizer:
         # 构建上下文
         context = {
             "is_low_carbon_topic": is_low_carbon_topic,
+            "confidence_calibrated": False,
             "text_length": len(text),
             "has_question_mark": "?" in text,
             "has_exclamation": "!" in text,
@@ -386,6 +413,13 @@ class IntentRecognizer:
         """匹配意图"""
         if text_lower is None:
             text_lower = text.lower()
+
+        # Explicit speech acts take precedence over topic keyword counts.
+        import re
+        if re.search(r"什么是|是什么|为什么|为何|原理|含义|怎么算|如何计算|怎么计算|二十四节气|假如|假设", text) or re.search(r"(?:不需要|不要|不想).{0,8}(?:方案|规划)", text):
+            return IntentType.KNOWLEDGE_QUERY, 0.0
+        if re.search(r"今天|昨天|已经|刚刚", text) and re.search(r"坐.*地铁|乘.*公交|骑.*车|步行|走路", text) and not re.search(r"想|打算|计划|明天", text):
+            return IntentType.ACTION_REPORT, 0.0
 
         scores = {}
 
@@ -429,6 +463,26 @@ class IntentRecognizer:
                 scores.get(IntentType.ADVICE_REQUEST, 0) + 0.3 + advice_hits * 0.1
             )
 
+        # P12: 家庭节能规划强优先 — 节水/节电/节气/省电费 等命中即覆盖知识/建议查询
+        energy_signals = [
+            "节能规划",
+            "家庭节能",
+            "节能方案",
+            "节水",
+            "节电",
+            "节气",
+            "省电",
+            "节省电费",
+            "电费",
+            "水费",
+            "燃气费",
+        ]
+        energy_hits = sum(1 for s in energy_signals if s in text)
+        if energy_hits > 0:
+            scores[IntentType.ENERGY_PLANNING] = (
+                scores.get(IntentType.ENERGY_PLANNING, 0) + 0.4 + energy_hits * 0.1
+            )
+
         # P6.S.23: LOCATION_QUERY 强优先 — 单命中即覆盖,避免被"什么/在"等散点稀释
         if scores.get(IntentType.LOCATION_QUERY, 0) > 0:
             scores[IntentType.LOCATION_QUERY] += 0.5
@@ -438,7 +492,7 @@ class IntentRecognizer:
 
         # 返回得分最高的意图
         best_intent = max(scores, key=scores.get)
-        confidence = min(scores[best_intent] * 2, 1.0)  # 归一化置信度
+        confidence = min(scores[best_intent] * 2, 0.95)  # 归一化置信度
 
         return best_intent, confidence
 
@@ -471,6 +525,7 @@ class IntentRecognizer:
             IntentType.SUGGESTION_REJECT: "alternative",
             IntentType.QUESTION: "knowledge",
             IntentType.TRAVEL_PLANNING: "tool_call",  # P6.S.3: 触发工具调用
+            IntentType.ENERGY_PLANNING: "tool_call",  # P12: 节能规划 → 触发 EnergyPlanner
             IntentType.UNKNOWN: "clarification",
         }
 
@@ -501,6 +556,7 @@ class IntentRecognizer:
             IntentType.SUGGESTION_ACCEPT: "建议采纳 - 用户接受了建议",
             IntentType.SUGGESTION_REJECT: "建议拒绝 - 用户拒绝了建议",
             IntentType.QUESTION: "问题 - 用户提出问题",
+            IntentType.ENERGY_PLANNING: "家庭节能规划 - 用户想节水/节电/节气,生成家庭节能方案",
             IntentType.UNKNOWN: "未知 - 无法识别的意图",
         }
         return descriptions.get(intent, "未知意图")

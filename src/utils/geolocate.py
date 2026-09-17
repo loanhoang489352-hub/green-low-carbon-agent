@@ -45,6 +45,7 @@ class GeoInfo:
     lng: float = 0.0  # 经度
     ip: str = ""  # 来源 IP
     source: str = "unknown"  # "ip_api" / "profile" / "browser" / "default"
+    detail: str = ""  # 反向地理编码的具体位置(如"海淀区中关村大街"),浏览器定位时最细
     cached: bool = False  # 是否来自缓存
 
     def to_dict(self) -> Dict[str, Any]:
@@ -56,6 +57,7 @@ class GeoInfo:
             "lng": self.lng,
             "ip": self.ip,
             "source": self.source,
+            "detail": self.detail,
             "cached": self.cached,
         }
 
@@ -292,6 +294,7 @@ def best_location(handler=None, user_id: str = None) -> GeoInfo:
                 lng=float(bl["lng"]),
                 ip="browser",
                 source="browser",
+                detail=bl.get("detail", ""),
                 cached=False,
             )
     # 2. 用户画像 city

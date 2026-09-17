@@ -371,6 +371,17 @@ class PersonalizedRecommendationEngine:
         },
     }
 
+    # 万能兜底:画像信息不足以匹配任何个性化动作时,仍给新用户默认推荐(不返回 0 条)
+    # 这些动作都是"无需画像即可执行"的通用行动,全部存在于 ACTION_LIBRARY
+    _DEFAULT_FALLBACK = [
+        {"category": "出行", "action": "短距离出行选择步行或骑行", "difficulty": "easy"},
+        {"category": "家居", "action": "离开房间时随手关灯", "difficulty": "easy"},
+        {"category": "家居", "action": "空调温度夏天调高1度，冬天调低1度", "difficulty": "easy"},
+        {"category": "消费", "action": "购物时自带环保袋", "difficulty": "easy"},
+        {"category": "饮食", "action": "减少食物浪费，光盘行动", "difficulty": "easy"},
+        {"category": "出行", "action": "每周选择一天公共交通出行", "difficulty": "easy"},
+    ]
+
     # 行为阶段推荐策略
     STAGE_STRATEGIES = {
         "无意向": {
@@ -556,83 +567,7 @@ class PersonalizedRecommendationEngine:
         Returns:
             推荐列表
         """
-        recommendations = []
-
-        eco = user_profile.get("eco_profile", {})
-        basic = user_profile.get("basic_info", {})
-        prefs = user_profile.get("preferences", {})
-        pref_learning = user_profile.get("preference_learning", {})
-
-        # 任务1 P1-1: 多源提取 region/interests/recent_behaviors
-        region = basic.get("region") or basic.get("city") or user_profile.get("region", "")
-        interests = (
-            confirmed_interests
-            if (
-                confirmed_interests := pref_learning.get("confirmed_interests", [])
-                or prefs.get("interests", [])
-                or user_profile.get("interests", [])
-            )
-            else []
-        )
-        recent_behaviors = (
-            (context or {}).get("recent_behaviors") or user_profile.get("recent_behaviors") or []
-        )
-
-        behavior_stage = eco.get("behavior_stage", "意向")
-        strategy = self.STAGE_STRATEGIES.get(behavior_stage, self.STAGE_STRATEGIES["意向"])
-
-        income_level = basic.get("income_level", "中等收入")
-        income_adj = self.INCOME_ADJUSTMENTS.get(income_level, self.INCOME_ADJUSTMENTS["中等收入"])
-
-        family_type = basic.get("family_type", "3-4")
-        family_adj = self.FAMILY_ADJUSTMENTS.get(family_type, self.FAMILY_ADJUSTMENTS["3-4"])
-
-        confirmed_interests_pref = pref_learning.get("confirmed_interests", [])
-        rejected_topics = pref_learning.get("rejected_topics", [])
-
-        difficulty_filter = strategy.get("difficulty_filter", ["easy", "medium"])
-
-        categories = list(self.ACTION_LIBRARY.keys())
-        # 任务1 P1-1: 用 _compute_category_weight 综合排序,不再固定顺序
-        weighted_categories = sorted(
-            categories,
-            key=lambda c: self._compute_category_weight(c, region, interests, recent_behaviors),
-            reverse=True,
-        )
-
-        suggested_actions = []
-        for category in weighted_categories:
-            if len(suggested_actions) >= count:
-                break
-
-            if category not in self.ACTION_LIBRARY:
-                continue
-
-            if category in rejected_topics:
-                continue
-
-            for difficulty in difficulty_filter:
-                if len(suggested_actions) >= count:
-                    break
-
-                if difficulty not in self.ACTION_LIBRARY[category]:
-                    continue
-
-                for action_data in self.ACTION_LIBRARY[category][difficulty]:
-                    if len(suggested_actions) >= count:
-                        break
-
-                    action_text = action_data["action"]
-
-                    if self._was_recently_suggested(user_profile.get("user_id", ""), action_text):
-                        continue
-
-                    if not self._check_personalization_fit(action_data, user_profile):
-                        continue
-
-                    reason = self._generate_personalized_reason(
-                        action_data, user_profile, strategy, income_adj
-                    )
+        # (下方的第二段代码是唯一生效的推荐生成逻辑;此前有一段重复的死循环已删除)
         recommendations = []
 
         eco = user_profile.get("eco_profile", {})
@@ -723,7 +658,48 @@ class PersonalizedRecommendationEngine:
 
                     suggested_actions.append(rec)
 
+        # 兜底:画像信息过于稀疏(如未完成 onboarding)导致 0 条时,给通用默认推荐
+        if not suggested_actions:
+            for fb in self._DEFAULT_FALLBACK:
+                if len(suggested_actions) >= count:
+                    break
+                action_data = self._find_action_data(
+                    fb["category"], fb["action"], fb.get("difficulty")
+                )
+                if action_data is None:
+                    continue
+                reason = self._generate_personalized_reason(
+                    action_data, user_profile, strategy, income_adj
+                )
+                suggested_actions.append(
+                    Recommendation(
+                        action=action_data["action"],
+                        category=fb["category"],
+                        reason=reason,
+                        personalization_context=self._generate_personalization_context(
+                            action_data, user_profile
+                        ),
+                        difficulty=action_data.get("difficulty", "easy"),
+                        impact=action_data.get("impact", "medium"),
+                        estimated_carbon_saving=action_data.get("carbon_saving", ""),
+                        examples=action_data.get("examples", []),
+                        rejected_reasons=self._generate_rejection_reasons(action_data),
+                    )
+                )
+
         return suggested_actions[:count]
+
+    def _find_action_data(self, category: str, action_text: str, difficulty: str = None):
+        """在 ACTION_LIBRARY 里按 category + action 文本查具体动作字典(兜底用)"""
+        if category not in self.ACTION_LIBRARY:
+            return None
+        for diff, actions in self.ACTION_LIBRARY[category].items():
+            if difficulty is not None and diff != difficulty:
+                continue
+            for a in actions:
+                if a.get("action") == action_text:
+                    return a
+        return None
 
     def _was_recently_suggested(self, user_id: str, action: str) -> bool:
         """检查是否最近推荐过"""

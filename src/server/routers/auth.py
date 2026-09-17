@@ -68,6 +68,7 @@ def register_auth_routes(registry) -> None:
                 handler.send_json(
                     {
                         "valid": True,
+                        "user_id": handler.account_manager.get_user_id_by_account(account_id) or account_id,
                         "account_id": account_id,
                         "username": info.get("username"),
                     }

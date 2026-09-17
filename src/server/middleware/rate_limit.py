@@ -43,12 +43,24 @@ class RateLimiter:
         self._last_cleanup = time.time()
 
     def _client_ip(self, handler) -> str:
-        """从 handler 提取客户端 IP(支持反代头)"""
+        """从 handler 提取客户端 IP
+
+        P0 修复: 默认**不信任** X-Forwarded-For(客户端可伪造,绕过限流/内存 DoS)。
+        仅当显式配置 TRUSTED_PROXY_IPS(逗号分隔的可信代理 IP 白名单)且请求对端
+        命中白名单时,才取 X-Forwarded-For 第一个值;否则一律用 TCP 对端地址。
+        """
         try:
-            xff = handler.headers.get("X-Forwarded-For") if hasattr(handler, "headers") else None
-            if xff:
-                return xff.split(",")[0].strip()
-            return handler.client_address[0] if handler.client_address else "unknown"
+            peer = handler.client_address[0] if handler.client_address else "unknown"
+            if not peer or peer == "unknown":
+                return peer
+            trusted = os.environ.get("TRUSTED_PROXY_IPS", "").strip()
+            if trusted:
+                trusted_set = {p.strip() for p in trusted.split(",") if p.strip()}
+                if peer in trusted_set:
+                    xff = handler.headers.get("X-Forwarded-For") if hasattr(handler, "headers") else None
+                    if xff:
+                        return xff.split(",")[0].strip()
+            return peer
         except Exception:
             return "unknown"
 
@@ -65,6 +77,12 @@ class RateLimiter:
         cutoff = now - self.window_seconds
 
         with self._lock:
+            # P0: bucket 总数上限(防伪造 IP 内存 DoS),超限先全量清理过期再拒绝新 IP
+            if len(self._buckets) >= 100_000:
+                self._cleanup_locked(cutoff)
+                if len(self._buckets) >= 100_000:
+                    return False, 60
+
             bucket = self._buckets.get(ip)
             if bucket is None:
                 bucket = deque()

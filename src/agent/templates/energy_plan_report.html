@@ -1,0 +1,530 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>{{ title }}</title>
+<!-- 本地化前端库(替代 CDN,离线/国内网络可用),渲染时内联 -->
+<script>{{ tailwind_js | safe }}</script>
+<script>{{ alpine_js | safe }}</script>
+<script>{{ chart_js | safe }}</script>
+<style>
+  [x-cloak] { display: none !important; }
+  body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif; }
+  .glass { background: rgba(255,255,255,0.85); backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px); }
+  .gradient-bg {
+    background: linear-gradient(135deg, #10b981 0%, #059669 25%, #0d9488 60%, #0e7490 100%);
+  }
+  .tab-active {
+    background: white; color: #047857; box-shadow: 0 4px 12px rgba(0,0,0,0.08);
+  }
+  .action-done { text-decoration: line-through; opacity: 0.5; }
+  .fade-in { animation: fadeIn 0.4s ease-out; }
+  @keyframes fadeIn { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
+  .badge { display: inline-flex; align-items: center; gap: 4px; padding: 2px 8px; border-radius: 9999px; font-size: 0.75rem; font-weight: 500; }
+</style>
+</head>
+<body class="bg-gray-50 min-h-screen">
+
+<!-- ====================== HERO HEADER ====================== -->
+<div class="gradient-bg text-white">
+  <div class="max-w-5xl mx-auto px-6 py-10">
+    <div class="flex items-start gap-6">
+      <!-- Avatar -->
+      <div class="w-20 h-20 rounded-full bg-white/20 border-2 border-white/40 flex items-center justify-center text-3xl font-bold backdrop-blur-md shadow-lg">
+        {{ user_alias[0]|upper }}
+      </div>
+
+      <div class="flex-1">
+        <div class="flex items-center gap-3 mb-2">
+          <h1 class="text-3xl font-bold">个性化节能方案</h1>
+          <span class="badge bg-white/20 text-white">⚡ {{ total_actions }} 项行动</span>
+          <span class="badge bg-white/20 text-white">💰 ¥{{ "%.0f"|format(total_savings.easy) }}/年</span>
+        </div>
+        <p class="text-white/80 text-sm mb-1">
+          👤 {{ user_alias }} ·
+          🏠 {{ profile.family_size or '?' }} 口之家 · {{ profile.city or '?' }} ·
+          🛋️ {{ profile.appliances|length if profile.appliances else 0 }} 件家电 ·
+          📊 画像字段: {{ profile_field_count }} 条溯源
+        </p>
+        <p class="text-white/60 text-xs mt-2">
+          🕒 {{ generated_at }} ·
+          📋 方案 ID: <code class="bg-white/20 px-2 py-0.5 rounded">{{ plan_id }}</code>
+        </p>
+      </div>
+    </div>
+
+    <!-- LLM 个性化解释卡片 -->
+    {% if llm_explanation %}
+    <div class="glass rounded-2xl p-5 mt-6 fade-in">
+      <div class="flex items-start gap-3">
+        <div class="text-3xl">💡</div>
+        <div class="flex-1">
+          <div class="text-xs font-semibold text-emerald-700 mb-2">个性化分析(LLM 推理)</div>
+          <p class="text-gray-800 leading-relaxed whitespace-pre-wrap">{{ llm_explanation }}</p>
+          {% if llm_meta.confidence %}
+          <div class="flex items-center gap-2 mt-3 text-xs text-gray-500">
+            <span>推理置信度:</span>
+            <div class="w-24 h-1.5 bg-gray-200 rounded-full overflow-hidden">
+              <div class="h-full bg-emerald-500" style="width: {{ (llm_meta.confidence * 100)|round }}%"></div>
+            </div>
+            <span>{{ "%.0f"|format(llm_meta.confidence * 100) }}%</span>
+            <span class="ml-2">context: {{ llm_meta.context_chars or 0 }} 字符</span>
+          </div>
+          {% endif %}
+        </div>
+      </div>
+    </div>
+    {% endif %}
+  </div>
+</div>
+
+<!-- ====================== MAIN BODY ====================== -->
+<div class="max-w-5xl mx-auto px-6 py-8 space-y-8" x-data="reportData()" x-init="init()">
+
+  <!-- =========== 画像字段卡片 =========== -->
+  <section>
+    <h2 class="text-xl font-bold text-gray-900 mb-4 flex items-center gap-2">
+      📌 画像字段溯源
+      <span class="text-xs font-normal text-gray-500">({{ profile_field_count }} 条已记录)</span>
+    </h2>
+    <div class="grid grid-cols-2 md:grid-cols-3 gap-3">
+      {% for card in field_cards %}
+      <div class="bg-white rounded-xl p-4 shadow-sm hover:shadow-md transition-shadow border border-gray-100">
+        <div class="flex items-center justify-between mb-2">
+          <span class="text-2xl">{{ card.icon }}</span>
+          <span class="text-xs text-gray-400 truncate max-w-[120px]" title="{{ card.source }}">{{ card.source }}</span>
+        </div>
+        <div class="text-xs text-gray-500 mb-1">{{ card.label }}</div>
+        <div class="text-lg font-bold text-gray-900">
+          {% if card.value is iterable and card.value is not string %}
+            {{ card.value|join('、') }}
+          {% else %}
+            {{ card.value }}
+          {% endif %}
+        </div>
+      </div>
+      {% endfor %}
+    </div>
+  </section>
+
+  <!-- =========== 多 Variant 切换 =========== -->
+  <section x-data="{ active: 'easy' }">
+    <div class="flex items-center justify-between mb-4">
+      <h2 class="text-xl font-bold text-gray-900 flex items-center gap-2">
+        🎯 完整方案 · 三种视角
+      </h2>
+      <div class="text-xs text-gray-500">点击切换排序</div>
+    </div>
+
+    <!-- Variant Tabs -->
+    <div class="flex gap-2 mb-4 p-1 bg-gray-100 rounded-xl inline-flex">
+      <button @click="active = 'easy'"
+              :class="active === 'easy' ? 'tab-active' : 'text-gray-600 hover:bg-white/50'"
+              class="px-4 py-2 rounded-lg font-medium text-sm transition-all">
+        🌱 少折腾优先
+      </button>
+      <button @click="active = 'money'"
+              :class="active === 'money' ? 'tab-active' : 'text-gray-600 hover:bg-white/50'"
+              class="px-4 py-2 rounded-lg font-medium text-sm transition-all">
+        💰 省钱优先
+      </button>
+      <button @click="active = 'carbon'"
+              :class="active === 'carbon' ? 'tab-active' : 'text-gray-600 hover:bg-white/50'"
+              class="px-4 py-2 rounded-lg font-medium text-sm transition-all">
+        🌍 减碳优先
+      </button>
+    </div>
+
+    <!-- 当前 variant 方案列表 -->
+    <div class="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
+      <!-- variant 摘要 -->
+      <div class="bg-gradient-to-r from-emerald-50 to-teal-50 px-6 py-4 flex items-center justify-between">
+        <div>
+          <div class="text-sm font-semibold text-emerald-800"
+               x-text="active === 'easy' ? '🌱 当前排序:按执行难度升序(最容易的先做)' :
+                       active === 'money' ? '💰 当前排序:按年度节省金额降序(钱多的先做)' :
+                                              '🌍 当前排序:按 CO₂ 减排降序(减碳多的先做)'"></div>
+          <div class="text-xs text-emerald-700 mt-1">
+            共 <span class="font-bold" x-text="variantLength(active)"></span> 项行动 ·
+            合计 ¥<span class="font-bold" x-text="variantSavings(active).toFixed(0)"></span>/年 ·
+            减排 <span class="font-bold" x-text="variantCo2(active).toFixed(1)"></span> kgCO₂/年
+          </div>
+        </div>
+        <div class="text-3xl"
+             x-text="active === 'easy' ? '🌱' : active === 'money' ? '💰' : '🌍'"></div>
+      </div>
+
+      <!-- actions -->
+      <div class="divide-y divide-gray-100">
+        <template x-for="(a, idx) in currentVariant(active)" :key="a.id">
+          <div class="px-6 py-4 hover:bg-gray-50 transition-colors"
+               :class="completed[a.id] ? 'bg-emerald-50/50' : ''">
+            <div class="flex items-start gap-4">
+              <!-- checkbox -->
+              <div class="pt-1">
+                <input type="checkbox"
+                       :checked="!!completed[a.id]"
+                       @change="toggle(a.id)"
+                       class="w-5 h-5 text-emerald-600 rounded cursor-pointer"/>
+              </div>
+
+              <!-- content -->
+              <div class="flex-1">
+                <div class="flex items-center gap-2 mb-1">
+                  <span class="text-xs text-gray-400 font-mono" x-text="'#' + (idx + 1)"></span>
+                  <span class="font-semibold text-gray-900"
+                        :class="completed[a.id] ? 'action-done' : ''"
+                        x-text="a.title"></span>
+                  <!-- 难度星标 -->
+                  <span class="flex">
+                      <template x-for="i in 3">
+                        <span :text="i <= a.difficulty ? '⭐' : '☆'" class="text-xs"></span>
+                      </template>
+                    </span>
+                  <!-- category badge -->
+                  <span class="badge bg-blue-100 text-blue-700"
+                        x-text="categoryLabel(a.category)"></span>
+                </div>
+
+                <p class="text-sm text-gray-600 mb-2"
+                   :class="completed[a.id] ? 'action-done' : ''"
+                   x-text="a.description"></p>
+
+                <!-- 节省/减排指标 -->
+                <div class="flex items-center gap-4 text-xs">
+                  <span class="text-emerald-700 font-medium">
+                    💰 <span x-text="formatCny(a.estimated_saving_cny)"></span>
+                  </span>
+                  <span class="text-teal-700 font-medium">
+                    🌍 <span x-text="formatCo2(a.estimated_saving_co2_kg)"></span> kgCO₂
+                  </span>
+                  <span class="text-gray-400">·</span>
+                  <span class="text-gray-500">
+                    estimate_period: <span x-text="a.estimate_period"></span>
+                  </span>
+                </div>
+
+                <!-- source_ref 折叠详情 -->
+                <details class="mt-2 text-xs">
+                  <summary class="text-gray-500 cursor-pointer hover:text-emerald-600">📄 数据源 (点击展开)</summary>
+                  <div class="mt-1 p-3 bg-gray-50 rounded font-mono text-gray-600 break-all"
+                       x-text="a.source_ref"></div>
+                  <div class="mt-1 text-gray-400 italic" x-text="a.estimate_note"></div>
+                </details>
+              </div>
+
+              <!-- 标记完成按钮 -->
+              <button @click="toggle(a.id)"
+                      :class="completed[a.id] ? 'bg-emerald-600 text-white' : 'bg-white text-emerald-600 border border-emerald-600'"
+                      class="px-3 py-1 rounded-lg text-xs font-medium whitespace-nowrap transition-all hover:shadow">
+                <span x-text="completed[a.id] ? '✓ 已完成' : '标记完成'"></span>
+              </button>
+            </div>
+          </div>
+        </template>
+      </div>
+    </div>
+
+    <!-- 本周进度 -->
+    <div class="mt-4 bg-white rounded-xl p-4 shadow-sm border border-gray-100">
+      <div class="flex items-center justify-between mb-2">
+        <span class="text-sm font-medium text-gray-700">本周完成度</span>
+        <span class="text-sm font-bold text-emerald-600" x-text="progressPercent() + '%'"></span>
+      </div>
+      <div class="h-2 bg-gray-100 rounded-full overflow-hidden">
+        <div class="h-full bg-gradient-to-r from-emerald-400 to-teal-500 transition-all duration-500"
+             :style="'width: ' + progressPercent() + '%'"></div>
+      </div>
+      <div class="text-xs text-gray-500 mt-1">
+        已完成 <span x-text="completedCount()"></span> / <span x-text="totalActionIds().length"></span> 项 ·
+        自动持久化到浏览器 localStorage
+      </div>
+    </div>
+  </section>
+
+  <!-- =========== 今日行动卡 =========== -->
+  {% if today_card_actions %}
+  <section>
+    <h2 class="text-xl font-bold text-gray-900 mb-4 flex items-center gap-2">
+      🔥 今日行动卡
+      <span class="text-xs font-normal text-gray-500">(最容易先做的 {{ today_card_actions|length }} 项)</span>
+    </h2>
+    <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+      {% for a in today_card_actions %}
+      <div class="bg-gradient-to-br from-orange-50 to-red-50 rounded-2xl p-5 border-2 border-orange-200 hover:shadow-lg transition-shadow">
+        <div class="text-3xl mb-3">{{ ['🌡️','💧','❄️','🚿','💡','🔌'][loop.index0 % 6] }}</div>
+        <div class="font-bold text-gray-900 mb-2">{{ a.title }}</div>
+        <div class="text-sm text-gray-600 mb-3">{{ a.description[:80] }}{% if a.description|length > 80 %}...{% endif %}</div>
+        <div class="flex items-center justify-between text-xs">
+          <span class="text-orange-700 font-medium">
+            {% if a.estimated_saving_cny and a.estimated_saving_cny > 0 %}
+            💰 ¥{{ a.estimated_saving_cny }}/年
+            {% else %}
+            💡 立即可做
+            {% endif %}
+          </span>
+          <span class="text-gray-400">难度 {{ a.difficulty }}/3</span>
+        </div>
+      </div>
+      {% endfor %}
+    </div>
+  </section>
+  {% endif %}
+
+  <!-- =========== 可视化:饼图 + 进度条 =========== -->
+  <section class="grid grid-cols-1 md:grid-cols-2 gap-6">
+    <div class="bg-white rounded-2xl p-6 shadow-sm border border-gray-100">
+      <h3 class="font-bold text-gray-900 mb-4">📊 年度节省构成</h3>
+      <div class="h-56">
+        <canvas id="savingsChart"></canvas>
+      </div>
+      <div class="mt-3 text-xs text-gray-500">
+        💡 数据来源:模板生成,非实测;LLM 不参与数字计算。
+      </div>
+    </div>
+
+    <div class="bg-white rounded-2xl p-6 shadow-sm border border-gray-100">
+      <h3 class="font-bold text-gray-900 mb-4">🎯 推荐分布</h3>
+      <div class="space-y-3">
+        <div>
+          <div class="flex justify-between text-sm mb-1">
+            <span class="text-gray-700">电</span>
+            <span class="font-medium text-emerald-700" x-text="countByCategory('electricity') + ' 项'"></span>
+          </div>
+          <div class="h-2 bg-gray-100 rounded-full overflow-hidden">
+            <div class="h-full bg-emerald-500" :style="'width: ' + percentByCategory('electricity') + '%'"></div>
+          </div>
+        </div>
+        <div>
+          <div class="flex justify-between text-sm mb-1">
+            <span class="text-gray-700">水</span>
+            <span class="font-medium text-blue-700" x-text="countByCategory('water') + ' 项'"></span>
+          </div>
+          <div class="h-2 bg-gray-100 rounded-full overflow-hidden">
+            <div class="h-full bg-blue-500" :style="'width: ' + percentByCategory('water') + '%'"></div>
+          </div>
+        </div>
+        <div>
+          <div class="flex justify-between text-sm mb-1">
+            <span class="text-gray-700">气</span>
+            <span class="font-medium text-amber-700" x-text="countByCategory('gas') + ' 项'"></span>
+          </div>
+          <div class="h-2 bg-gray-100 rounded-full overflow-hidden">
+            <div class="h-full bg-amber-500" :style="'width: ' + percentByCategory('gas') + '%'"></div>
+          </div>
+        </div>
+      </div>
+
+      <div class="mt-5 pt-5 border-t border-gray-100">
+        <div class="text-xs text-gray-500 mb-2">本周目标</div>
+        <div class="flex items-baseline gap-2">
+          <span class="text-3xl font-bold text-emerald-600" x-text="completedCount()"></span>
+          <span class="text-gray-400">/ {{ total_actions }} 项</span>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- =========== LLM 反问 =========== -->
+  {% if llm_follow_up %}
+  <section>
+    <h2 class="text-xl font-bold text-gray-900 mb-4 flex items-center gap-2">
+      ❓ 我还想了解
+      <span class="text-xs font-normal text-gray-500">(LLM 基于 ontology 不变量主动问)</span>
+    </h2>
+    <div class="space-y-2">
+      {% for q in llm_follow_up %}
+      <button onclick="alert('请复制此问题到对话输入框:\n\n{{ q }}')"
+              class="w-full text-left bg-white hover:bg-emerald-50 rounded-xl p-4 shadow-sm border border-gray-100 hover:border-emerald-200 transition-all group">
+        <div class="flex items-center justify-between">
+          <span class="text-gray-700">{{ q }}</span>
+          <span class="text-emerald-600 text-sm opacity-0 group-hover:opacity-100 transition-opacity">点击回复 →</span>
+        </div>
+      </button>
+      {% endfor %}
+    </div>
+  </section>
+  {% endif %}
+
+  <!-- =========== 数据透明 + 反幻觉护栏 + Obsidian 同步 =========== -->
+  <section class="grid grid-cols-1 md:grid-cols-3 gap-4">
+    <!-- 反幻觉护栏状态 -->
+    <div class="bg-white rounded-xl p-4 shadow-sm border border-gray-100">
+      <div class="flex items-center gap-2 mb-2">
+        {% if anti_hallu_passed %}
+        <span class="text-2xl">🛡️</span>
+        <span class="font-bold text-emerald-700 text-sm">反幻觉护栏</span>
+        {% else %}
+        <span class="text-2xl">⚠️</span>
+        <span class="font-bold text-amber-700 text-sm">反幻觉护栏</span>
+        {% endif %}
+      </div>
+      <div class="text-xs text-gray-600">
+        {% if anti_hallu_passed %}
+        ✓ 已通过 5 重护栏<br>
+        (数字 / action id / source_ref / 新增 action / 解释文本)
+        {% else %}
+        触发护栏,已回退模板
+        {% endif %}
+      </div>
+    </div>
+
+    <!-- ontology 校验 -->
+    <div class="bg-white rounded-xl p-4 shadow-sm border border-gray-100">
+      <div class="flex items-center gap-2 mb-2">
+        <span class="text-2xl">🧬</span>
+        <span class="font-bold text-blue-700 text-sm">ontology 校验</span>
+      </div>
+      <div class="text-xs text-gray-600">
+        画像 {{ profile_field_count }} 个字段已过不变量校验
+        {% if violations %}<br>⚠️ {{ violations|length }} 条违规(展示中){% endif %}
+      </div>
+    </div>
+
+    <!-- Obsidian 同步 -->
+    <div class="bg-white rounded-xl p-4 shadow-sm border border-gray-100">
+      <div class="flex items-center gap-2 mb-2">
+        <span class="text-2xl">📚</span>
+        <span class="font-bold text-purple-700 text-sm">Obsidian 同步</span>
+      </div>
+      <div class="text-xs text-gray-600">
+        {% if obsidian_writes %}
+        ✓ 已写 {{ obsidian_writes|length }} 条 derived 笔记<br>
+        {% for w in obsidian_writes[:2] %}
+        <code class="text-[10px] block truncate">{{ w }}</code>
+        {% endfor %}
+        {% else %}
+        本次未触发画像更新
+        {% endif %}
+      </div>
+    </div>
+  </section>
+
+  <!-- =========== 反馈区 =========== -->
+  <section class="bg-gradient-to-r from-emerald-50 to-teal-50 rounded-2xl p-6 border border-emerald-100">
+    <h3 class="font-bold text-gray-900 mb-3">💬 给 Agent 反馈</h3>
+    <p class="text-sm text-gray-600 mb-4">
+      你的反馈会让 agent 越来越懂你。回复示例:
+    </p>
+    <div class="flex flex-wrap gap-2">
+      <button class="px-4 py-2 bg-white rounded-full text-sm text-gray-700 hover:bg-emerald-100 transition border border-gray-200">
+        🌱 保持舒适优先
+      </button>
+      <button class="px-4 py-2 bg-white rounded-full text-sm text-gray-700 hover:bg-emerald-100 transition border border-gray-200">
+        💰 省钱优先
+      </button>
+      <button class="px-4 py-2 bg-white rounded-full text-sm text-gray-700 hover:bg-emerald-100 transition border border-gray-200">
+        🚫 不想缩短洗澡时间
+      </button>
+      <button class="px-4 py-2 bg-white rounded-full text-sm text-gray-700 hover:bg-emerald-100 transition border border-gray-200">
+        ✅ 我已经一直满桶洗衣
+      </button>
+      <button class="px-4 py-2 bg-white rounded-full text-sm text-gray-700 hover:bg-emerald-100 transition border border-gray-200">
+        🛏️ 5 口人,3 空调
+      </button>
+    </div>
+  </section>
+
+  <!-- Footer -->
+  <footer class="text-center text-xs text-gray-400 pt-8 pb-4">
+    <p>🌱 绿色低碳智能体 · P14 HTML 报告</p>
+    <p class="mt-1">本报告由 ontology + 知识图谱 + LLM 推理层生成 · {{ generated_at }}</p>
+  </footer>
+</div>
+
+<!-- ====================== Alpine.js + Chart.js 配置 ====================== -->
+<script>
+function reportData() {
+  return {
+    // 3 个 variant 数据(从后端传入)
+    variants: {
+      easy: {{ variant_easy|tojson }},
+      money: {{ variant_money|tojson }},
+      carbon: {{ variant_carbon|tojson }}
+    },
+    // 已完成(从 localStorage 恢复)
+    completed: {},
+    // init
+    init() {
+      try {
+        const saved = localStorage.getItem('completed_' + {{ user_id|tojson }});
+        if (saved) this.completed = JSON.parse(saved);
+      } catch(e) {}
+      this.renderChart();
+    },
+    toggle(id) {
+      this.completed[id] = !this.completed[id];
+      try {
+        localStorage.setItem('completed_' + {{ user_id|tojson }}, JSON.stringify(this.completed));
+      } catch(e) {}
+    },
+    currentVariant(name) {
+      return this.variants[name] || [];
+    },
+    variantLength(name) {
+      return this.variants[name]?.length || 0;
+    },
+    variantSavings(name) {
+      return (this.variants[name] || []).reduce((sum, a) => sum + (a.estimated_saving_cny || 0), 0);
+    },
+    variantCo2(name) {
+      return (this.variants[name] || []).reduce((sum, a) => sum + (a.estimated_saving_co2_kg || 0), 0);
+    },
+    countByCategory(cat) {
+      return this.variants.easy.filter(a => a.category === cat).length;
+    },
+    percentByCategory(cat) {
+      const total = this.variants.easy.length || 1;
+      return Math.round(this.countByCategory(cat) / total * 100);
+    },
+    completedCount() {
+      return Object.values(this.completed).filter(Boolean).length;
+    },
+    totalActionIds() {
+      return Object.keys(this.completed).concat(
+        this.variants.easy.filter(a => !this.completed[a.id]).map(a => a.id)
+      ).filter((v, i, a) => a.indexOf(v) === i);
+    },
+    progressPercent() {
+      const total = this.variants.easy.length || 1;
+      return Math.round(this.completedCount() / total * 100);
+    },
+    formatCny(cny) {
+      if (!cny || cny === 0) return '暂不估算';
+      return '¥' + cny.toFixed(0) + '/年';
+    },
+    formatCo2(co2) {
+      if (!co2 || co2 === 0) return '—';
+      return co2.toFixed(1);
+    },
+    categoryLabel(cat) {
+      const m = {electricity: '电', water: '水', gas: '气'};
+      return m[cat] || cat;
+    },
+    renderChart() {
+      const ctx = document.getElementById('savingsChart');
+      if (!ctx) return;
+      new Chart(ctx, {
+        type: 'doughnut',
+        data: {{ chart_data_json|safe }},
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          plugins: {
+            legend: { position: 'bottom', labels: { font: { size: 12 } } },
+            tooltip: {
+              callbacks: {
+                label: (ctx) => ctx.label + ': ¥' + ctx.parsed.toFixed(0) + '/年'
+              }
+            }
+          }
+        }
+      });
+    }
+  };
+}
+</script>
+
+</body>
+</html>

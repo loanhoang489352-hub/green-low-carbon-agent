@@ -23,6 +23,7 @@ from .onboarding import register_onboarding_routes
 from .profile import register_profile_routes
 from .policy import register_policy_routes
 from .settings import register_settings_routes
+from .reports import register_report_routes
 
 
 def register_all_routes(registry) -> None:
@@ -41,12 +42,13 @@ def register_all_routes(registry) -> None:
     register_profile_routes(registry)
     register_policy_routes(registry)
     register_settings_routes(registry)
+    register_report_routes(registry)
     if os.environ.get("ENABLE_ENERGY", "true").lower() in ("1", "true", "yes", "on"):
         from .energy import register_energy_routes
         register_energy_routes(registry)
         import logging
         logging.getLogger("server.routers").info(
-            "[energy] 7 路由已注册(profile/plan/today/complete/stats/actions/delegation)"
+            "[energy] 8 路由已注册(profile读写/plan/today/complete/stats/actions/delegation)"
         )
     else:
         import logging

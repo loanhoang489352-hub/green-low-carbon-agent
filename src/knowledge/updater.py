@@ -58,6 +58,7 @@ class ParsedContent:
     update_time: Optional[str] = None
     source_url: str = ""
     category: str = ""
+    publisher: str = ""
 
 
 class HTMLContentParser(HTMLParser):
@@ -797,7 +798,11 @@ class KnowledgeUpdater:
                 content=result.new_content[0] if result.new_content else "",
                 update_time=result.update_time,
                 source_url=result.url,
+                publisher=result.source,
             )
+
+            # Preserve an immutable copy before any merge mutates the current view.
+            self._archive_version(parsed, result)
 
             # 判断是否需要合并
             should_merge, existing_path = self._merger.should_merge(parsed)
@@ -830,11 +835,23 @@ class KnowledgeUpdater:
         filepath = self.updates_dir / filename
 
         try:
+            from knowledge.ontology import get_low_carbon_ontology
+            retrieved_at = datetime.now().isoformat()
+            digest = hashlib.sha256(content.content.encode("utf-8")).hexdigest()
+            tier = get_low_carbon_ontology().authority_tier(content.source_url)
             front_matter = f"""---
 title: {content.title}
 source: {content.source_url}
-update_time: {content.update_time or "unknown"}
-processed_at: {datetime.now().isoformat()}
+source_url: {content.source_url}
+publisher: {content.publisher or source_name}
+published_at: {content.update_time or ""}
+retrieved_at: {retrieved_at}
+content_hash: {digest}
+authority_tier: {tier}
+valid_from: {content.update_time or ""}
+valid_to:
+validity_status: not_verified
+processed_at: {retrieved_at}
 ---
 
 """
@@ -846,6 +863,26 @@ processed_at: {datetime.now().isoformat()}
         except Exception as e:
             print(f"[KnowledgeUpdater] 保存文档失败: {e}")
             return None
+
+    def _archive_version(self, content: ParsedContent, result: UpdateResult) -> Optional[str]:
+        """Write an immutable JSON snapshot; identical content is naturally deduplicated."""
+        digest = hashlib.sha256(content.content.encode("utf-8")).hexdigest()
+        safe_source = re.sub(r"[^\w一-鿿]+", "_", result.source)[:50] or "unknown"
+        version_dir = self.knowledge_base_path / "_versions" / safe_source
+        version_dir.mkdir(parents=True, exist_ok=True)
+        target = version_dir / f"{digest}.json"
+        if target.exists():
+            return str(target)
+        payload = {
+            "source_name": result.source,
+            "source_url": result.url,
+            "published_at": result.update_time,
+            "retrieved_at": result.timestamp or datetime.now().isoformat(),
+            "content_hash": digest,
+            "content": content.content,
+        }
+        target.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+        return str(target)
 
     def _extract_html_media_and_ocr(self, html: str, base_url: str) -> List[str]:
         """P9.OCR:从 HTML 提取 <img>/<embed>/<iframe> 媒体,逐个走 OCR 管道

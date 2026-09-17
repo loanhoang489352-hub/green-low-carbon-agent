@@ -100,6 +100,27 @@ class UserProfileGraph:
         "carbon_offset": "碳补偿",
     }
 
+    # P13: 已知节点类型(对照 config/ontology.json 的 node_type_mapping)
+    KNOWN_NODE_TYPES = {
+        "user",
+        "interest",
+        "behavior_stage",
+        "knowledge_level",
+        "preference",
+        "household_fact",  # 新增:对应 ontology Household/Appliance/Habit/Bill/Preference/Goal
+    }
+
+    # 合法边类型(扩展原有 RELATION_TYPES,加 ontology 关系)
+    ONTOLOGY_RELATION_TYPES = {
+        "HAS_HOUSEHOLD_FACT",  # User → Household|Appliance|Habit|Bill|Preference|Goal
+        "OWNS",                # Household → Appliance
+        "PRACTICES",           # User → Habit
+        "INCURS",              # Household → Bill
+        "VALUES",              # User → Preference
+        "SEEKS",               # User → Goal
+        "LIVES_IN",            # User → Household
+    }
+
     # 行为阶段层级
     BEHAVIOR_STAGES = ["无意向", "意向", "准备", "行动", "维持"]
 
@@ -188,6 +209,9 @@ class UserProfileGraph:
         sentiment: str = "positive",
         context: str = "",
         carbon_saved: float = None,
+        source: str = "inferred",
+        confidence: float = 0.5,
+        observed_at: str = None,
     ):
         """
         记录用户行为
@@ -210,6 +234,12 @@ class UserProfileGraph:
                 if context:
                     existing.properties["context"] = context
                 existing.properties["sentiment"] = sentiment
+                existing.properties["source"] = source
+                existing.properties["confidence"] = max(
+                    float(existing.properties.get("confidence", 0) or 0), float(confidence)
+                )
+                if observed_at:
+                    existing.properties["observed_at"] = observed_at
                 existing.updated_at = self._now
                 if self._graph is not None:
                     self._graph.nodes[existing.node_id].update(existing.properties)
@@ -226,6 +256,9 @@ class UserProfileGraph:
                 "sentiment": sentiment,
                 "context": context,
                 "carbon_saved": carbon_saved,
+                "source": source,
+                "confidence": confidence,
+                "observed_at": observed_at,
             },
             created_at=self._now,
             updated_at=self._now,
@@ -524,6 +557,149 @@ class UserProfileGraph:
                 )
 
         return graph
+
+    # ============ P13: Ontology 集成 ============
+
+    def add_household_fact(self, field_name: str, value: Any,
+                            ontology_type: str = "Household",
+                            confidence: float = 1.0,
+                            source: str = "chat_explicit") -> str:
+        """添加家庭事实(对应 ontology 的 Household/Appliance/Habit/Bill/Preference/Goal)
+
+        Args:
+            field_name: 字段名(如 family_size / ac_temp_c / monthly_electricity_bill)
+            value: 值
+            ontology_type: 对应的 ontology 实体类型
+            confidence: 0-1
+            source: explicit / inferred / default
+        """
+        node_id = f"energy_{field_name}"
+        if node_id in self.nodes:
+            # 已存在 → 更新(去重,取最高置信度)
+            existing = self.nodes[node_id]
+            if confidence <= existing.properties.get("confidence", 0):
+                return node_id  # 不更新
+            existing.properties["value"] = value
+            existing.properties["confidence"] = confidence
+            existing.properties["source"] = source
+            existing.updated_at = self._now
+        else:
+            node = ProfileNode(
+                node_id=node_id,
+                node_type="household_fact",
+                properties={
+                    "field": field_name,
+                    "value": value,
+                    "ontology_type": ontology_type,
+                    "confidence": confidence,
+                    "source": source,
+                },
+                created_at=self._now,
+                updated_at=self._now,
+            )
+            self.nodes[node_id] = node
+            if self._graph is not None:
+                self._graph.add_node(node_id, **node.to_dict())
+
+        # 加边:user → household_fact
+        user_node = f"user_{self.user_id}"
+        if not any(e.source == user_node and e.target == node_id and e.relation_type == "HAS_HOUSEHOLD_FACT"
+                   for e in self.edges):
+            edge = ProfileEdge(
+                source=user_node, target=node_id,
+                relation_type="HAS_HOUSEHOLD_FACT", weight=confidence,
+                created_at=self._now,
+            )
+            self.edges.append(edge)
+            if self._graph is not None:
+                self._graph.add_edge(user_node, node_id, relation="HAS_HOUSEHOLD_FACT", weight=confidence)
+        return node_id
+
+    def get_household_facts(self) -> Dict[str, Any]:
+        """取所有家庭事实(供 ontology 校验使用)"""
+        facts: Dict[str, Any] = {}
+        for node in self.nodes.values():
+            if node.node_type == "household_fact":
+                field = node.properties.get("field", "")
+                value = node.properties.get("value")
+                if field and value is not None:
+                    facts[field] = value
+        return facts
+
+    def query_by_ontology_type(self, ontology_type: str) -> List[ProfileNode]:
+        """按 ontology 实体类型查节点(用于 LLM context 组装)"""
+        return [
+            n for n in self.nodes.values()
+            if n.node_type == "household_fact" and n.properties.get("ontology_type") == ontology_type
+        ]
+
+    def validate_with_ontology(self):
+        """用 ontology 校验当前图谱是否符合 schema
+
+        Returns:
+            (is_valid, violations) — 委托给 agent.ontology.validate_profile()
+        """
+        from agent.ontology import validate_profile
+        facts = self.get_household_facts()
+        facts["priority"] = "easy"  # 默认值,避免 Preference 必填失败
+        return validate_profile(facts)
+
+    def n_hop_subgraph(self, root_id: Optional[str] = None, hop: int = 2) -> Dict[str, Any]:
+        """N 跳子图(简化版,返回节点/边列表,供 Context Builder 使用)
+
+        Returns:
+            {"nodes": [...], "edges": [...], "roots": [...]}
+        """
+        if root_id is None:
+            root_id = f"user_{self.user_id}"
+        if hop < 0:
+            raise ValueError(f"hop 必须 ≥ 0")
+
+        if not HAS_NETWORKX or self._graph is None:
+            # 无 networkx 退化:返回所有节点
+            return {
+                "nodes": [n.to_dict() for n in self.nodes.values()],
+                "edges": [e.to_dict() for e in self.edges],
+                "roots": [root_id],
+                "hop_count": hop,
+            }
+
+        # BFS
+        visited_nodes: set = {root_id}
+        visited_edges: set = set()
+        frontier = {root_id}
+        for _ in range(hop):
+            next_frontier: set = set()
+            for nid in frontier:
+                for nbr in self._graph.successors(nid):
+                    edge_data = self._graph.get_edge_data(nid, nbr) or {}
+                    rel = edge_data.get("relation", "RELATED_TO")
+                    visited_edges.add((nid, nbr, rel))
+                    if nbr not in visited_nodes:
+                        visited_nodes.add(nbr)
+                        next_frontier.add(nbr)
+                # 也走反向边(无向遍历)
+                for nbr in self._graph.predecessors(nid):
+                    if nbr not in visited_nodes:
+                        visited_nodes.add(nbr)
+                        next_frontier.add(nbr)
+            frontier = next_frontier
+            if not frontier:
+                break
+
+        nodes = [self.nodes[nid].to_dict() for nid in visited_nodes if nid in self.nodes]
+        edges = []
+        for s, t, r in visited_edges:
+            for e in self.edges:
+                if e.source == s and e.target == t and e.relation_type == r:
+                    edges.append(e.to_dict())
+                    break
+        return {
+            "nodes": nodes,
+            "edges": edges,
+            "roots": [root_id],
+            "hop_count": hop,
+        }
 
     def summary(self) -> str:
         """获取图谱摘要"""

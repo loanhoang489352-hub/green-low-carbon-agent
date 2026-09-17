@@ -149,16 +149,23 @@ class ChromaStore(VectorStore):
             self._add_inmemory(documents)
             return
 
-        ids = [doc.id for doc in documents]
-        contents = [doc.content for doc in documents]
-        metadatas = [doc.metadata for doc in documents]
-        embeddings = [doc.embedding.tolist() for doc in documents if doc.embedding is not None]
+        # 过滤掉 embedding 为 None 的条目,避免 ids/embeddings 长度不匹配报错
+        valid = [doc for doc in documents if doc.embedding is not None]
+        if not valid:
+            _logger.warning("[ChromaStore] add 跳过: %d 个文档全部缺 embedding", len(documents))
+            return
+        dropped = len(documents) - len(valid)
+        if dropped:
+            _logger.warning("[ChromaStore] add 跳过 %d 个缺 embedding 的文档", dropped)
 
-        # ChromaDB 要求所有文档都有 embedding
-        if embeddings:
-            self._collection.add(
-                ids=ids, documents=contents, metadatas=metadatas, embeddings=embeddings
-            )
+        ids = [doc.id for doc in valid]
+        contents = [doc.content for doc in valid]
+        metadatas = [doc.metadata for doc in valid]
+        embeddings = [doc.embedding.tolist() for doc in valid]
+
+        self._collection.add(
+            ids=ids, documents=contents, metadatas=metadatas, embeddings=embeddings
+        )
 
     def _add_inmemory(self, documents: List[Document]) -> None:
         """内存存储（降级方案）"""
@@ -255,6 +262,18 @@ class ChromaStore(VectorStore):
         if self._client is None:
             return len(self._inmemory_docs)
         return self._collection.count()
+
+    def get_existing_ids(self, ids: List[str]) -> List[str]:
+        """返回 ids 中已存在于集合的(供 add 前查重,避免重复 id 报错)"""
+        if not ids:
+            return []
+        if self._client is None:
+            return [i for i in ids if i in self._inmemory_docs]
+        try:
+            res = self._collection.get(ids=ids)
+            return list(res.get("ids", []) or [])
+        except Exception:
+            return []
 
     def clear(self) -> None:
         """清空"""

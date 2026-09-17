@@ -25,9 +25,15 @@ from llm.client import registry_tools_to_openai_format
 _logger = logging.getLogger(__name__)
 
 
-def dispatch_tool_call(name: str, arguments_json: str) -> Dict[str, Any]:
+def dispatch_tool_call(
+    name: str, arguments_json: str, ctx: Optional[Dict[str, Any]] = None
+) -> Dict[str, Any]:
     """
     P6.S.17: 执行一个 tool_call,返标准化结果
+
+    Args:
+        ctx: 调用上下文(如 {"user_id":..., "city":...}),注入到工具 kwargs。
+             LLM 显式传的参数优先,ctx 只填充缺失项(如出行工具的城市)。
 
     Returns:
         {"success": bool, "output": Any, "error": str?}
@@ -50,6 +56,16 @@ def dispatch_tool_call(name: str, arguments_json: str) -> Dict[str, Any]:
     if not inst:
         return {"success": False, "error": f"tool not found: {name}"}
 
+    # P16: 工具级权限门(high 风险工具需用户确认;默认 low → 放行,不改变现状)
+    try:
+        from agent.tool_permission import check_tool_permission
+
+        perm_err = check_tool_permission(inst, ctx)
+        if perm_err:
+            return {"success": False, "error": perm_err, "code": "NEEDS_CONFIRMATION"}
+    except Exception:
+        pass
+
     # 解析 arguments
     if arguments_json:
         try:
@@ -60,6 +76,11 @@ def dispatch_tool_call(name: str, arguments_json: str) -> Dict[str, Any]:
             return {"success": False, "error": f"invalid arguments JSON: {e}"}
     else:
         kwargs = {}
+
+    # 注入调用上下文(如 user_id/city):LLM 显式传的参数优先,ctx 只填充缺失项
+    if ctx:
+        for k, v in ctx.items():
+            kwargs.setdefault(k, v)
 
     # 执行
     try:
@@ -77,6 +98,14 @@ def dispatch_tool_call(name: str, arguments_json: str) -> Dict[str, Any]:
         return {"success": False, "error": f"{type(e).__name__}: {str(e)[:200]}"}
 
 
+def _last_user_message(messages: List[Dict[str, Any]]) -> str:
+    """提取最后一条 user 消息(当前问题),供反思用"""
+    for m in reversed(messages):
+        if isinstance(m, dict) and m.get("role") == "user":
+            return str(m.get("content", "") or "")
+    return ""
+
+
 def run_react_loop(
     messages: List[Dict[str, Any]],
     llm_client,
@@ -84,35 +113,42 @@ def run_react_loop(
     max_steps: int = 3,
     tool_choice: str = "auto",
     trace_id: Optional[str] = None,
+    ctx: Optional[Dict[str, Any]] = None,
+    reflect: bool = False,
 ) -> Dict[str, Any]:
     """
     P6.S.17: 简单的 ReAct 循环
     - messages 初始含 system + user history
     - llm_client 必须有 .chat(messages, **kwargs) 接口
     - 每步: 调 LLM,若 finish_reason=="tool_calls" 则 dispatch,然后 messages+=tool_result 再调
+    - reflect=True(P16): 出最终答案后做一次质量门控,失败/不完整则修订一次
 
     Returns:
         {
-            "content": str,           # 最终 LLM 输出
+            "content": str,           # 最终 LLM 输出(可能经反思修订)
             "messages": List[dict],   # 完整对话历史(可调试)
             "steps": int,             # 实际循环步数
             "tool_calls": List[dict], # 调过哪些 tool
             "success": bool,
+            "reflection": dict?,      # P16: {verdict, revised}
         }
     """
     tools = registry_tools_to_openai_format(tool_names)
     if not tools:
         # 没 tool 可用,直接单步 chat
         resp = llm_client.chat(messages, trace_id=trace_id)
+        _raz = getattr(resp, "reasoning", "") or ""
         return {
             "content": resp.content or "",
             "messages": messages,
             "steps": 1,
             "tool_calls": [],
+            "reasonings": [_raz] if _raz else [],
             "success": not bool(resp.error),
         }
 
     tool_calls_log: List[Dict[str, Any]] = []
+    reasonings: List[str] = []  # DeepSeek R1 链式推理(供"思考过程"透明展示)
     for step in range(1, max_steps + 1):
         try:
             resp = llm_client.chat(
@@ -127,17 +163,38 @@ def run_react_loop(
                 "messages": messages,
                 "steps": step,
                 "tool_calls": tool_calls_log,
+                "reasonings": reasonings,
                 "success": False,
             }
 
+        # 收集推理内容
+        _raz = getattr(resp, "reasoning", "") or ""
+        if _raz:
+            reasonings.append(_raz)
+
         if not resp.tool_calls:
             # LLM 觉得够用了,返 stop
+            content = resp.content or ""
+            reflection = None
+            if reflect and tool_calls_log:
+                try:
+                    from agent.reflector import reflect_and_revise
+
+                    question = _last_user_message(messages)
+                    content, verdict, revised = reflect_and_revise(
+                        llm_client, question, content, tool_calls_log, messages, trace_id
+                    )
+                    reflection = {"verdict": verdict, "revised": revised}
+                except Exception as e:
+                    _logger.warning("[P16] reflection 失败(非致命): %s", e)
             return {
-                "content": resp.content or "",
+                "content": content,
                 "messages": messages,
                 "steps": step,
                 "tool_calls": tool_calls_log,
+                "reasonings": reasonings,
                 "success": True,
+                "reflection": reflection,
             }
 
         # LLM 决定调 tool,执行每个 tool_call
@@ -165,7 +222,7 @@ def run_react_loop(
         )
         for tc in resp.tool_calls:
             t0 = time.time()
-            result = dispatch_tool_call(tc["name"], tc["arguments"])
+            result = dispatch_tool_call(tc["name"], tc["arguments"], ctx=ctx)
             elapsed_ms = round((time.time() - t0) * 1000, 2)
             tool_calls_log.append(
                 {
@@ -173,6 +230,12 @@ def run_react_loop(
                     "arguments": tc["arguments"],
                     "success": result["success"],
                     "elapsed_ms": elapsed_ms,
+                    # 中间结果:工具输出(供实时 trace 展示"调了工具拿到什么")
+                    "output": (
+                        result.get("output")
+                        if result["success"]
+                        else {"error": result.get("error")}
+                    ),
                 }
             )
             # tool 结果以 role="tool" push,带 tool_call_id
@@ -200,11 +263,13 @@ def run_react_loop(
     _logger.warning("[P6.S.17.ReAct] 达 max_steps=%d, 强制收尾", max_steps)
     try:
         resp = llm_client.chat(messages, trace_id=trace_id)
+        _raz = getattr(resp, "reasoning", "") or ""
         return {
             "content": resp.content or "",
             "messages": messages,
             "steps": max_steps,
             "tool_calls": tool_calls_log,
+            "reasonings": reasonings + ([_raz] if _raz else []),
             "success": True,
         }
     except Exception as e:
@@ -213,5 +278,6 @@ def run_react_loop(
             "messages": messages,
             "steps": max_steps,
             "tool_calls": tool_calls_log,
+            "reasonings": reasonings,
             "success": False,
         }

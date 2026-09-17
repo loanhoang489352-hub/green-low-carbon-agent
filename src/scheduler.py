@@ -145,14 +145,18 @@ def _working_memory_heartbeat() -> None:
 
 
 def _async_rag_rebuild_on_startup() -> None:
-    """P5-F:启动时后台异步 RAG 重建(避免阻塞主进程)"""
+    """P5-F:启动时确保 RAG 索引可用(仅当索引为空时才构建)
+
+    修复:不再每次重启 clear + force_reload 全量重嵌入(分钟级浪费,
+    ChromaDB 已持久化);索引非空时跳过,保留首次初始化能力。
+    """
     try:
         from rag.rag_engine import get_rag_engine
         from paths import KNOWLEDGE_BASE_DIR
 
         engine = get_rag_engine()
         if engine is None:
-            logger.info("[Scheduler] RAG 引擎未启用,跳过异步重建")
+            logger.info("[Scheduler] RAG 引擎未启用,跳过启动构建")
             return
         # 防御性:某些 mock/test 场景下 _initialized 属性可能不存在
         if not getattr(engine, "_initialized", False):
@@ -161,13 +165,23 @@ def _async_rag_rebuild_on_startup() -> None:
                     engine.initialize(knowledge_base_path=str(KNOWLEDGE_BASE_DIR))
                 except Exception as e:
                     logger.warning("[Scheduler] RAG 引擎 initialize 失败: %s", e)
+                    return
+        # 仅当索引为空/不存在时才构建(ChromaDB 已持久化,重启无需全量重嵌入)
+        try:
+            existing = engine._vector_store.count() if engine._vector_store else 0
+        except Exception as e:
+            logger.warning("[Scheduler] 查询索引数量失败: %s", e)
+            existing = 0
+        if existing > 0:
+            logger.info("[Scheduler] 索引已有 %d 条记录,跳过启动构建", existing)
+            return
         if hasattr(engine, "rebuild_index"):
             count = engine.rebuild_index(str(KNOWLEDGE_BASE_DIR))
-            logger.info("[Scheduler] 启动时 RAG 重建完成, 共 %d 个文档块", count)
+            logger.info("[Scheduler] 启动时索引构建完成, 共 %d 个文档块", count)
         else:
             logger.info("[Scheduler] RAG 引擎无 rebuild_index 方法,跳过")
     except Exception as e:
-        logger.exception("[Scheduler] 启动时 RAG 重建异常: %s", e)
+        logger.exception("[Scheduler] 启动时 RAG 构建异常: %s", e)
 
 
 def start_scheduler() -> BackgroundScheduler:
@@ -239,6 +253,15 @@ def start_scheduler() -> BackgroundScheduler:
             replace_existing=True,
             max_instances=1,
             coalesce=True,
+        )
+
+        # Developer-only, one-way Obsidian projection. No model calls or chat I/O.
+        from user_profile.obsidian_export import sync_configured_wiki
+        from datetime import datetime
+        sched.add_job(
+            sync_configured_wiki, "interval", seconds=60,
+            id="profile_observation_wiki", replace_existing=True,
+            max_instances=1, coalesce=True, next_run_time=datetime.now(),
         )
 
         sched.start()

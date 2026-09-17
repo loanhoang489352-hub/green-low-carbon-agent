@@ -1,0 +1,813 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>家庭节能规划 · 绿色低碳智能体</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+            background: linear-gradient(135deg, #11998e 0%, #38ef7d 100%);
+            min-height: 100vh;
+            padding: 20px;
+            color: #1f2937;
+        }
+        .wrap { max-width: 1000px; margin: 0 auto; }
+        .topbar {
+            display: flex; align-items: center; justify-content: space-between;
+            background: rgba(255,255,255,0.95); border-radius: 16px;
+            padding: 14px 22px; box-shadow: 0 10px 30px rgba(0,0,0,0.15);
+            margin-bottom: 18px;
+        }
+        .topbar h1 { font-size: 20px; color: #0f766e; }
+        .topbar .right { display: flex; align-items: center; gap: 10px; }
+        .user-chip { background: #ecfdf5; color: #047857; padding: 6px 12px; border-radius: 20px; font-size: 13px; }
+        .delegation-pill { display: flex; align-items: center; gap: 6px; font-size: 13px; }
+        .delegation-pill select { padding: 5px 8px; border-radius: 8px; border: 1px solid #cbd5e1; font-size: 13px; }
+        button {
+            cursor: pointer; border: none; border-radius: 10px; padding: 9px 16px;
+            font-size: 14px; font-weight: 600; transition: opacity .15s;
+        }
+        button:hover { opacity: .85; }
+        button.primary { background: #0f766e; color: #fff; }
+        button.secondary { background: #e2e8f0; color: #334155; }
+        button.link { background: transparent; color: #2563eb; padding: 4px 8px; }
+        button.danger { background: #fee2e2; color: #b91c1c; }
+        button:disabled { opacity: .5; cursor: not-allowed; }
+
+        .card {
+            background: #fff; border-radius: 16px; padding: 20px 22px;
+            box-shadow: 0 6px 20px rgba(0,0,0,0.08); margin-bottom: 18px;
+        }
+        .card h2 { font-size: 16px; margin-bottom: 14px; color: #0f766e; display: flex; align-items: center; gap: 8px; }
+        .muted { color: #64748b; font-size: 13px; }
+
+        /* login */
+        #loginView { max-width: 420px; margin: 60px auto; }
+        .auth-card { background: #fff; border-radius: 18px; padding: 30px; box-shadow: 0 20px 60px rgba(0,0,0,0.2); }
+        .auth-card h2 { text-align: center; margin-bottom: 6px; color: #0f766e; }
+        .auth-card .sub { text-align: center; color: #64748b; font-size: 13px; margin-bottom: 20px; }
+        .auth-tabs { display: flex; background: #f1f5f9; border-radius: 10px; margin-bottom: 18px; overflow: hidden; }
+        .auth-tabs button { flex: 1; background: transparent; color: #64748b; border-radius: 0; padding: 10px; }
+        .auth-tabs button.on { background: #0f766e; color: #fff; }
+
+        /* form */
+        .grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 14px; }
+        .grid .full { grid-column: 1 / -1; }
+        .field { display: flex; flex-direction: column; gap: 5px; }
+        .field label { font-size: 13px; color: #475569; font-weight: 500; }
+        .field input, .field select {
+            padding: 9px 11px; border: 1px solid #cbd5e1; border-radius: 9px; font-size: 14px; width: 100%;
+        }
+        .field input:focus, .field select:focus { outline: none; border-color: #0f766e; }
+        .appliance-chips { display: flex; flex-wrap: wrap; gap: 8px; }
+        .chip {
+            border: 1px solid #cbd5e1; border-radius: 18px; padding: 6px 13px; font-size: 13px;
+            cursor: pointer; user-select: none; background: #fff;
+        }
+        .chip.on { background: #0f766e; color: #fff; border-color: #0f766e; }
+
+        /* plan card */
+        .action-item { border: 1px solid #e2e8f0; border-radius: 12px; padding: 13px 15px; margin-bottom: 11px; }
+        .action-item .head { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
+        .action-item .title { font-weight: 600; font-size: 14px; }
+        .badge { font-size: 11px; padding: 3px 9px; border-radius: 12px; white-space: nowrap; }
+        .badge.electricity { background: #dbeafe; color: #1d4ed8; }
+        .badge.water { background: #cffafe; color: #0e7490; }
+        .badge.gas { background: #fef3c7; color: #b45309; }
+        .badge.diff1 { background: #dcfce7; color: #15803d; }
+        .badge.diff2 { background: #fef9c3; color: #a16207; }
+        .badge.diff3 { background: #fee2e2; color: #b91c1c; }
+        .action-item .desc { font-size: 13px; color: #475569; margin: 7px 0; }
+        .action-item .meta { font-size: 12px; color: #64748b; display: flex; flex-wrap: wrap; gap: 12px; }
+        .action-item .saving { color: #047857; font-weight: 600; }
+        .action-item .source { color: #94a3b8; font-size: 11px; margin-top: 7px; }
+        .complete-bar { display: flex; gap: 6px; margin-top: 9px; }
+        .complete-bar button { padding: 5px 12px; font-size: 12px; border-radius: 8px; }
+        .complete-bar button.full { background: #16a34a; color: #fff; }
+        .complete-bar button.partial { background: #eab308; color: #fff; }
+        .complete-bar button.none { background: #e2e8f0; color: #475569; }
+
+        .total-bar {
+            display: flex; gap: 16px; flex-wrap: wrap; margin: 12px 0;
+            background: #f0fdf4; border-radius: 12px; padding: 14px;
+        }
+        .total-bar .stat { font-size: 13px; color: #475569; }
+        .total-bar .stat b { display: block; font-size: 20px; color: #047857; }
+
+        .today-card { background: linear-gradient(135deg, #0f766e, #115e59); color: #fff; border-radius: 15px; padding: 18px 20px; margin-bottom: 16px; }
+        .today-card .goal { font-size: 17px; font-weight: 700; margin-bottom: 10px; }
+        .today-card .reminder { background: rgba(255,255,255,0.12); border-radius: 9px; padding: 9px 12px; font-size: 13px; margin-top: 10px; }
+        .today-card .meta-line { font-size: 12px; opacity: .85; margin-top: 8px; }
+
+        .variants { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px,1fr)); gap: 14px; }
+        .variant { border: 2px solid #e2e8f0; border-radius: 12px; padding: 14px; cursor: pointer; }
+        .variant.on { border-color: #0f766e; }
+        .variant h4 { margin-bottom: 6px; }
+        .variant .vaction { font-size: 12px; color: #475569; list-style: none; padding-left: 0; }
+        .variant .vaction li { border-bottom: 1px dashed #e2e8f0; padding: 4px 0; }
+
+        .stat-grid { display: grid; grid-template-columns: repeat(4,1fr); gap: 12px; }
+        .stat-grid .st { background: #f8fafc; border-radius: 12px; padding: 14px; text-align: center; }
+        .stat-grid .st b { display: block; font-size: 22px; color: #0f766e; }
+        .stat-grid .st span { font-size: 12px; color: #64748b; }
+        .trend { margin-top: 14px; }
+        .trend .bars { display: flex; align-items: flex-end; gap: 3px; height: 90px; }
+        .trend .bar { flex: 1; background: linear-gradient(180deg,#34d399,#0f766e); border-radius: 3px 3px 0 0; min-width: 4px; }
+        .trend .bar.empty { background: #e2e8f0; }
+        .trend .xlabels { display: flex; gap: 3px; font-size: 10px; color: #94a3b8; }
+
+        .tabs { display: flex; gap: 8px; background: #fff; padding: 8px; border-radius: 14px; margin-bottom: 16px; box-shadow: 0 4px 14px rgba(0,0,0,0.06); }
+        .tabs button { flex: 1; background: transparent; color: #64748b; border-radius: 10px; padding: 10px; }
+        .tabs button.on { background: #0f766e; color: #fff; }
+
+        .notice { border-radius: 10px; padding: 12px 14px; font-size: 13px; margin-bottom: 12px; }
+        .notice.warn { background: #fef3c7; color: #92400e; }
+        .notice.err { background: #fee2e2; color: #991b1b; }
+        .notice.ok { background: #dcfce7; color: #166534; }
+        .hidden { display: none !important; }
+        .row-actions { display: flex; gap: 6px; margin-top: 10px; }
+        @media (max-width: 640px){ .grid{grid-template-columns:1fr;} .stat-grid{grid-template-columns:repeat(2,1fr);} }
+    </style>
+</head>
+<body>
+<div class="wrap">
+    <!-- ===== 登录 / 注册视图 ===== -->
+    <div id="loginView">
+        <div class="auth-card">
+            <h2>🌱 家庭节能规划</h2>
+            <div class="sub">登录后建立你的家庭画像，AI 给你节水/节电/节气方案</div>
+            <div class="auth-tabs">
+                <button id="tabLogin" class="on">登录</button>
+                <button id="tabRegister">注册</button>
+            </div>
+            <div class="field" style="margin-bottom:14px;">
+                <label>用户名</label>
+                <input id="authUser" placeholder="用户名（3-20位字母数字）" autocomplete="username">
+            </div>
+            <div class="field" style="margin-bottom:20px;">
+                <label>密码</label>
+                <input id="authPass" type="password" placeholder="密码（至少6位）" autocomplete="current-password">
+            </div>
+            <button class="primary" id="authBtn" style="width:100%;">登录</button>
+            <p id="authMsg" class="muted" style="margin-top:12px; text-align:center;"></p>
+            <div style="margin-top:16px; text-align:center;">
+                <a href="/" style="color:#2563eb; font-size:13px; text-decoration:none;">← 返回主对话</a>
+            </div>
+        </div>
+    </div>
+
+    <!-- ===== 主仪表盘视图 ===== -->
+    <div id="appView" class="hidden">
+        <div class="topbar">
+            <h1>🌿 家庭节能规划</h1>
+            <div class="right">
+                <span class="user-chip" id="userChip">-</span>
+                <label class="delegation-pill">委托级别
+                    <select id="delegationSel" title="AI 自主程度：0全自动 / 1默认自动 / 2多方案 / 3只看不存">
+                        <option value="1">1 · 默认自动</option>
+                        <option value="0">0 · 全自动</option>
+                        <option value="2">2 · 多方案</option>
+                        <option value="3">3 · 只看不存</option>
+                    </select>
+                </label>
+                <button class="danger" id="logoutBtn">登出</button>
+            </div>
+        </div>
+
+        <div class="tabs">
+            <button class="on" data-tab="profile">① 家庭画像</button>
+            <button data-tab="plan">② 节能方案</button>
+            <button data-tab="today">③ 今日行动</button>
+            <button data-tab="stats">④ 我的节能</button>
+        </div>
+
+        <div id="notice" class="hidden"></div>
+
+        <!-- ===== Tab 1: 画像 ===== -->
+        <section class="tab-panel" id="panel-profile">
+            <div class="card">
+                <h2>🏠 你家的情况</h2>
+                <div class="grid">
+                    <div class="field"><label>家庭人数</label><input id="f-familySize" type="number" placeholder="可暂不填写" min="1"></div>
+                    <div class="field"><label>住房面积 (m²)</label><input id="f-homeSize" type="number" placeholder="可暂不填写" min="10"></div>
+                    <div class="field"><label>所在城市</label>
+                        <select id="f-city"><option value="">暂不确定</option>
+                            <option value="beijing">北京</option>
+                            <option value="shanghai">上海</option>
+                            <option value="guangzhou">广州</option>
+                            <option value="shenzhen">深圳</option>
+                            <option value="chengdu">成都</option>
+                            <option value="hangzhou">杭州</option>
+                            <option value="nanjing">南京</option>
+                            <option value="wuhan">武汉</option>
+                            <option value="changsha">长沙</option>
+                            <option value="chongqing">重庆</option>
+                            <option value="xian">西安</option>
+                            <option value="tianjin">天津</option>
+                            <option value="zhengzhou">郑州</option>
+                            <option value="qingdao">青岛</option>
+                        </select>
+                    </div>
+                    <div class="field"><label>峰谷用电</label>
+                        <select id="f-peak">
+                            <option value="mixed">混合（不确定）</option>
+                            <option value="peak">高峰偏多</option>
+                            <option value="offpeak">谷段偏多</option>
+                        </select>
+                    </div>
+                    <div class="field"><label>月电费 (元)</label><input id="f-elecBill" type="number" placeholder="可暂不填写" min="0"></div>
+                    <div class="field"><label>月水费 (元)</label><input id="f-waterBill" type="number" placeholder="可暂不填写" min="0"></div>
+                    <div class="field"><label>月燃气费 (元)</label><input id="f-gasBill" type="number" placeholder="可暂不填写" min="0"></div>
+                    <div class="field"><label>空调设定温度 (℃)</label><input id="f-acTemp" type="number" placeholder="可暂不填写" min="16" max="30"></div>
+                    <div class="field"><label>行动优先级</label><select id="f-priority"><option value="easy">少折腾</option><option value="money">省钱优先</option><option value="comfort">保持舒适</option></select></div>
+                    <div class="field"><label>是否使用燃气</label><select id="f-usesGas"><option value="">不确定</option><option value="true">使用</option><option value="false">不使用</option></select></div>
+                    <div class="field"><label>还有白炽灯吗</label><select id="f-incandescent"><option value="">不确定</option><option value="true">有</option><option value="false">没有／已用LED</option></select></div>
+                    <div class="field"><label>是否发现龙头滴漏</label><select id="f-drip"><option value="">不确定</option><option value="true">有</option><option value="false">没有</option></select></div>
+                    <details class="field full"><summary>选填：计算淋浴节水潜力</summary>
+                      <p class="muted">按每次尝试缩短1分钟计算。填写实际参数；不填写也能获得行动建议。</p>
+                      <label>每次淋浴分钟数<input id="f-showerMinutes" type="number" min="0" max="120"></label>
+                      <label>实测花洒流量（升/分钟）<input id="f-flow" type="number" min="0" max="50" step="0.1"></label>
+                      <label>每人每周淋浴次数<input id="f-frequency" type="number" min="0" max="21"></label>
+                      <label>账单水价（元/立方米）<input id="f-waterPrice" type="number" min="0" step="0.01"></label>
+                    </details>
+                    <div class="field full">
+                        <label>家中主要电器（点选）</label>
+                        <div class="appliance-chips" id="f-appliances"></div>
+                    </div>
+                </div>
+                <div class="row-actions">
+                    <button class="primary" id="saveProfileBtn">保存画像 →</button>
+                    <button class="secondary" id="loadProfileBtn">读取已有画像</button>
+                </div>
+                <div id="profileResult" class="notice hidden"></div>
+            </div>
+        </section>
+
+        <!-- ===== Tab 2: 方案 ===== -->
+        <section class="tab-panel hidden" id="panel-plan">
+            <div class="card">
+                <h2>⚡ 生成节能方案</h2>
+                <p class="muted" style="margin-bottom:12px;">根据真实设备和习惯筛选行动。数字为注明假设的年度参考，打卡不代表实测节省。</p>
+                <div class="row-actions">
+                    <button class="primary" id="genPlanBtn">生成方案</button>
+                </div>
+                <div id="planResult" class="hidden"></div>
+            </div>
+        </section>
+
+        <!-- ===== Tab 3: 今日行动 ===== -->
+        <section class="tab-panel hidden" id="panel-today">
+            <div class="card">
+                <h2>🎯 今日行动卡</h2>
+                <div id="weekResult" aria-live="polite"></div><div id="todayResult" class="hidden"></div>
+                <div class="row-actions">
+                    <button class="secondary" id="reloadTodayBtn">刷新今日卡</button><button class="secondary" id="reloadWeekBtn">刷新一周行动</button>
+                </div>
+            </div>
+        </section>
+
+        <!-- ===== Tab 4: 我的节能 ===== -->
+        <section class="tab-panel hidden" id="panel-stats">
+            <div class="card">
+                <h2>📈 节能成效</h2>
+                <div class="stat-grid" id="statsGrid"></div>
+                <div class="trend" id="trendWrap"></div>
+            </div>
+            <div class="card">
+                <h2>📋 我的节能行动（待办）</h2>
+                <div id="pendingActions"></div>
+            </div>
+            <div class="card">
+                <h2>✅ 已完成记录</h2>
+                <div id="doneActions"></div>
+            </div>
+        </section>
+    </div>
+</div>
+
+<script>
+(function(){
+"use strict";
+var API = "/api";
+var APP_LIST = ["空调","热水器","电热水器","冰箱","洗衣机","灯","燃气灶","燃气热水器"];
+var APPLIANCE_CHOICES = [
+    {label:"空调", v:"空调"},
+    {label:"电热水器", v:"电热水器"},
+    {label:"冰箱", v:"冰箱"},
+    {label:"洗衣机", v:"洗衣机"},
+    {label:"照明(LED)", v:"灯"},
+    {label:"燃气灶", v:"燃气灶"},
+    {label:"燃气热水器", v:"燃气热水器"}
+];
+var STORAGE = {token:"green_energy_token", user:"green_energy_user"};
+var state = {token:"", userId:"", username:"", usernameLogin:"", appSelected:[], tab:"profile"};
+
+function $(id){ return document.getElementById(id); }
+
+/* ========== 通用请求 ========== */
+function req(method, path, body){
+    var headers = {};
+    if (state.token) headers["Authorization"] = "Bearer " + state.token;
+    headers["Content-Type"] = "application/json";
+    var opts = { method: method, headers: headers, credentials: "same-origin" };
+    if (body !== undefined && body !== null) opts.body = JSON.stringify(body);
+    return fetch(API + path, opts).then(function(r){
+        if (r.status === 401 && state.token && path.indexOf("/auth/login") !== 0){
+            // token 失效 → 清状态回登录
+            state.token=""; state.userId=""; state.username="";
+            localStorage.removeItem("green_agent_session_id");
+    localStorage.removeItem("green_agent_account_id");
+    localStorage.removeItem("green_agent_username");
+    localStorage.removeItem(STORAGE.token);
+            localStorage.removeItem(STORAGE.user);
+            $("appView").classList.add("hidden");
+            $("loginView").classList.remove("hidden");
+            $("authMsg").textContent = "会话已过期，请重新登录";
+            return {status:401, ok:false, json:{}};
+        }
+        return r.json().catch(function(){ return {}; }).then(function(j){
+            return {status:r.status, ok:r.ok, json:j};
+        });
+    });
+}
+
+function showNotice(type, msg, el){
+    var n = el || $("notice");
+    n.className = "notice " + type;
+    n.textContent = msg;
+    n.classList.remove("hidden");
+}
+function hideNotice(el){ var n = el || $("notice"); n.classList.add("hidden"); }
+
+function safe(s){
+    // HTML 转义:后端 GUARD 提示/画像字段可能被插进 innerHTML,必须转义防 XSS
+    if (s == null) return "";
+    return String(s)
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")
+        .replace(/"/g, "&quot;")
+        .replace(/'/g, "&#39;")
+        .replace(/`/g, "&#96;");
+}
+
+/* ========== 登录 / 注册 ========== */
+function setAuthMode(mode){
+    state.usernameLogin = mode;
+    $("tabLogin").className = mode==="login" ? "on" : "";
+    $("tabRegister").className = mode==="register" ? "on" : "";
+    $("authPass").setAttribute("autocomplete", mode==="login" ? "current-password" : "new-password");
+    $("authBtn").textContent = mode==="login" ? "登录" : "注册";
+}
+$("tabLogin").addEventListener("click", function(){ setAuthMode("login"); hideNotice(null,$("authMsg")); });
+$("tabRegister").addEventListener("click", function(){ setAuthMode("register"); hideNotice(null,$("authMsg")); });
+
+$("authBtn").addEventListener("click", function(){
+    var u = $("authUser").value.trim(), p = $("authPass").value;
+    if (!u || !p){ $("authMsg").textContent = "请填写用户名和密码"; return; }
+    var ep = state.usernameLogin === "login" ? "login" : "register";
+    req("POST", "/auth/" + ep, {username:u, password:p}).then(function(res){
+        var j = res.json;
+        if (ep === "register"){
+            if (j.status === "success"){ $("authMsg").textContent = "注册成功，请登录"; setAuthMode("login"); }
+            else { $("authMsg").textContent = j.message || "注册失败"; }
+            return;
+        }
+        if (j.status === "success" && j.session_id){
+            state.token = j.session_id;
+            state.userId = j.user_id || j.account_id;
+            state.username = j.username || u;
+            localStorage.setItem(STORAGE.token, state.token);
+            localStorage.setItem(STORAGE.user, JSON.stringify(state));
+            enterApp();
+        } else {
+            $("authMsg").textContent = j.message || "登录失败";
+        }
+    });
+});
+
+function enterApp(){
+    $("loginView").classList.add("hidden");
+    $("appView").classList.remove("hidden");
+    $("userChip").textContent = safe(state.username);
+    renderApplianceChips();
+    $("delegationSel").value = "1";
+    refreshAllInitial();
+}
+
+function refreshAllInitial(){
+    loadProfile(false); loadWeek();
+}
+
+$("logoutBtn").addEventListener("click", function(){
+    var sid = state.token;
+    if (sid) req("POST", "/auth/logout", {session_id: sid});
+    state.token = ""; state.userId = ""; state.username = "";
+    localStorage.removeItem("green_agent_session_id");
+    localStorage.removeItem("green_agent_account_id");
+    localStorage.removeItem("green_agent_username");
+    localStorage.removeItem(STORAGE.token);
+    localStorage.removeItem(STORAGE.user);
+    $("appView").classList.add("hidden");
+    $("loginView").classList.remove("hidden");
+});
+
+/* ========== 委托级别 ========== */
+$("delegationSel").addEventListener("change", function(){
+    var lv = Number($("delegationSel").value);
+    req("POST", "/household/delegation", {new_level: lv}).then(function(res){
+        if (res.json && res.json.ok){ showNotice("ok", "已设为「" + (res.json.label || lv) + "」"); }
+        else showNotice("warn", "设置失败：" + (res.json.message || ""));
+    });
+});
+
+/* ========== Tab 切换 ========== */
+document.querySelectorAll(".tabs button").forEach(function(b){
+    b.addEventListener("click", function(){
+        state.tab = b.getAttribute("data-tab");
+        document.querySelectorAll(".tabs button").forEach(function(x){ x.classList.remove("on"); });
+        b.classList.add("on");
+        document.querySelectorAll(".tab-panel").forEach(function(p){ p.classList.add("hidden"); });
+        $("panel-" + state.tab).classList.remove("hidden");
+        hideNotice();
+        if (state.tab === "plan"){ genPlan(false); }
+        if (state.tab === "today"){ loadToday(); }
+        if (state.tab === "stats"){ loadStats(); loadPending(); loadDone(); }
+    });
+});
+
+/* ========== 家电 chips ========== */
+function renderApplianceChips(){
+    var box = $("f-appliances"); box.innerHTML = "";
+    APPLIANCE_CHOICES.forEach(function(c){
+        var el = document.createElement("span");
+        el.className = "chip" + (state.appSelected.indexOf(c.v) >= 0 ? " on" : "");
+        el.textContent = c.label;
+        el.dataset.v = c.v;
+        el.addEventListener("click", function(){
+            var idx = state.appSelected.indexOf(c.v);
+            if (idx >= 0) state.appSelected.splice(idx,1); else state.appSelected.push(c.v);
+            renderApplianceChips();
+        });
+        box.appendChild(el);
+    });
+}
+
+/* ========== 画像 ========== */
+function optionalNumber(id){ return $(id).value.trim() === "" ? null : Number($(id).value); }
+function optionalBool(id){ return $(id).value === "" ? null : $(id).value === "true"; }
+function collectProfile(){
+    return {user_id: state.userId, family_size: optionalNumber("f-familySize"),
+        home_size_sqm: optionalNumber("f-homeSize"), city: $("f-city").value,
+        monthly_electricity_bill: optionalNumber("f-elecBill"), monthly_water_bill: optionalNumber("f-waterBill"),
+        monthly_gas_bill: optionalNumber("f-gasBill"), appliances: state.appSelected.slice(),
+        peak_offpeak_usage: $("f-peak").value, ac_temp_setting: optionalNumber("f-acTemp"),
+        priority: $("f-priority").value, uses_gas: optionalBool("f-usesGas"),
+        has_incandescent: optionalBool("f-incandescent"), has_drip: optionalBool("f-drip"),
+        shower_minutes: optionalNumber("f-showerMinutes"), shower_flow_lpm: optionalNumber("f-flow"),
+        showers_per_person_week: optionalNumber("f-frequency"), water_price_per_m3: optionalNumber("f-waterPrice"),
+        delegation_level: Number($("delegationSel").value)};
+}
+
+function fillProfileForm(p){
+    if (!p) return;
+    if (p.family_size != null) $("f-familySize").value = p.family_size;
+    if (p.home_size_sqm != null) $("f-homeSize").value = p.home_size_sqm;
+    if (p.city) $("f-city").value = "beijing"; // select value by matching below
+    var cityVal = p.city || "";
+    var CITY_VALS = ["beijing","shanghai","guangzhou","shenzhen","chengdu","hangzhou","nanjing","wuhan","changsha","chongqing","xian","tianjin","zhengzhou","qingdao"];
+    if (CITY_VALS.indexOf(cityVal) < 0) cityVal = "";
+    $("f-city").value = cityVal;
+    if (p.peak_offpeak_usage) $("f-peak").value = p.peak_offpeak_usage;
+    if (p.monthly_electricity_bill != null) $("f-elecBill").value = p.monthly_electricity_bill;
+    if (p.monthly_water_bill != null) $("f-waterBill").value = p.monthly_water_bill;
+    if (p.monthly_gas_bill != null) $("f-gasBill").value = p.monthly_gas_bill;
+    if (p.ac_temp_setting != null) $("f-acTemp").value = p.ac_temp_setting;
+    if (p.delegation_level != null) $("delegationSel").value = String(p.delegation_level);
+    $("f-priority").value = p.priority || "easy";
+    [["f-usesGas","uses_gas"],["f-incandescent","has_incandescent"],["f-drip","has_drip"],
+     ["f-showerMinutes","shower_minutes"],["f-flow","shower_flow_lpm"],
+     ["f-frequency","showers_per_person_week"],["f-waterPrice","water_price_per_m3"]].forEach(function(pair){
+       $(pair[0]).value = p[pair[1]] == null ? "" : String(p[pair[1]]);
+    });
+    state.appSelected = Array.isArray(p.appliances) ? p.appliances.slice() : [];
+    renderApplianceChips();
+}
+
+$("loadProfileBtn").addEventListener("click", function(){ loadProfile(true); });
+
+function loadProfile(showResult, done){
+    req("GET", "/energy/profile").then(function(res){
+        var j = res.json || {};
+        if (j.ok && j.profile){
+            fillProfileForm(j.profile);
+            if (showResult){ showNotice("ok", "已加载已有家庭画像"); }
+        } else {
+            if (showResult){ showNotice("warn", "还没有保存过画像，请填写后点「保存画像」"); }
+        }
+        if (done) done();
+    });
+}
+
+$("saveProfileBtn").addEventListener("click", function(){
+    var p = collectProfile();
+    req("POST", "/energy/profile", p).then(function(res){
+        var j = res.json || {};
+        var slot = $("profileResult");
+        slot.classList.remove("hidden");
+        if (j.ok === false){ slot.className="notice err"; slot.textContent = j.message || "保存失败"; return; }
+        if (j.echo_only){ slot.className="notice warn"; slot.textContent = "（级别3）面板仅回显，未持久化"; return; }
+        if (j.variant_mode){ slot.className="notice ok"; slot.textContent = "（级别2）已生成多个画像变体，请在下方选择"; renderProfileVariants(j.variants); return; }
+        slot.className="notice ok";
+        slot.textContent = "已保存 ✅ " + (j.message || "");
+        if (j.profile){ $("profileResult").textContent = "已保存 ✅ 家庭画像：" + (j.profile.family_size||"") + "人 / " + (j.profile.city||"") + " / " + (j.profile.appliances||[]).join("、"); }
+    });
+});
+
+function renderProfileVariants(variants){
+    if (!variants || !variants.length){ return; }
+    var box = $("profileResult");
+    var html = "";
+    variants.forEach(function(v, i){
+        html += '<div class="variant" data-v="'+v.variant_id+'"><h4>'+safe(v.title)+'</h4><p class="muted">'+safe(v.description)+'</p></div>';
+    });
+    box.innerHTML = html;
+    box.querySelectorAll(".variant").forEach(function(el){
+        el.addEventListener("click", function(){
+            box.querySelectorAll(".variant").forEach(function(x){ x.classList.remove("on"); });
+            el.classList.add("on");
+            var vid = el.getAttribute("data-v");
+            // 选中变体 → 用该变体的 profile 重新保存
+            bindProfileVariant(vid);
+        });
+    });
+}
+
+function bindProfileVariant(variantId){
+    var p = collectProfile(); p.priority = variantId; p.confirm_profile = true;
+    req("POST", "/energy/profile", p).then(function(res){
+        if(res.json && res.json.persisted){ $("f-priority").value=variantId; genPlan(true); }
+        else showNotice("warn",(res.json||{}).message||"保存失败");
+    });
+}
+
+/* ========== 方案 ========== */
+$("genPlanBtn").addEventListener("click", function(){ genPlan(true); });
+
+function genPlan(showInfo){
+    var p = collectProfile();
+    return req("POST", "/energy/plan", {profile: p}).then(renderPlanResponse);
+}
+
+function renderPlanResponse(res){
+    var j = res.json || {};
+    var box = $("planResult");
+    box.classList.remove("hidden");
+    if (res.status >= 400 || j.ok === false && !j.blocked){ box.textContent=j.message||"请求失败，请重试"; return; }
+    if (j.blocked){
+        box.innerHTML = '<div class="notice warn">⚠️ ' + safe(j.warning || j.message || "画像不完整") + '</div>';
+        return;
+    }
+    if (j.variant_mode || (j.variants && j.variants.length)){
+        box.innerHTML = '<div class="notice ok">（级别2）请选择一个方案：</div><div class="variants">' +
+            (j.variants||[]).map(function(v,i){
+                return '<div class="variant" data-vi="'+i+'"><h4>'+safe(v.title)+'</h4><p class="muted">'+safe(v.description)+'</p><ul class="vaction">'+
+                    (v.actions||[]).map(function(a){ return '<li>'+safe(a.title)+'</li>'; }).join("")+
+                    '</ul><div class="total-bar"><div class="stat"><b>¥'+safe(v.total_estimated_saving_cny)+'</b>年度参考</div></div></div>';
+            }).join("") + '</div>';
+        box.querySelectorAll(".variant").forEach(function(el){
+            el.addEventListener("click", function(){
+                box.querySelectorAll(".variant").forEach(function(x){ x.classList.remove("on"); });
+                el.classList.add("on");
+                var vi = parseInt(el.getAttribute("data-vi"),10);
+                var chosen = (j.variants||[])[vi];
+                if (chosen && chosen.actions && chosen.actions.length){
+                    req("POST", "/energy/plan", {profile:collectProfile(),variant_id:chosen.variant_id}).then(renderPlanResponse);
+                }
+            });
+        });
+        return;
+    }
+    if (j.echo_only){
+        box.innerHTML = '<div class="notice warn">（级别3）仅查看，未保存</div>' + renderPlanHtml((j.plan&&j.plan.actions)||[], j.plan&&j.plan.total_estimated_saving_cny, j.plan&&j.plan.total_estimated_saving_co2_kg);
+        if (j.today_card) renderTodayInto(box, j.today_card);
+        return;
+    }
+    var plan = j.plan || {};
+    state.planId = plan.id;
+    box.innerHTML = renderPlanHtml(plan.actions, plan.total_estimated_saving_cny, plan.total_estimated_saving_co2_kg) +
+        (j.status ? '<p class="muted">状态：' + safe(j.status) + (j.confirmation_required ? "（待你激活）":"（已激活）") + '</p>' : "");
+    if (plan.id && plan.actions && plan.actions.length){
+        box.insertAdjacentHTML("beforeend", '<p>选1—3件开始本周行动：</p>' + plan.actions.map(function(a,i){
+            return '<label style="display:block"><input type="checkbox" class="weekPick" value="'+safe(a.id)+'" '+(i===0?'checked':'')+'> '+safe(a.title)+'</label>';
+        }).join('') + '<button id="startWeekBtn" class="primary">开始一周行动</button>');
+        $("startWeekBtn").onclick = function(){
+            var ids = Array.from(box.querySelectorAll('.weekPick:checked')).map(function(e){return e.value;});
+            req("POST", "/energy/week", {plan_id: state.planId, action_ids: ids}).then(function(r){
+                if (!r.json || !r.json.ok){ showNotice("warn", (r.json||{}).message || "开始失败"); return; }
+                showNotice("ok", "已开始，请到今日行动记录感受"); loadWeek();
+            }).catch(function(){showNotice("warn","网络异常，请重试");});
+        };
+    }
+    if (j.today_card) renderTodayInto($("todayResult"), j.today_card);
+}
+
+function renderPlanHtml(actions, totalCny, totalCo2){
+    actions = actions || [];
+    if (!actions.length) return '<p class="muted">当前条件下没有适用的新行动。可以保持已有习惯，或补充设备信息。</p>';
+    var sumCny = totalCny != null ? totalCny : actions.reduce(function(s,a){return s+(+a.estimated_saving_cny||0);},0);
+    var sumCo2 = totalCo2 != null ? totalCo2 : actions.reduce(function(s,a){return s+(+a.estimated_saving_co2_kg||0);},0);
+    var catMn = {electricity:"节电", water:"节水", gas:"节气"};
+    var html = '<div class="total-bar"><div class="stat"><b>¥' + (+sumCny).toFixed(1) + '</b>年度参考省</div>' +
+        '<div class="stat"><b>' + (+sumCo2).toFixed(1) + ' kg</b>年度参考减 CO₂</div>' +
+        '<div class="stat"><b>' + actions.length + '</b>项行动</div></div>';
+    actions.forEach(function(a){
+        var c = catMn[a.category] || a.category;
+        html += '<div class="action-item">' +
+            '<div class="head"><span class="title">'+safe(a.title)+'</span>' +
+            '<span class="badge '+safe(a.category)+'">'+safe(c)+'</span> ' +
+            '<span class="badge diff'+(a.difficulty||1)+'">难度'+(a.difficulty||1)+'</span></div>' +
+            '<div class="desc">'+safe(a.description)+'</div><p class="muted">'+safe(a.estimate_note || '旧方案周期未核验')+'</p>' +
+            '<div class="meta">' +
+            '<span class="saving">'+(a.estimate_kind==='qualitative'?'暂不估算金额':'¥'+safe(a.estimated_saving_cny)+' / 年（参考）')+'</span>' +
+            '<span>'+(a.estimated_saving_kwh? safe(a.estimated_saving_kwh)+" kWh":"")+'</span>' +
+            '<span>'+(a.estimated_saving_co2_kg? safe(a.estimated_saving_co2_kg)+" kg CO₂":"")+'</span>' +
+            '<span>⏰ '+safe(a.when_to_do)+'</span></div>' +
+            '<div class="complete-bar">' +
+            '<button class="full" data-act="'+safe(a.id)+'" data-plan="'+safe(a.id)+'" onclick="markComplete(event,\'full\')">✔ 全做</button>' +
+            '<button class="partial" data-act="'+safe(a.id)+'" onclick="markComplete(event,\'partial\')">◐ 部分</button>' +
+            '<button class="none" data-act="'+safe(a.id)+'" onclick="markComplete(event,\'none\')">✘ 未做</button>' +
+            '</div>' +
+            (a.source_ref? '<div class="source">来源：'+safe(a.source_ref)+'</div>':"") +
+            '</div>';
+    });
+    return html;
+}
+
+window.markComplete = function(ev, level){
+    ev.stopPropagation();
+    var actionId = ev.currentTarget.getAttribute("data-act");
+    req("GET", "/energy/week").then(function(res){
+        var week=(res.json||{}).week;
+        if(!week){showNotice("warn","先选择开始一周行动");return;}
+        return req("POST", "/energy/week/feedback", {week_id:week.week_id,action_id:actionId,level:level,barrier:"none"}).then(function(r){
+            if(r.json && r.json.ok){showNotice("ok","执行情况已记录；可在一周行动中补充困难原因");loadWeek();}
+            else showNotice("warn",(r.json||{}).message||"记录失败");
+        });
+    }).catch(function(){showNotice("warn","网络异常，请重试");});
+};
+
+/* ========== 今日卡 ========== */
+function loadToday(){
+    req("GET", "/energy/today").then(function(res){
+        var j = res.json || {};
+        if (j.blocked){ $("todayResult").className="notice warn"; $("todayResult").textContent = "⚠️ " + safe(j.warning||"画像不完整"); $("todayResult").classList.remove("hidden"); return; }
+        renderTodayInto($("todayResult"), j.today_card);
+    });
+}
+$("reloadTodayBtn").addEventListener("click", loadToday);
+
+function renderTodayInto(box, card){
+    box.classList.remove("hidden");
+    if (!card){ box.innerHTML = '<p class="muted">今天还没有行动卡，先生成方案吧。</p>'; return; }
+    var html = '<div class="today-card"><div class="goal">🎯 ' + safe(card.goal) + '</div>';
+    (card.actions||[]).forEach(function(a){
+        html += '<div class="action-item" style="background:rgba(255,255,255,0.08);border-color:rgba(255,255,255,0.2);">' +
+            '<div class="head"><span class="title">'+safe(a.title)+'</span><span class="badge diff'+(a.difficulty||1)+'">难度'+(a.difficulty||1)+'</span></div>' +
+            '<div class="meta"><span>⏰ '+safe(a.when_to_do)+'</span><span class="saving">年度参考见方案</span></div>' +
+            '<div class="complete-bar">' +
+            '<button class="full" data-act="'+safe(a.id)+'" onclick="markComplete(event,\'full\')">✔ 全做</button>' +
+            '<button class="partial" data-act="'+safe(a.id)+'" onclick="markComplete(event,\'partial\')">◐ 部分</button>' +
+            '<button class="none" data-act="'+safe(a.id)+'" onclick="markComplete(event,\'none\')">✘ 未做</button></div></div>';
+    });
+    html += '</div>';
+    if (card.reminder) html += '<div class="today-card" style="margin-top:10px;background:rgba(245,158,11,0.15);color:#92400e;">⚠️ 提醒：'+safe(card.reminder)+'</div>';
+    if (card.when_to_do) html += '<p class="muted">⏳ '+safe(card.when_to_do)+' · 判定：'+safe(card.judge)+'</p>';
+    box.innerHTML = html;
+}
+
+/* ========== 统计 ========== */
+function loadStats(){
+    req("GET", "/energy/stats?period=week").then(function(res){
+        var j = res.json || {};
+        var grid = $("statsGrid");
+        grid.innerHTML =
+            statBox(j.completions_count, "历史打卡次数") +
+            statBox(j.streak_days, "连续打卡 (天)");
+        $("trendWrap").textContent = "尚无实测节能数据。打卡不换算成实际节省。";
+        loadWeek();
+    });
+}
+function statBox(v, label){ return '<div class="st"><b>'+safe(Number(v||0).toFixed(1))+'</b><span>'+safe(label)+'</span></div>'; }
+function renderTrend(trend){
+    var wrap = $("trendWrap");
+    wrap.innerHTML = '<h3 class="muted" style="margin:6px 0 8px;">近7天趋势（元）</h3><div class="bars"></div><div class="xlabels"></div>';
+    if (!trend || !trend.length){ wrap.innerHTML = '<p class="muted">近7天还没有记录。</p>'; return; }
+    var max = Math.max.apply(null, trend.map(function(t){return t.cny||0;}).concat([1]));
+    var bars = wrap.querySelector(".bars"), labels = wrap.querySelector(".xlabels");
+    trend.forEach(function(t){
+        var h = Math.max(4, Math.round(((t.cny||0)/max)*84));
+        var bar = document.createElement("div");
+        bar.className = "bar" + (t.cny ? "" : " empty");
+        bar.style.height = h + "px";
+        bars.appendChild(bar);
+        var lab = document.createElement("div");
+        lab.textContent = (t.date||"").slice(5);
+        labels.appendChild(lab);
+    });
+}
+
+/* ========== 待办 / 历史 ========== */
+function loadPending(){
+    req("GET", "/energy/actions?status=pending").then(function(res){
+        var j = res.json || {};
+        var items = j.items || [];
+        var box = $("pendingActions");
+        if (!items.length){ box.innerHTML = '<p class="muted">暂无待办（先生成方案并激活）。</p>'; return; }
+        box.innerHTML = items.map(function(a){
+            return '<div class="action-item"><div class="head"><span class="title">'+safe(a.title)+'</span>' +
+                '<span class="badge '+safe(a.category)+'">'+safe(a.category)+'</span>' +
+                (a.status==="done_today"?'<span class="badge diff1">今日已完成</span>':"")+'</div>' +
+                '<div class="meta"><span>⏰ '+safe(a.when_to_do)+'</span><span class="saving">年度参考见方案</span></div>' +
+                '<div class="complete-bar">' +
+                '<button class="full" data-act="'+safe(a.action_id)+'" onclick="markComplete(event,\'full\')">✔ 全做</button>' +
+                '<button class="partial" data-act="'+safe(a.action_id)+'" onclick="markComplete(event,\'partial\')">◐ 部分</button>' +
+                '<button class="none" data-act="'+safe(a.action_id)+'" onclick="markComplete(event,\'none\')">✘ 未做</button></div></div>';
+        }).join("");
+    });
+}
+function loadDone(){
+    req("GET", "/energy/actions?status=done").then(function(res){
+        var j = res.json || {};
+        var items = j.items || [];
+        var box = $("doneActions");
+        if (!items.length){ box.innerHTML = '<p class="muted">还没有完成记录。</p>'; return; }
+        var lv = {full:"✔ 全做", partial:"◐ 部分", none:"✘ 未做"};
+        box.innerHTML = items.map(function(a){
+            return '<div class="action-item"><div class="head"><span class="title">'+safe(a.action_id)+'</span>' +
+                '<span class="badge diff1">'+safe(lv[a.completion_level]||a.completion_level)+'</span></div>' +
+                '<div class="meta"><span>📅 '+safe(a.action_date)+'</span></div></div>';
+        }).join("");
+    });
+}
+
+function loadWeek(){
+    return req("GET", "/energy/week").then(function(res){
+        var box = $("weekResult"), week = (res.json||{}).week;
+        box.replaceChildren();
+        var heading = document.createElement("h3"); heading.textContent = "一周节能行动"; box.appendChild(heading);
+        if (!week){ var p=document.createElement("p"); p.textContent="先在方案页选1—3件行动开始。"; box.appendChild(p); return; }
+        var summary=document.createElement("p"); summary.textContent=week.start_date+" 至 "+week.end_date+" · "+week.summary; box.appendChild(summary);
+        week.actions.forEach(function(a){
+            var row=document.createElement("div"); row.className="action-item";
+            var title=document.createElement("strong"); title.textContent=a.title; row.appendChild(title);
+            var level=document.createElement("select");
+            [["full","全做"],["partial","部分完成"],["none","没做"]].forEach(function(v){level.add(new Option(v[1],v[0]));});
+            var reason=document.createElement("select");
+            [["none","无困难"],["comfort","影响舒适"],["family","家人不同意"],["unsupported","设备不支持"],["forgot","忘记了"],["already","本来就在做"]].forEach(function(v){reason.add(new Option(v[1],v[0]));});
+            var dateInput=document.createElement("input"); dateInput.type="date"; dateInput.min=week.start_date;
+            var today=new Date(), localDay=today.getFullYear()+"-"+String(today.getMonth()+1).padStart(2,'0')+"-"+String(today.getDate()).padStart(2,'0');
+            dateInput.max=localDay < week.end_date ? localDay : week.end_date; dateInput.value=dateInput.max;
+            level.setAttribute("aria-label","完成情况"); reason.setAttribute("aria-label","困难原因"); dateInput.setAttribute("aria-label","行动日期");
+            var previous=week.entries.find(function(e){return e.action_id===a.id && e.date===dateInput.value;});
+            if(previous){level.value=previous.level;reason.value=previous.barrier;}
+            var save=document.createElement("button"); save.textContent="保存反馈"; save.className="secondary";
+            save.onclick=function(){save.disabled=true;req("POST","/energy/week/feedback",{week_id:week.week_id, action_id:a.id, level:level.value, barrier:reason.value, action_date:dateInput.value}).then(function(r){
+                if(!r.json || !r.json.ok){showNotice("warn",(r.json||{}).message||"保存失败");return;}
+                loadWeek();
+            }).catch(function(){showNotice("warn","网络异常，请重试");}).finally(function(){save.disabled=false;});};
+            row.append(level,reason,dateInput,save); box.appendChild(row);
+        });
+        week.next_week_suggestions.forEach(function(text){var p=document.createElement("p");p.textContent=text;box.appendChild(p);});
+    }).catch(function(){showNotice("warn","一周行动暂时无法读取，请重试");});
+}
+$("reloadWeekBtn").addEventListener("click",loadWeek);
+
+/* ========== 初始化 ========== */
+function init(){
+    var mainToken = localStorage.getItem("green_agent_session_id");
+    var mainUser = localStorage.getItem("green_agent_user_id");
+    if (mainToken && mainUser) {
+        state.token = mainToken; state.userId = mainUser;
+        state.username = localStorage.getItem("green_agent_username") || "用户";
+        enterApp(); return;
+    }
+    var savedTok = localStorage.getItem(STORAGE.token);
+    var savedUser = localStorage.getItem(STORAGE.user);
+    if (savedTok){
+        try{ state = Object.assign(state, JSON.parse(savedUser||"{}")); }catch(e){}
+        state.token = savedTok;
+        if (state.userId){ enterApp(); return; }
+    }
+    // 未登录
+    $("loginView").classList.remove("hidden");
+    $("appView").classList.add("hidden");
+    setAuthMode("login");
+}
+init();
+})();
+</script>
+</body>
+</html>

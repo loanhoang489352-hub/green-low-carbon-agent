@@ -25,6 +25,17 @@ mcp_servers:
     connect_timeout_s: 10.0
     request_timeout_s: 30.0
 
+  # === 真实数据 MCP server(真实天气/碳排/高德地理编码与公交) ===
+  - name: real_data_server
+    description: 真实数据 MCP — Open-Meteo 天气 / 碳排计算 / 高德地理编码与公交换乘(需 GAODE_API_KEY)
+    enabled: true
+    transport: stdio
+    command: python
+    args:
+      - scripts/mcp_real_server.py
+    connect_timeout_s: 10.0
+    request_timeout_s: 30.0
+
   # === 示例: HTTP MCP server(若起本地 mock HTTP server,可启用) ===
   # P10.B: 启动 scripts/mock_http_mcp_server.py 后,改 enabled: true
   - name: mock_http_server

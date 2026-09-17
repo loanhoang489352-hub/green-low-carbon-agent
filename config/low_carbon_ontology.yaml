@@ -1,0 +1,54 @@
+version: "1.0.0"
+namespace: "https://green-agent.local/ontology/"
+description: "绿色低碳知识与个性化服务的受控词表和关系约束"
+
+entity_types:
+  concept:
+    labels: [碳中和, 碳达峰, 碳足迹, 碳排放, 温室气体, 可再生能源, 能效]
+  action:
+    labels: [骑行, 步行, 公交, 地铁, 拼车, 节水, 节电, 节气, 回收]
+  policy:
+    labels: [政策, 补贴, 碳市场, 碳配额, 碳积分, 绿色认证]
+  metric:
+    labels: [排放因子, 碳排放量, 节能效果, 回本周期, 年省电, 年减碳]
+  location:
+    labels: [中国, 全国, 北京, 上海, 广州, 深圳]
+  transport_mode:
+    labels: [步行, 自行车, 公交车, 地铁, 私家车, 高铁, 飞机]
+  household_device:
+    labels: [空调, 冰箱, 热水器, 洗衣机, 燃气灶, 照明]
+  resource:
+    labels: [电, 水, 天然气]
+  evidence:
+    labels: [国家标准, 政府文件, 官方数据, 同行评议论文, 服务接口]
+  user_attribute:
+    labels: [家庭人数, 居住地区, 住房类型, 设备清单, 使用习惯, 行为阶段]
+
+relation_types:
+  reduces: {domain: [action], range: [concept, metric, resource]}
+  affects: {domain: [concept, policy, action], range: [concept, metric, action]}
+  applies_to: {domain: [policy], range: [location, action, household_device, transport_mode]}
+  has_factor: {domain: [transport_mode, household_device, resource], range: [metric]}
+  supported_by: {domain: [concept, policy, metric, action], range: [evidence]}
+  valid_in: {domain: [policy, metric], range: [location]}
+  personalizes: {domain: [user_attribute], range: [action, transport_mode, household_device]}
+  depends_on: {domain: [action, concept], range: [resource, household_device, concept]}
+  replaces: {domain: [action, transport_mode, household_device], range: [action, transport_mode, household_device]}
+  co_occurs: {domain: ["*"], range: ["*"]}
+
+required_provenance:
+  - source_url
+  - publisher
+  - published_at
+  - retrieved_at
+  - content_hash
+  - authority_tier
+  - valid_from
+  - valid_to
+  - validity_status
+
+authority_tiers:
+  A: [gov.cn, samr.gov.cn, stats.gov.cn, ipcc.ch, iea.org]
+  B: [edu.cn, ac.cn, doi.org]
+  C: [people.com.cn, news.cn, cnenergynews.cn]
+  D: []

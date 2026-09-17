@@ -78,13 +78,10 @@ def test_metro_polyline_also_extracted():
 
 
 def test_driving_route_has_polyline():
-    """自驾对比路线也应有 polyline(复用公交路线)"""
+    """自驾必须独立请求真实驾车路线，不能复用公交折线。"""
     content = (PROJECT_ROOT / "src/agent/tools/extended.py").read_text(encoding="utf-8")
-    # P6.S.26 fix: 重构后用 first=formatted_routes[0] 局部变量,语义不变
-    assert (
-        "\"polyline\": first.get(\"polyline\")" in content
-        or "\"polyline\": formatted_routes[0].get(\"polyline\")" in content
-    ), "自驾路线必须复用首条公交路线的 polyline"
+    assert 'https://restapi.amap.com/v3/direction/driving' in content
+    assert '"polyline": first.get("polyline")' not in content
 
 
 # ---------------------------------------------------------------------------
@@ -211,6 +208,5 @@ def test_real_amap_transit_route():
     first_route = result["routes"][0]
     assert first_route.get("polyline"), "Bug1 修复后,polyline 必须非空"
 
-    # cost_yuan 必须是数字
-    assert isinstance(first_route.get("cost_yuan"), (int, float))
-    assert first_route["cost_yuan"] >= 0
+    # 票价可能由提供方返回，也可能明确为未知；未知不能伪装成 0 元。
+    assert first_route.get("cost_yuan") is None or isinstance(first_route["cost_yuan"], (int, float))

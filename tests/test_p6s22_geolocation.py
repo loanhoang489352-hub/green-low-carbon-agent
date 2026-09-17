@@ -7,10 +7,41 @@ P6.S.22 测试: 3 层 fallback 定位
 import sys
 import os
 import json
+import uuid
 import urllib.request
 import urllib.error
 
 sys.path.insert(0, str(__file__).replace("\\", "/").replace("tests/test_p6s22_geolocation.py", "src"))
+
+_AUTH = {"token": None}
+
+
+def _raw_post(url, data):
+    """原始 POST(不加 auth 头),用于 register/login 自身,避免递归"""
+    req = urllib.request.Request(
+        url, data=json.dumps(data).encode(),
+        headers={"Content-Type": "application/json"}, method="POST",
+    )
+    try:
+        resp = urllib.request.urlopen(req, timeout=30)
+        return resp.status, json.loads(resp.read())
+    except urllib.error.HTTPError as e:
+        return e.code, json.loads(e.read().decode("utf-8", errors="ignore"))
+
+
+def _auth_token():
+    """懒登录一个测试用户,返回 session_id(带 Authorization 头用)"""
+    if _AUTH["token"]:
+        return _AUTH["token"]
+    uname = "u_" + uuid.uuid4().hex[:10]
+    try:
+        _raw_post("http://localhost:8000/api/auth/register", {"username": uname, "password": "testpass123"})
+    except Exception:
+        pass
+    code, body = _raw_post("http://localhost:8000/api/auth/login", {"username": uname, "password": "testpass123"})
+    if code == 200 and body.get("session_id"):
+        _AUTH["token"] = body["session_id"]
+    return _AUTH["token"]
 
 
 def _http_get(url, timeout=10):
@@ -23,9 +54,13 @@ def _http_get(url, timeout=10):
 
 
 def _http_post(url, data, timeout=30):
+    headers = {"Content-Type": "application/json"}
+    # 对鉴权端点自动带 Bearer token(需登录,消除 chat/enhanced 等 401)
+    if "chat" in url and _auth_token():
+        headers["Authorization"] = "Bearer " + _auth_token()
     req = urllib.request.Request(
         url, data=json.dumps(data).encode(),
-        headers={"Content-Type": "application/json"}, method="POST",
+        headers=headers, method="POST",
     )
     try:
         resp = urllib.request.urlopen(req, timeout=timeout)

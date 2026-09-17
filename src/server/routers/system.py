@@ -125,9 +125,40 @@ def register_system_routes(registry) -> None:
         else:
             raise APIError("NOT_FOUND", "travel-map.js not found")
 
+    def energy_page(handler):
+        """P12: 提供 web/energy.html —— 家庭节能规划仪表盘(用户可直接在浏览器打开)"""
+        html_path = (
+            Path(__file__).resolve().parent.parent.parent / "web" / "energy.html"
+        )
+        if not html_path.exists():
+            html_path = handler.project_root / "web" / "energy.html"
+        if html_path.exists():
+            content = html_path.read_text(encoding="utf-8")
+            handler.send_response(200)
+            handler.send_header("Content-type", "text/html; charset=utf-8")
+            handler.end_headers()
+            handler.wfile.write(content.encode("utf-8"))
+        else:
+            raise APIError("NOT_FOUND", "energy.html not found")
+
     def knowledge_stats(handler):
         agent = handler.agent
         stats = agent.get_knowledge_stats()
+        try:
+            import json
+            audit_path = handler.project_root / "data" / "knowledge_provenance_audit.json"
+            if audit_path.exists():
+                audit = json.loads(audit_path.read_text(encoding="utf-8"))
+                stats["governance"] = {
+                    "documents": audit.get("documents", 0),
+                    "fully_traceable": audit.get("fully_traceable", 0),
+                    "traceability_rate": audit.get("traceability_rate", 0),
+                    "authority_tiers": audit.get("authority_tiers", {}),
+                    "evidence_grades": audit.get("evidence_grades", {}),
+                    "audit_report": "data/knowledge_provenance_audit.json",
+                }
+        except (OSError, ValueError, TypeError):
+            pass
         handler.send_json(stats)
 
     def rag_stats(handler):
@@ -302,25 +333,68 @@ def register_system_routes(registry) -> None:
             handler.send_json({"ok": False, "error": "invalid bbox"}, status=400)
             return
 
+        # P0: size/zoom/scale 白名单,防高德账户滥用(超大图/超多缩放)
+        try:
+            size_w, size_h = (int(x) for x in size.lower().split("*"))
+            zoom_i = int(zoom)
+            scale_i = int(scale)
+        except (ValueError, TypeError):
+            handler.send_json({"ok": False, "error": "invalid size/zoom/scale"}, status=400)
+            return
+        if not (1 <= size_w <= 1024 and 1 <= size_h <= 1024):
+            handler.send_json({"ok": False, "error": "size 超出范围(1-1024)"}, status=400)
+            return
+        if not (1 <= zoom_i <= 18):
+            handler.send_json({"ok": False, "error": "zoom 超出范围(1-18)"}, status=400)
+            return
+        if scale_i not in (1, 2):
+            handler.send_json({"ok": False, "error": "scale 仅支持 1 或 2"}, status=400)
+            return
+
         gaode_key = os.environ.get("GAODE_API_KEY", "")
         if not gaode_key:
             handler.send_json({"ok": False, "error": "GAODE_API_KEY 未配置"}, status=500)
             return
 
         # 构造高德静态地图 URL
-        params = {
-            "key": gaode_key,
-            "location": bbox,  # lng,lat;lng,lat
-            "zoom": zoom,
-            "size": size,
-            "scale": scale,
-        }
+        # fix: location 只要中心点(lng,lat),前端传的是 bbox(lng1,lat1,lng2,lat2) → 算中心
+        try:
+            bx = [float(x) for x in bbox.split(",")]
+            center_lng = (bx[0] + bx[2]) / 2
+            center_lat = (bx[1] + bx[3]) / 2
+            location = f"{center_lng},{center_lat}"
+        except Exception:
+            handler.send_json({"ok": False, "error": "invalid bbox"}, status=400)
+            return
+        # fix: 高德 paths 需带 multi0: 前缀(weight,color,transparency,multi0:lng,lat;...)
+        if paths and "multi" not in paths:
+            import re as _re
+
+            m = _re.match(r"(\d+,[^,]+,\d+),", paths)
+            if m:
+                paths = m.group(1) + ",multi0:" + paths[m.end():]
+        # fix: markers 前端用 ";" 连了两个不同样式的标记 → 高德不认,需拆成多个独立 markers 参数
+        # 每个 markers=size,color,label:lng,lat 为同一样式组。
+        markers_list = []
         if markers:
-            params["markers"] = markers
+            for part in str(markers).split(";"):
+                part = part.strip()
+                if part:
+                    markers_list.append(part)
+        # 组装 URL:重复 markers 用 doseq(list),paths 单条
+        payload = [
+            ("key", gaode_key),
+            ("location", location),
+            ("zoom", zoom),
+            ("size", size),
+            ("scale", scale),
+        ]
+        for m in markers_list:
+            payload.append(("markers", m))
         if paths:
-            params["paths"] = paths
+            payload.append(("paths", paths))
         from urllib.parse import urlencode
-        amap_url = "https://restapi.amap.com/v3/staticmap?" + urlencode(params)
+        amap_url = "https://restapi.amap.com/v3/staticmap?" + urlencode(payload)
 
         try:
             import urllib.request
@@ -330,7 +404,9 @@ def register_system_routes(registry) -> None:
                 ctype = resp.headers.get("Content-Type", "image/png")
             handler.send_response(200)
             handler.send_header("Content-Type", ctype)
-            handler.send_header("Cache-Control", "public, max-age=3600")  # 1h 缓存
+            # 地图 URL 含 bbox/zoom 应变;且严禁浏览器缓存旧的错误响应(之前 max-age=3600 会缓存到旧报错图)
+            handler.send_header("Cache-Control", "no-store, no-cache, must-revalidate, max-age=0")
+            handler.send_header("Pragma", "no-cache")
             handler.send_header("Access-Control-Allow-Origin", "*")
             handler.end_headers()
             handler.wfile.write(data)
@@ -360,6 +436,12 @@ def register_system_routes(registry) -> None:
 
     registry.add_route("GET", "/", index, auth_required=False, description="Web 入口")
     registry.add_route("GET", "/index.html", index, auth_required=False, description="Web 入口")
+    registry.add_route(
+        "GET", "/energy", energy_page, auth_required=False, description="P12: 家庭节能规划仪表盘"
+    )
+    registry.add_route(
+        "GET", "/energy.html", energy_page, auth_required=False, description="P12: 家庭节能规划仪表盘"
+    )
     registry.add_route(
         "GET", "/i18n.js", i18n_js, auth_required=False, description="P6.L: i18n 静态 JS"
     )

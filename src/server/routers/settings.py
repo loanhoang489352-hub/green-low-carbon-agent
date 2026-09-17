@@ -18,6 +18,12 @@ def register_settings_routes(registry) -> None:
 
         if not api_key:
             raise APIError("BAD_REQUEST", "api_key required")
+        # 防 .env 注入:provider 必须在白名单内,key/provider/model 不允许换行或 '='
+        if provider not in ("openai", "minimax", "zhipu", "baidu", "ali", "deepseek"):
+            raise APIError("BAD_REQUEST", f"不支持的 provider: {provider}")
+        for _name, _val in (("api_key", api_key), ("provider", provider), ("model", model or "")):
+            if any(_c in str(_val) for _c in ("\n", "\r", "=")):
+                raise APIError("BAD_REQUEST", f"{_name} 含非法字符(换行/等号)")
 
         os.environ["API_PROVIDER"] = provider
         provider_key_map = {

@@ -24,6 +24,7 @@ from paths import (
 )
 
 logger = logging.getLogger(__name__)
+from agent.energy.weekly import WEEKLY_SCHEMA, HISTORY_SCHEMA
 
 
 # (db_path, [(table_name, create_sql), ...])
@@ -366,6 +367,8 @@ SCHEMAS: List[Tuple[str, str, List[Tuple[str, str]]]] = [
                 )
             """,
             ),
+            ("energy_weeks", WEEKLY_SCHEMA),
+            ("energy_week_history", HISTORY_SCHEMA),
             (
                 "household_plans",
                 """

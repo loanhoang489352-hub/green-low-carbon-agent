@@ -281,8 +281,10 @@ class UserProfileManager:
         if user_id in self._profile_cache:
             del self._profile_cache[user_id]
 
-    def get_profile(self, user_id: str) -> Dict[str, Any]:
-        """获取用户画像"""
+    def get_profile(self, user_id: str, refresh: bool = False) -> Dict[str, Any]:
+        """获取用户画像；refresh 用于需要读取其他入口最新修改的流程。"""
+        if refresh:
+            self._profile_cache.pop(user_id, None)
         if user_id in self._profile_cache:
             return self._profile_cache[user_id]
 
@@ -310,6 +312,26 @@ class UserProfileManager:
         self._profile_cache[user_id] = profile
         return profile
 
+    def _trim_profile(self, profile: Dict[str, Any]) -> None:
+        """防止画像无限膨胀:对随对话无限增长的列表/统计字段做上限裁剪。
+        压缩策略: action_history 保留最近 50、completed_actions 最近 100、
+        rejected_actions/engagement_history 最近 50/30、topic_interactions 最近 30、
+        behavior_profile 各习惯字典保留最近 20。只裁不减语义(都是最近 N 条)。"""
+        eco = profile.get("eco_profile", {})
+        for key, cap in (("action_history", 50), ("completed_actions", 100),
+                         ("rejected_actions", 50), ("engagement_history", 30)):
+            arr = eco.get(key)
+            if isinstance(arr, list) and len(arr) > cap:
+                eco[key] = arr[-cap:]
+        stats = profile.get("statistics", {})
+        ti = stats.get("topic_interactions")
+        if isinstance(ti, dict) and len(ti) > 30:
+            stats["topic_interactions"] = dict(list(ti.items())[-30:])
+        bh = profile.get("behavior_profile", {})
+        for k, v in bh.items():
+            if isinstance(v, list) and len(v) > 20:
+                bh[k] = v[-20:]
+
     def update_profile(self, user_id: str, updates: Dict[str, Any]) -> bool:
         """更新用户画像"""
         profile = self.get_profile(user_id)
@@ -319,6 +341,9 @@ class UserProfileManager:
                 profile[key].update(value)
             else:
                 profile[key] = value
+
+        # 防膨胀:裁剪会无限增长的历史/统计字段
+        self._trim_profile(profile)
 
         profile["updated_at"] = datetime.now().isoformat()
 
@@ -413,6 +438,8 @@ class UserProfileManager:
 
         # P4-C.2: 同步到画像图谱
         profile["graph"] = self._sync_profile_to_graph(profile, eco_updates)
+        # 防膨胀:动作/历史字段设上限
+        self._trim_profile(profile)
 
         conn = get_connection(str(self.db_path))
         cursor = conn.cursor()
@@ -475,6 +502,9 @@ class UserProfileManager:
                     sentiment=act.get("sentiment", "positive"),
                     context=act.get("context", ""),
                     carbon_saved=act.get("carbon_saved"),
+                    source=act.get("source", "profile_sync"),
+                    confidence=act.get("confidence", 0.5),
+                    observed_at=act.get("observed_at"),
                 )
             elif isinstance(act, str):
                 graph.add_action(act, sentiment="positive")

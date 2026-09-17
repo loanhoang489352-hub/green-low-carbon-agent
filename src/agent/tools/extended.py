@@ -2,7 +2,7 @@
 扩展工具集
 A. 知识库检索工具
 B. 碳足迹查询统计工具
-C. 出行规划工具（高德 API + 模拟数据）
+C. 出行规划工具（高德真实路径 API；失败时不生成替代路线）
 D. 报告导出工具
 """
 
@@ -10,6 +10,8 @@ import os
 import sys
 import json
 import time
+import ssl
+import math
 import urllib.parse  # P6.S.26 fix: 提前 import,内层 _gaode_route 也复用
 from datetime import datetime
 from typing import Dict, Any, List, Optional
@@ -24,6 +26,7 @@ if sys.platform == "win32":
         sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding="utf-8", errors="replace")
 
 from agent.tools.base import BaseTool, ToolResult
+from agent.travel.carbon import assess_route_carbon
 from observability import get_logger  # P6.S.26 fix: 结构化日志 + 自动 trace_id
 
 _logger = get_logger(__name__)
@@ -105,6 +108,8 @@ class KnowledgeRetrievalTool(BaseTool):
                     {
                         "title": r.metadata.get("title", "") if r.metadata else "",
                         "source": r.metadata.get("source", "") if r.metadata else "",
+                        "source_url": r.metadata.get("source_url", "") if r.metadata else "",
+                        "evidence_status": r.metadata.get("evidence_status", "unverified") if r.metadata else "unverified",
                         "content": r.content[:300] if len(r.content) > 300 else r.content,
                         "score": r.score if hasattr(r, "score") else 0,
                     }
@@ -304,11 +309,11 @@ class CarbonFootprintTool(BaseTool):
             return "后50%"
 
 
-# ============ C. 出行规划工具（高德 API + 模拟数据） ============
+# ============ C. 出行规划工具（高德真实路径 API） ============
 
 
 class TravelPlanningTool(BaseTool):
-    """出行规划工具 — 查询公交路线 + 碳排放对比"""
+    """出行规划工具 — 查询真实路线并标注碳排证据状态。"""
 
     @property
     def name(self) -> str:
@@ -316,17 +321,19 @@ class TravelPlanningTool(BaseTool):
 
     @property
     def description(self) -> str:
-        return "规划低碳出行方案，输入出发地和目的地，返回公交/地铁/骑行路线及碳排放对比，帮你选择最环保的出行方式。"
+        return ("规划低碳出行方案，输入出发地和目的地，返回公交/地铁/骑行/自驾真实路线；"
+                "碳排仅在数据与核算边界可核验时展示，信息不足时明确标为不可核验。"
+                "出发地填'当前位置/我家/这里'时，系统会自动用用户实时定位坐标解析，无需用户再提供具体地址。")
 
     @property
     def parameters(self) -> List[Dict[str, Any]]:
         return [
-            {"name": "origin", "type": "string", "description": "出发地", "required": True},
+            {"name": "origin", "type": "string", "description": "出发地(可填'当前位置/我家/这里',系统自动用用户实时定位解析)", "required": True},
             {"name": "destination", "type": "string", "description": "目的地", "required": True},
             {
                 "name": "mode",
                 "type": "string",
-                "description": "偏好方式：transit(公交地铁)/cycling(骑行)/walking(步行)/all，默认all",
+                "description": "偏好方式：transit(公交地铁)/cycling(骑行)/walking(步行)/driving(自驾)/all，默认all",
                 "required": False,
                 "default": "all",
             },
@@ -337,6 +344,11 @@ class TravelPlanningTool(BaseTool):
         origin = kwargs.get("origin", "")
         destination = kwargs.get("destination", "")
         mode = kwargs.get("mode", "all")
+        user_id = kwargs.get("user_id", "")
+        city = kwargs.get("city", "")  # 用户真实城市(实时定位/画像解析),用作 geocode 消歧
+        location = kwargs.get("location", None)  # 用户真实定位 dict(含 lat/lng/city),精确消歧/起点
+        if location is None:
+            location = {}
 
         # P6.S.26 fix: 实例级限流标志(每次 execute 前重置)
         self._last_was_rate_limited = False
@@ -347,33 +359,68 @@ class TravelPlanningTool(BaseTool):
                 success=False, error="出发地和目的地不能为空", execution_time=time.time() - start
             )
 
+        # 解析 geocode 城市提示:city > location.city > 画像 region > 默认城市。
+        # 用于消歧"国贸"这类无城市名的 POI,避免被 geocode 到远处(如新疆)。
+        geocode_city = (city or "").strip()
+        if not geocode_city and location:
+            geocode_city = (location.get("city") or "").strip()
+        if not geocode_city and user_id:
+            try:
+                from utils.geolocate import best_location
+                geo = best_location(handler=None, user_id=user_id)
+                if geo and geo.city:
+                    geocode_city = geo.city
+            except Exception:
+                geocode_city = ""
+        if not geocode_city:
+            geocode_city = _DEFAULT_CITY
+        # 记住用户真实定位(供"当前位置"起点、目的地距离校验用)
+        self._user_location = location or {}
+
         api_key = os.environ.get("GAODE_API_KEY", "")
         if not api_key:
+            _logger.warning(
+                "TravelPlanning 未配置 GAODE_API_KEY origin=%r destination=%r",
+                origin, destination,
+            )
             return ToolResult(
                 success=False,
-                error="高德地图API未配置，请设置GAODE_API_KEY",
+                error="真实路线服务尚未配置，无法生成可验证的出行方案。请配置高德 Web 服务 API Key 后重试。",
+                data={"code": "ROUTE_PROVIDER_NOT_CONFIGURED", "routes": [],
+                      "source": "高德地图 Web 服务 API"},
                 execution_time=time.time() - start,
             )
-
-        result = self._gaode_route(origin, destination, api_key)
-        if not result:
-            # P6.S.26 fix: 区分"无结果" vs "限流" — 限流时返更明确的错误,便于上层走 RAG 降级
-            if self._last_was_rate_limited:
-                error_msg = (
-                    f"高德地图 API QPS 配额耗尽({self._last_quota_info}),"
-                    f"无法查询从 {origin} 到 {destination} 的路线,请稍后重试或更换 API key"
+        else:
+            result = self._gaode_route(origin, destination, api_key, geocode_city=geocode_city)
+            if not result:
+                _logger.warning(
+                    "TravelPlanning 高德查询失败 origin=%r destination=%r api_key_configured=%s",
+                    origin, destination, bool(api_key),
                 )
-            else:
-                error_msg = f"未能在高德地图找到从 {origin} 到 {destination} 的路线，请检查地址是否正确"
-            return ToolResult(
-                success=False,
-                error=error_msg,
-                execution_time=time.time() - start,
-            )
+                code = "ROUTE_PROVIDER_RATE_LIMITED" if self._last_was_rate_limited else "ROUTE_UNAVAILABLE"
+                detail = ("路线服务达到调用限制" if self._last_was_rate_limited else
+                          "没有取得可验证的路线，请核对起终点或稍后重试")
+                return ToolResult(success=False, error=detail,
+                    data={"code": code, "routes": [], "source": "高德地图 Web 服务 API",
+                          "provider_detail": self._last_quota_info[:120]},
+                    execution_time=time.time() - start)
 
         # 获取出发地天气(影响骑行/步行评分)
-        weather_info = self._fetch_weather(_DEFAULT_CITY)
+        weather_info = self._fetch_weather_at(
+            result.get("origin_coord"), geocode_city or _DEFAULT_CITY
+        )
         result["weather"] = weather_info
+        mode_types = {
+            "transit": {"公交+地铁", "公交", "地铁"}, "cycling": {"骑行"},
+            "walking": {"步行"}, "driving": {"自驾"}, "all": None,
+        }
+        allowed = mode_types.get(mode)
+        if allowed is not None:
+            result["routes"] = [r for r in result["routes"] if r.get("type") in allowed]
+        if not result["routes"]:
+            return ToolResult(success=False, error="所选出行方式没有取得真实路线。",
+                data={**result, "code": "MODE_ROUTE_UNAVAILABLE"},
+                execution_time=time.time() - start)
 
         # 多因素评分: 碳排 + 费用 + 时长 + 天气
         weights = kwargs.get("weights") or {
@@ -385,23 +432,79 @@ class TravelPlanningTool(BaseTool):
         result["recommended"] = self._recommend_route(result["routes"], weather_info, weights)
         result["weights"] = weights
 
-        result["source"] = "高德地图API"
+        # 真实高德路径用此 source;估算降级路径已在上方设置自己的 source,setdefault 不覆盖
+        result.setdefault("source", "高德地图 Web 服务 API")
+        carbon_known = sum(r.get("carbon_kg") is not None for r in result["routes"])
+        result["data_quality"] = {
+            "route_geometry": "provider_observed",
+            "distance_duration": "provider_observed",
+            "fare": "provider_observed_or_unknown",
+            "carbon": ("boundary_limited_or_unavailable_without_activity_data"),
+            "carbon_routes_available": carbon_known,
+            "carbon_routes_total": len(result["routes"]),
+            "weather": "Open-Meteo observed" if weather_info else "unavailable",
+        }
         return ToolResult(success=True, data=result, execution_time=time.time() - start)
 
-    def _gaode_route(self, origin: str, destination: str, api_key: str) -> Optional[Dict]:
-        """调用高德公交路线 API"""
+    def _gaode_route(
+        self, origin: str, destination: str, api_key: str, geocode_city: Optional[str] = None
+    ) -> Optional[Dict]:
+        """调用高德公交路线 API
+
+        geocode_city: geocode 时的城市提示(来自用户真实定位/画像),用于消歧"国贸"这类
+        无城市名的 POI,避免被解析到远处。默认 _DEFAULT_CITY。
+        """
+        geocode_city = geocode_city or _DEFAULT_CITY
         try:
             import urllib.request
 
             # 地址 → 坐标
             # P6.S.26 fix: fallback 顺序反转 — 先 city=None(全国搜一次命中更准),
-            # 没结果再用 city=北京兜底。避免限流时二次调用(QPS 配额本就紧张)
-            origin_coord = self._gaode_geocode(
-                origin, api_key, city=None
-            ) or self._gaode_geocode(origin, api_key, city=_DEFAULT_CITY)
-            dest_coord = self._gaode_geocode(
-                destination, api_key, city=None
-            ) or self._gaode_geocode(destination, api_key, city=_DEFAULT_CITY)
+            # 没结果再用 geocode_city(用户真实城市)兜底。避免限流时二次调用。
+            # fix(歧义名解析): 无城市的 POI(如"国贸")被 geocode 到远处(如新疆)时,
+            # 用"起终点相距 >300km"或"距用户坐标 >150km"做校验,换用户城市重试。
+            def _coord_dist(c1, c2):
+                try:
+                    lng1, lat1 = (float(x) for x in c1.split(","))
+                    lng2, lat2 = (float(x) for x in c2.split(","))
+                    return math.hypot(lng1 - lng2, lat1 - lat2) * 111.0  # 度 → km
+                except Exception:
+                    return 0.0
+
+            user_loc = getattr(self, "_user_location", None) or {}
+            u_lng = user_loc.get("lng")
+            u_lat = user_loc.get("lat")
+
+            # 起点是"当前位置/我家/这里/出发地"等 → 直接用用户真实坐标,不 geocode
+            origin_is_self = origin in ("当前位置", "我家", "这里", "出发地", "出发", "家", "home")
+            if origin_is_self and u_lng and u_lat:
+                origin_coord = f"{u_lng},{u_lat}"
+            else:
+                # 先全国搜(支持跨城),无结果再用用户城市兜底
+                origin_coord = self._gaode_geocode(origin, api_key, city=None) or \
+                               self._gaode_geocode(origin, api_key, city=geocode_city)
+
+            # 目的地同:先全国搜(跨城"北京→上海"必须 city=None),无结果再落回用户城市
+            dest_coord = self._gaode_geocode(destination, api_key, city=None) or \
+                         self._gaode_geocode(destination, api_key, city=geocode_city)
+
+            # 距离校验:起终点相距 >300km,或目的地距用户坐标 >150km → 很可能是歧义名解析到远处。
+            # 用用户真实城市重试,取更短的组合。
+            _too_far = (
+                (origin_coord and dest_coord and _coord_dist(origin_coord, dest_coord) > 300.0)
+                or (dest_coord and u_lng and u_lat and _coord_dist(dest_coord, f"{u_lng},{u_lat}") > 150.0)
+            )
+            if _too_far:
+                better_dest = self._gaode_geocode(destination, api_key, city=geocode_city)
+                if better_dest and _coord_dist(origin_coord or f"{u_lng},{u_lat}", better_dest) < \
+                        (_coord_dist(origin_coord, dest_coord) if origin_coord and dest_coord else 1e9) * 0.5:
+                    dest_coord = better_dest
+                if origin_coord and dest_coord and _coord_dist(origin_coord, dest_coord) > 300.0:
+                    better_origin = self._gaode_geocode(origin, api_key, city=geocode_city)
+                    if better_origin and _coord_dist(better_origin, dest_coord) < \
+                            _coord_dist(origin_coord, dest_coord) * 0.5:
+                        origin_coord = better_origin
+
             if not origin_coord or not dest_coord:
                 # P6.S.26 fix: 显式记录 geocode 失败,便于排查
                 _logger.warning(
@@ -411,25 +514,29 @@ class TravelPlanningTool(BaseTool):
                 return None
 
             # 公交路线
-            # P6.S.26 fix: 坐标用 quote() 单独编码,避免部分代理/CDN 把逗号当 header 分隔符截断
+            # fix(双重编码): 坐标直接交 urlencode 统一编码。原实现先 quote(coord) 再 urlencode,
+            # 导致逗号被二次编码成 %252C,高德解析不出坐标 → status!=1 → 误判"高德不可用"而降级估算。
             url = "https://restapi.amap.com/v3/direction/transit/integrated"
             params = {
                 "key": api_key,
-                "origin": urllib.parse.quote(origin_coord, safe=""),
-                "destination": urllib.parse.quote(dest_coord, safe=""),
-                "city": urllib.parse.quote(_DEFAULT_CITY, safe=""),
+                "origin": origin_coord,
+                "destination": dest_coord,
+                "city": geocode_city,
                 "datatype": "transit",
             }
             url += "?" + urllib.parse.urlencode(params)
 
-            req = urllib.request.Request(url)
-            with urllib.request.urlopen(req, timeout=5) as resp:
-                data = json.loads(resp.read().decode("utf-8"))
-
-            if data.get("status") != "1" or not data.get("route"):
-                return None
-
-            route = data["route"]
+            try:
+                data = self._read_json(url)
+            except Exception as exc:
+                _logger.warning("TravelPlanning transit route unavailable: %s", exc)
+                data = {}
+            if data and data.get("status") != "1":
+                info = str(data.get("info", ""))
+                if any(x in info.upper() for x in ("LIMIT", "QUOTA", "CUQPS")):
+                    self._last_was_rate_limited = True
+                    self._last_quota_info = info
+            route = data.get("route") or {}
             transits = route.get("transits", [])
 
             formatted_routes = []
@@ -457,6 +564,37 @@ class TravelPlanningTool(BaseTool):
                         for step in seg["walking"]["steps"]:
                             if step.get("polyline"):
                                 polyline_parts.append(step["polyline"])
+
+                # P6.S.15: 详细分段步骤(步行X米 → 乘X线(站→站,N站) → ...),供 LLM/前端给出"具体怎么走"
+                steps = []
+                for seg in t.get("segments", []):
+                    walk = seg.get("walking") or {}
+                    w_steps = walk.get("steps") or []
+                    if w_steps:
+                        dist = sum(float(s.get("distance", 0) or 0) for s in w_steps)
+                        instr = w_steps[0].get("instruction", "") or ""
+                        steps.append(f"步行{int(dist)}米" + (f"({instr})" if instr else ""))
+                    bus = seg.get("bus") or {}
+                    for bl in bus.get("buslines", []) or []:
+                        name = bl.get("name", "公交")
+                        dep = (bl.get("departure_stop") or {}).get("name", "")
+                        arr = (bl.get("arrival_stop") or {}).get("name", "")
+                        via = bl.get("via_num", 0)
+                        try:
+                            via_n = int(via)
+                        except (TypeError, ValueError):
+                            via_n = 0
+                        steps.append(f"乘坐{name}({dep}→{arr}{',' + str(via_n) + '站' if via_n else ''})")
+                    metro = seg.get("metro") or {}
+                    if metro and metro.get("name"):
+                        dep = (metro.get("departure_stop") or {}).get("name", "")
+                        arr = (metro.get("arrival_stop") or {}).get("name", "")
+                        via = metro.get("via_num", 0)
+                        try:
+                            via_n = int(via)
+                        except (TypeError, ValueError):
+                            via_n = 0
+                        steps.append(f"乘坐{metro['name']}({dep}→{arr}{',' + str(via_n) + '站' if via_n else ''})")
 
                 # Bug1 + Bug19 fix: 高德返回的 cost 可能是 [] / {} / "3.0" 多种类型
                 # 优先从顶层 cost 读取,若为空数组则从 segments 累加 cost(公交+地铁通常每段都有 cost)
@@ -497,8 +635,6 @@ class TravelPlanningTool(BaseTool):
                 # duration 高德返秒,distance 高德返米
                 duration = round(float(t.get("duration", 0)) / 60, 1)
                 distance = round(float(t.get("distance", 0)) / 1000, 1)
-                carbon = distance * 0.08  # 公交人均碳排放
-
                 # P6.S.24: 拼接 polyline(各段用 ; 分隔,前端解码)
                 polyline = ";".join(polyline_parts) if polyline_parts else None
 
@@ -506,32 +642,33 @@ class TravelPlanningTool(BaseTool):
                     {
                         "type": "公交+地铁",
                         "line": " → ".join(line_info) if line_info else "公交",
+                        "steps": steps,            # P6.S.15: 详细分段步骤(步行/乘X线/换乘)
                         "duration_min": duration,
                         "distance_km": distance,
-                        "carbon_kg": round(carbon, 3),
-                        "cost_yuan": cost_yuan,  # Bug1 fix: 鲁棒解析
+                        **assess_route_carbon("公交+地铁"),
+                        "cost_yuan": cost_yuan if cost_yuan > 0 else None,
                         "polyline": polyline,    # Bug1 fix: 嵌套层提取
                         "from": origin,
                         "to": destination,
+                        "route_source": "高德公交换乘路径规划 API",
+                        "fare_source": "高德返回票价" if cost_yuan > 0 else "unavailable",
                     }
                 )
 
             # 骑行路线
-            cycling_url = "https://restapi.amap.com/v3/direction/bicycling"
+            cycling_url = "https://restapi.amap.com/v4/direction/bicycling"
             cycling_params = {
                 "key": api_key,
-                "origin": urllib.parse.quote(origin_coord, safe=""),
-                "destination": urllib.parse.quote(dest_coord, safe=""),
+                "origin": origin_coord,           # 只经 urlencode 编码一次,避免逗号二次编码成 %252C
+                "destination": dest_coord,
             }
             cycling_url += "?" + urllib.parse.urlencode(cycling_params)
 
             cycling_result = None
             try:
-                req2 = urllib.request.Request(cycling_url)
-                with urllib.request.urlopen(req2, timeout=5) as resp2:
-                    cycling_data = json.loads(resp2.read().decode("utf-8"))
-                if cycling_data.get("status") == "1" and cycling_data.get("route"):
-                    paths = cycling_data["route"].get("paths", [])
+                cycling_data = self._read_json(cycling_url)
+                if str(cycling_data.get("errcode")) == "0" and cycling_data.get("data"):
+                    paths = cycling_data["data"].get("paths", [])
                     if paths:
                         p = paths[0]
                         # P6.S.26 fix: 距离/时长保留 1 位小数
@@ -539,9 +676,11 @@ class TravelPlanningTool(BaseTool):
                             "type": "骑行",
                             "distance_km": round(float(p.get("distance", 0)) / 1000, 1),
                             "duration_min": round(float(p.get("duration", 0)) / 60, 1),
-                            "carbon_kg": 0,
+                            **assess_route_carbon("骑行"),
                             "cost_yuan": 0,
-                            "polyline": p.get("polyline"),  # P6.S.24
+                            "polyline": ";".join(s.get("polyline", "") for s in p.get("steps", []) if s.get("polyline")),
+                            "steps": [s.get("instruction") for s in p.get("steps", []) if s.get("instruction")],
+                            "route_source": "高德骑行路径规划 API",
                             "from": origin,
                             "to": destination,
                         }
@@ -553,24 +692,30 @@ class TravelPlanningTool(BaseTool):
             if cycling_result:
                 all_routes.append(cycling_result)
 
-            # 私家车对比
-            if formatted_routes:
-                first = formatted_routes[0]
-                driving_carbon = first["distance_km"] * 0.21
-                # P6.S.26 fix: 时长/距离保留 1 位小数(自驾按公交 0.6 倍)
-                all_routes.append(
-                    {
-                        "type": "自驾",
-                        "distance_km": first["distance_km"],
-                        "duration_min": round(first["duration_min"] * 0.6, 1),
-                        "carbon_kg": round(driving_carbon, 3),
-                        "cost_yuan": round(first["distance_km"] * 0.5, 1),
-                        # Bug1 fix: 自驾也复用公交路线的 polyline(路线图相同)
-                        "polyline": first.get("polyline"),
-                        "from": origin,
-                        "to": destination,
-                    }
-                )
+            driving = self._gaode_simple_route(
+                "https://restapi.amap.com/v3/direction/driving", origin_coord,
+                dest_coord, api_key, "自驾",
+                params={"extensions": "base", "strategy": "10"},
+            )
+            if driving:
+                all_routes.append(driving)
+            walking = self._gaode_simple_route(
+                "https://restapi.amap.com/v3/direction/walking", origin_coord,
+                dest_coord, api_key, "步行",
+            )
+            if walking and walking["distance_km"] <= 10:
+                all_routes.append(walking)
+
+            navigation_modes = {"自驾": "car", "公交+地铁": "bus", "公交": "bus",
+                                "地铁": "bus", "骑行": "ride", "步行": "walk"}
+            for item in all_routes:
+                nav = {
+                    "from": f"{origin_coord},{origin}", "to": f"{dest_coord},{destination}",
+                    "mode": navigation_modes.get(item.get("type"), "car"),
+                    "policy": "1", "src": "green-agent", "coordinate": "gaode",
+                    "callnative": "1",
+                }
+                item["navigation_url"] = "https://uri.amap.com/navigation?" + urllib.parse.urlencode(nav)
 
             # P6.S.24: 在 response 顶层附上 origin/dest 坐标,供前端 Leaflet marker 用
             def _coord_to_latlng(coord_str):
@@ -614,9 +759,7 @@ class TravelPlanningTool(BaseTool):
                 params["city"] = city
             url += "?" + urllib.parse.urlencode(params)
 
-            req = urllib.request.Request(url)
-            with urllib.request.urlopen(req, timeout=5) as resp:
-                data = json.loads(resp.read().decode("utf-8"))
+            data = self._read_json(url)
 
             if data.get("status") == "1" and data.get("geocodes"):
                 return data["geocodes"][0]["location"]
@@ -638,59 +781,78 @@ class TravelPlanningTool(BaseTool):
             )
         return None
 
-    def _mock_route(self, origin: str, destination: str) -> Dict:
-        """模拟公交路线数据"""
-        # 估算距离（简单按3km模拟）
-        distance = 5  # km
-        routes = [
-            {
-                "type": "地铁",
-                "line": "4号线 → 6号线 → 步行5分钟",
-                "duration_min": 35,
+    def _gaode_simple_route(self, endpoint, origin, destination, api_key,
+                            route_type, params=None):
+        """Read a walking/driving path directly from Amap; never infer it from another mode."""
+        try:
+            import urllib.request
+            query = {"key": api_key, "origin": origin, "destination": destination}
+            query.update(params or {})
+            payload = self._read_json(endpoint + "?" + urllib.parse.urlencode(query))
+            if payload.get("status") != "1":
+                return None
+            path = ((payload.get("route") or {}).get("paths") or [None])[0]
+            if not path:
+                return None
+            steps = path.get("steps") or []
+            distance = round(float(path.get("distance", 0)) / 1000, 1)
+            return {
+                "type": route_type, "line": "全程" + route_type,
                 "distance_km": distance,
-                "carbon_kg": round(distance * 0.04, 3),
-                "cost_yuan": 5,
-            },
-            {
-                "type": "公交",
-                "line": "26路 → 698路 → 步行3分钟",
-                "duration_min": 50,
-                "distance_km": distance,
-                "carbon_kg": round(distance * 0.08, 3),
-                "cost_yuan": 3,
-            },
-            {
-                "type": "骑行+地铁",
-                "line": "共享单车至西直门站 → 4号线",
-                "duration_min": 30,
-                "distance_km": distance,
-                "carbon_kg": 0,
-                "cost_yuan": 4,
-            },
-            {
-                "type": "骑行",
-                "line": "全程骑行",
-                "duration_min": 25,
-                "distance_km": distance,
-                "carbon_kg": 0,
-                "cost_yuan": 0,
-            },
-            {
-                "type": "自驾",
-                "line": "全程自驾",
-                "duration_min": 20,
-                "distance_km": distance,
-                "carbon_kg": round(distance * 0.21, 3),
-                "cost_yuan": round(distance * 0.5, 1),
-            },
-        ]
+                "duration_min": round(float(path.get("duration", 0)) / 60, 1),
+                **assess_route_carbon(route_type),
+                "cost_yuan": None,
+                "polyline": ";".join(s.get("polyline", "") for s in steps if s.get("polyline")),
+                "steps": [s.get("instruction") for s in steps if s.get("instruction")],
+                "route_source": "高德" + route_type + "路径规划 API",
+                "cost_note": "未取得可核验费用，不展示估算金额",
+            }
+        except Exception as exc:
+            _logger.warning("TravelPlanning %s route unavailable: %s", route_type, exc)
+            return None
 
-        return {
-            "origin": origin,
-            "destination": destination,
-            "routes": routes,
-            "recommended": routes[2],  # 推荐骑行+地铁
-        }
+    @staticmethod
+    def _read_json(url: str, attempts: int = 2) -> Dict:
+        """Read provider JSON with bounded retries; never substitute local data."""
+        import urllib.request
+
+        last_error = None
+        insecure = os.environ.get("INSECURE_SKIP_VERIFY", "").lower() in {"1", "true", "yes"}
+        context = ssl._create_unverified_context() if insecure else None
+        for attempt in range(attempts):
+            try:
+                request = urllib.request.Request(url, headers={"User-Agent": "green-agent/1.0"})
+                kwargs = {"timeout": 8}
+                if context is not None:
+                    kwargs["context"] = context
+                with urllib.request.urlopen(request, **kwargs) as response:
+                    return json.loads(response.read().decode("utf-8"))
+            except Exception as exc:
+                last_error = exc
+                if attempt + 1 < attempts:
+                    time.sleep(0.2 * (attempt + 1))
+        raise last_error or OSError("provider request failed")
+
+    def _fetch_weather_at(self, coord: Optional[Dict], city: str) -> Optional[Dict]:
+        """Use the resolved origin coordinate, avoiding a second ambiguous city lookup."""
+        if not coord:
+            return self._fetch_weather(city)
+        try:
+            import urllib.request
+            url = ("https://api.open-meteo.com/v1/forecast?latitude=" +
+                   urllib.parse.quote(str(coord["lat"])) + "&longitude=" +
+                   urllib.parse.quote(str(coord["lng"])) + "&current_weather=true")
+            with urllib.request.urlopen(url, timeout=5) as resp:
+                data = json.loads(resp.read().decode("utf-8"))
+            cw = data.get("current_weather") or {}
+            from utils.web_search import WebSearcher
+            code = cw.get("weathercode", 0)
+            return {"city": city, "temp_c": cw.get("temperature"),
+                    "wind_kmh": cw.get("windspeed"), "weathercode": code,
+                    "description": WebSearcher._WEATHER_CODE_CN.get(code, f"代码{code}"),
+                    "source": "Open-Meteo current weather", "coordinate": coord}
+        except Exception:
+            return None
 
     def _fetch_weather(self, city: str) -> Optional[Dict]:
         """获取天气(失败返回 None,不阻塞推荐)"""
@@ -787,30 +949,70 @@ class TravelPlanningTool(BaseTool):
             return {}
         weights = weights or {"carbon": 0.4, "cost": 0.2, "duration": 0.2, "weather": 0.2}
 
-        max_carbon = max((r.get("carbon_kg") or 0) for r in routes) or 1.0
-        max_cost = max((r.get("cost_yuan") or 0) for r in routes) or 1.0
+        known_carbons = [float(r["carbon_kg"]) for r in routes
+                         if r.get("carbon_kg") is not None]
+        max_carbon = max(known_carbons) if known_carbons else 1.0
+        max_carbon = max_carbon or 1.0
+        known_costs = [float(r["cost_yuan"]) for r in routes if r.get("cost_yuan") is not None]
+        # All known fares may legitimately be zero (walking/cycling).  Keep the
+        # denominator non-zero while preserving a perfect score for those modes.
+        max_cost = max(known_costs) if known_costs else 1.0
+        max_cost = max_cost or 1.0
         max_dur = max((r.get("duration_min") or 0) for r in routes) or 1.0
 
         for r in routes:
-            carbon_score = 1.0 - (r.get("carbon_kg") or 0) / max_carbon
-            cost_score = 1.0 - (r.get("cost_yuan") or 0) / max_cost
+            carbon_score = (None if r.get("carbon_kg") is None else
+                            1.0 - float(r["carbon_kg"]) / max_carbon)
+            # Unknown fare is neutral. It must not beat a known route as if it were free.
+            cost_score = (0.5 if r.get("cost_yuan") is None else
+                          1.0 - float(r["cost_yuan"]) / max_cost)
             dur_score = 1.0 - (r.get("duration_min") or 0) / max_dur
             penalty, reason = self._weather_penalty(r.get("type", ""), weather)
             weather_score = 1.0 - penalty
 
-            total = (
-                carbon_score * weights["carbon"]
-                + cost_score * weights["cost"]
-                + dur_score * weights["duration"]
-                + weather_score * weights["weather"]
+            dimension_scores = {
+                "carbon": carbon_score,
+                "cost": cost_score,
+                "duration": dur_score,
+                "weather": weather_score,
+            }
+            available_weight = sum(
+                float(weights.get(name, 0)) for name, score in dimension_scores.items()
+                if score is not None
+            ) or 1.0
+            effective_weights = {
+                name: (round(float(weights.get(name, 0)) / available_weight, 4)
+                       if score is not None else 0.0)
+                for name, score in dimension_scores.items()
+            }
+            total = sum(
+                float(score) * effective_weights[name]
+                for name, score in dimension_scores.items() if score is not None
             )
+            # 打磨: 长途骑行降分(>8km 别推荐全程骑),首末段步行过长(<1km)也降分(建议骑行接驳)
+            rtype = r.get("type", "")
+            dist = r.get("distance_km", 0) or 0
+            line = r.get("line", "") or ""
+            if rtype == "骑行" and dist > 8:
+                total *= 0.6
+                r["_hint"] = f"全程骑行{dist:.0f}km较远,体力要求高"
+            if rtype in ("公交+地铁", "公交", "地铁"):
+                import re as _re
+                m_walk = _re.search(r"步行(\d+(?:\.\d+)?)米", line)
+                if m_walk and float(m_walk.group(1)) > 1000:
+                    total *= 0.75
+                    r["_hint"] = f"首末段步行{float(m_walk.group(1))/1000:.1f}km较长,可考虑共享单车接驳"
             r["score"] = round(total, 3)
             r["score_breakdown"] = {
-                "carbon": round(carbon_score, 2),
+                "carbon": None if carbon_score is None else round(carbon_score, 2),
                 "cost": round(cost_score, 2),
                 "duration": round(dur_score, 2),
                 "weather": round(weather_score, 2),
             }
+            r["effective_weights"] = effective_weights
+            r["score_note"] = (
+                "仅使用有数据的维度并重新归一化权重；未知值未按零处理"
+            )
             if reason:
                 r["weather_note"] = reason
             # 严重不良天气(penalty>0.5)硬过滤露天模式,避免推荐危险出行

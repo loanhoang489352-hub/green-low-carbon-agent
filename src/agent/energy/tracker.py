@@ -153,10 +153,8 @@ class ActionTracker:
             logger.warning("[tracker.ext] mark_completion 失败: %s", e)
             return {"ok": False, "error": str(e)}
 
-        ratio = _RATIO[completion_level]
-        credited_cny = round(float(estimated_saving_cny) * ratio, 2)
-        credited_kwh = round(float(estimated_saving_kwh) * ratio, 3)
-        credited_co2 = round(float(estimated_saving_co2_kg) * ratio, 3)
+        # A completion click is not a measurement. Client estimates never earn credits.
+        credited_cny = credited_kwh = credited_co2 = 0.0
 
         # 累计
         stats = self.get_stats(user_id=user_id, period="all")
@@ -378,36 +376,9 @@ class ActionTracker:
 
     # ========== 工具 ==========
 
-    def _lookup_action_savings(self, action_id: str, plan_actions_json: Optional[str]) -> tuple:
-        """从 plan_actions JSON 查 action 的预期节省;若 plan 没找到则用 APPLIANCE_SAVINGS 兜底"""
-        try:
-            if plan_actions_json:
-                actions = json.loads(plan_actions_json)
-                for a in actions:
-                    if a.get("id") == action_id:
-                        return (
-                            float(a.get("estimated_saving_cny", 0) or 0),
-                            float(a.get("estimated_saving_kwh", 0) or 0),
-                            float(a.get("estimated_saving_co2_kg", 0) or 0),
-                        )
-        except Exception:
-            pass
-        # P12.2 兜底:用 APPLIANCE_SAVINGS 模板,确保数字可追溯(source_ref 已在模板里)
-        try:
-            from .policies import appliance_potential
-
-            saving = appliance_potential(action_id)
-            if saving:
-                return (
-                    float(saving.saving_cny_per_action or 0),
-                    float(saving.saving_kwh_per_action or 0),
-                    float(saving.saving_co2_kg_per_action or 0),
-                )
-        except Exception:
-            pass
+    def _lookup_action_savings(self, action_id, plan_actions_json):
+        """Legacy completion records have no metered baseline, so no verified credit."""
         return (0.0, 0.0, 0.0)
-
-    # ========== streak 统计 ==========
 
     def get_streak(self, user_id: str) -> int:
         """连续 streak 天数(从今天往前推,断一天就停)"""

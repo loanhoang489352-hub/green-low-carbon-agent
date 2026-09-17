@@ -26,8 +26,12 @@ import urllib.error
 import subprocess
 import time
 import threading
+from pathlib import Path
 
 sys.path.insert(0, str(__file__).replace("\\", "/").replace("tests/test_p6s16_mcp_integration.py", "src"))
+
+# 项目根(消除 mock 脚本路径的 cwd 依赖 — 不管 pytest 从哪个目录跑都能找到)
+_PROJECT_ROOT = Path(__file__).resolve().parent.parent
 
 
 def _http_get(url, timeout=10):
@@ -77,7 +81,7 @@ def test_mcp_client_sync_interface():
     cfg = MCPClientConfig(
         name="test_client",
         command="python",
-        args=[os.path.abspath("scripts/mcp_mock_server.py")],
+        args=[str(_PROJECT_ROOT / "scripts" / "mcp_mock_server.py")],
         connect_timeout_s=10.0,
         request_timeout_s=10.0,
     )
@@ -112,7 +116,7 @@ def test_mcp_tool_adapter():
     cfg = MCPClientConfig(
         name="adapter_test",
         command="python",
-        args=[os.path.abspath("scripts/mcp_mock_server.py")],
+        args=[str(_PROJECT_ROOT / "scripts" / "mcp_mock_server.py")],
     )
     client = MCPClient(cfg)
     assert client.connect()
@@ -183,7 +187,7 @@ def test_mcp_registry_loads_config():
     """P6.S.16: MCPRegistry.load_config 读 yaml"""
     from mcp import MCPRegistry
     reg = MCPRegistry.instance()
-    configs = reg.load_config("config/mcp_servers.yaml")
+    configs = reg.load_config(str(_PROJECT_ROOT / "config" / "mcp_servers.yaml"))
     assert len(configs) >= 1, f"应至少 1 个 server, 实际 {len(configs)}"
     assert configs[0].name == "mock_server"
     assert configs[0].command == "python"
@@ -193,7 +197,7 @@ def test_mcp_registry_loads_config():
     # cwd 默认是 project_root
     assert configs[0].cwd and os.path.isabs(configs[0].cwd), \
         f"cwd 应是绝对路径, 实际 {configs[0].cwd}"
-    print(f"  loaded {len(configs)} server(s): {[(c.name, c.command) for c in configs]}")
+    print(f"  loaded {len(configs)} server(s): {[(c.name, getattr(c, 'command', getattr(c, 'url', '?'))) for c in configs]}")
     print("✅ test_mcp_registry_loads_config PASSED")
 
 

@@ -87,7 +87,7 @@ class KnowledgeManager:
 
         # 遍历所有子目录和Markdown文件
         for category_dir in self.base_path.iterdir():
-            if category_dir.is_dir():
+            if category_dir.is_dir() and not category_dir.name.startswith("_"):
                 category = category_dir.name
                 self.documents_by_category[category] = []
 

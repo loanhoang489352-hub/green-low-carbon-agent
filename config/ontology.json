@@ -1,0 +1,151 @@
+{
+  "version": "1.0.0",
+  "domain": "green_lifestyle",
+  "description": "绿色低碳智能体全领域本体模型 — 画像图谱与知识图谱共享 schema",
+
+  "entities": {
+    "User": {
+      "description": "用户本人",
+      "properties": {
+        "user_id": {"type": "string", "required": true, "format": "uuid_or_alias"},
+        "alias": {"type": "string", "required": false, "description": "脱敏别名"}
+      }
+    },
+    "Household": {
+      "description": "家庭(画像域)",
+      "properties": {
+        "family_size": {"type": "int", "required": false, "range": [1, 20]},
+        "home_size_sqm": {"type": "float", "required": false, "range": [10, 2000]},
+        "region": {"type": "string", "required": false, "enum_source": "CITY_TIER_PRICING"},
+        "climate_zone": {"type": "string", "required": false}
+      }
+    },
+    "Appliance": {
+      "description": "家电(画像域)",
+      "properties": {
+        "type": {"type": "string", "required": true},
+        "age_years": {"type": "int", "required": false, "range": [0, 30]},
+        "efficiency_grade": {"type": "int", "required": false, "range": [1, 5]},
+        "ownership": {"type": "string", "required": false, "enum": ["owned", "shared", "rented"]}
+      }
+    },
+    "Habit": {
+      "description": "行为习惯(画像域)",
+      "properties": {
+        "ac_temp_c": {"type": "int", "required": false, "range": [16, 32]},
+        "shower_minutes": {"type": "float", "required": false, "range": [0, 120]},
+        "peak_offpeak_pattern": {"type": "string", "required": false, "enum": ["peak", "offpeak", "mixed"]},
+        "standby_devices": {"type": "int", "required": false, "range": [0, 50]}
+      }
+    },
+    "Bill": {
+      "description": "账单(画像域)",
+      "properties": {
+        "type": {"type": "string", "required": true, "enum": ["electricity", "water", "gas"]},
+        "monthly_amount": {"type": "float", "required": true, "range": [0, 5000]},
+        "tier": {"type": "string", "required": false, "enum": ["tier1", "tier2", "tier3"]}
+      }
+    },
+    "Preference": {
+      "description": "价值偏好(画像域)",
+      "properties": {
+        "priority": {"type": "string", "required": true, "enum": ["comfort", "money", "easy", "eco"]},
+        "excluded_actions": {"type": "array", "required": false, "item_type": "string"},
+        "already_doing": {"type": "array", "required": false, "item_type": "string"}
+      }
+    },
+    "Goal": {
+      "description": "目标(画像域)",
+      "properties": {
+        "type": {"type": "string", "required": true, "enum": ["reduce_carbon", "save_money", "learn"]},
+        "target": {"type": "float", "required": false},
+        "deadline": {"type": "string", "required": false, "format": "iso_date"}
+      }
+    },
+    "Action": {
+      "description": "节能行动(画像 + 知识两域共有)",
+      "properties": {
+        "id": {"type": "string", "required": true},
+        "category": {"type": "string", "required": true, "enum": ["electricity", "water", "gas"]},
+        "difficulty": {"type": "int", "required": true, "range": [1, 3]},
+        "estimate_kind": {"type": "string", "required": true, "enum": ["reference", "calculated", "qualitative"]},
+        "source_ref": {"type": "string", "required": true, "min_length": 1},
+        "estimated_saving_cny": {"type": "float", "required": false, "range": [0, 10000]},
+        "estimated_saving_co2_kg": {"type": "float", "required": false, "range": [0, 1000]}
+      }
+    },
+    "Policy": {
+      "description": "政策 / 标准(知识域)",
+      "properties": {
+        "doc_id": {"type": "string", "required": true},
+        "title": {"type": "string", "required": true},
+        "region": {"type": "string", "required": false},
+        "year": {"type": "int", "required": false, "range": [2000, 2100]},
+        "scope": {"type": "string", "required": false, "enum": ["national", "provincial", "city", "international"]}
+      }
+    }
+  },
+
+  "relations": {
+    "LIVES_IN": {"from": "User", "to": "Household", "cardinality": "1:1", "description": "用户居住于家庭"},
+    "OWNS": {"from": "Household", "to": "Appliance", "cardinality": "1:N", "description": "家庭拥有家电"},
+    "PRACTICES": {"from": "User", "to": "Habit", "cardinality": "1:N", "description": "用户实践某习惯"},
+    "INCURS": {"from": "Household", "to": "Bill", "cardinality": "1:N", "description": "家庭产生账单"},
+    "VALUES": {"from": "User", "to": "Preference", "cardinality": "1:1", "description": "用户持有偏好"},
+    "SEEKS": {"from": "User", "to": "Goal", "cardinality": "1:N", "description": "用户寻求目标"},
+    "APPLICABLE_TO": {"from": "Action", "to": "Household", "cardinality": "N:N", "description": "行动适用于此家庭"},
+    "CONFLICTS_WITH": {"from": "Action", "to": "Preference", "cardinality": "N:N", "description": "行动与偏好冲突"},
+    "CITES": {"from": "Action", "to": "Policy", "cardinality": "N:1", "description": "行动引用政策/标准"}
+  },
+
+  "invariants": [
+    {
+      "id": "INV_HOUSEHOLD_BOUNDS",
+      "scope": "Household",
+      "rule": "family_size ∈ [1, 20] ∧ home_size_sqm ∈ [10, 2000]",
+      "message": "家庭参数超出合理区间"
+    },
+    {
+      "id": "INV_ACTION_NEEDS_SOURCE",
+      "scope": "Action",
+      "rule": "∀ a: Action, a.estimate_kind ∈ {reference, calculated} ⇒ ∃ p: Policy, (a, CITES, p)",
+      "message": "可量化的行动必须有政策溯源(CITES ≥ 1 Policy)"
+    },
+    {
+      "id": "INV_PREFERENCE_EXCLUDES",
+      "scope": "Preference",
+      "rule": "∀ p: Preference, ∀ recommendation, recommendation.action.id ∉ p.excluded_actions",
+      "message": "不应推荐用户已排除的行动"
+    },
+    {
+      "id": "INV_BILL_POSITIVE",
+      "scope": "Bill",
+      "rule": "∀ b: Bill, b.monthly_amount ≥ 0",
+      "message": "账单金额必须非负"
+    },
+    {
+      "id": "INV_ACTION_SOURCE_NONEMPTY",
+      "scope": "Action",
+      "rule": "∀ a: Action, a.source_ref ≠ ''",
+      "message": "每个行动必须有 source_ref(可为空只用于 qualitative,但不能为空字符串)"
+    }
+  ],
+
+  "node_type_mapping": {
+    "UserProfileGraph": {
+      "user": "User",
+      "household_fact": "Household|Appliance|Habit|Bill|Preference|Goal",
+      "interest": "User.interest",
+      "behavior_stage": "User.stage",
+      "knowledge_level": "User.knowledge",
+      "preference": "Preference"
+    },
+    "KnowledgeGraph": {
+      "concept": "Goal",
+      "action": "Action",
+      "policy": "Policy",
+      "metric": "Bill",
+      "location": "Household.region"
+    }
+  }
+}

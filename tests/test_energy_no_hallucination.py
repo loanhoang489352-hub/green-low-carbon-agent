@@ -237,9 +237,17 @@ def test_per_action_numbers_match_template_real_case():
     for a in plan.actions:
         tmpl = APPLIANCE_SAVINGS.get(a.id)
         assert tmpl is not None, f"action.id={a.id} 不在 APPLIANCE_SAVINGS 模板里(可能编造)"
+        if a.estimate_kind == "qualitative":
+            assert a.estimated_saving_kwh == a.estimated_saving_cny == a.estimated_saving_co2_kg == 0
+            continue
+        assert a.estimate_period == "year"
         assert a.estimated_saving_kwh == pytest.approx(tmpl.saving_kwh_per_action, abs=0.01)
-        assert a.estimated_saving_cny == pytest.approx(tmpl.saving_cny_per_action, abs=0.01)
-        assert a.estimated_saving_co2_kg == pytest.approx(tmpl.saving_co2_kg_per_action, abs=0.01)
+        from agent.energy.policies import lookup_city_pricing
+        from agent.energy.emission_factors import electricity_factor_for
+        unit_price = lookup_city_pricing(profile.city).tiers[0].unit_price_cny
+        factor = electricity_factor_for(profile.city).kg_co2_per_kwh
+        assert a.estimated_saving_cny == pytest.approx(tmpl.saving_kwh_per_action * unit_price, abs=0.01)
+        assert a.estimated_saving_co2_kg == pytest.approx(tmpl.saving_kwh_per_action * factor, abs=0.01)
 
 
 # ========== 5. source_ref 完整性 ==========

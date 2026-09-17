@@ -2,6 +2,8 @@
 # 锁版本,基于 2026-06 Python 3.14 环境实测
 
 # LangGraph / LangChain
+# 注:2026-07 曾尝试锁定 langchain-core<1.0 以消冲突,但导致 ResolutionImpossible(与 langgraph-checkpoint-sqlite>=3.0.0 冲突)。
+#     已回退到宽松区间。请在"干净 venv"里装,避免旧环境遗留 langchain 0.3.x 造成的伪冲突。
 langgraph>=0.2.0
 langchain-core>=0.3.0
 typing-extensions>=4.12.0
@@ -24,6 +26,10 @@ beautifulsoup4>=4.12.0
 trafilatura>=1.6.0
 urllib3>=2.0.0
 
+# LLM SDK(llm/client.py: OpenAI/Ali/DeepSeek/MiniMax 走 openai SDK,智谱走 zhipuai;缺失时 provider 全部 ImportError → 永远 mock)
+openai>=1.0.0
+zhipuai>=2.0.0
+
 # Phase 3.3: 可选依赖(try/except 包裹,缺失时降级)
 jieba>=0.42.0              # entity_linking.py 中文分词(可选,缺失时退化为基础实体匹配)
 langchain-text-splitters>=0.3.0  # RAG Markdown 切分(缺失时退化为段落切分)
@@ -38,15 +44,11 @@ APScheduler>=3.10.0,<4.0
 # 异步 HTTP(P4-E 政策爬取用 httpx,requests 之外)
 httpx>=0.27.0
 
-# P9.OCR: 图片/PDF OCR(PaddleOCR 3.x + 阿里云 OCR 兜底)
-# paddlepaddle 装 CPU 版,避免 GPU 依赖(首次安装 ~300MB)
-paddlepaddle>=2.5.0
-paddleocr>=2.7.0
-pdfplumber>=0.10.0
-Pillow>=10.0.0
-# 阿里云 OCR SDK(云端兜底用,缺失时本地 OCR 仍可用)
-aliyun-python-sdk-core>=2.13.0
-aliyun-python-sdk-ocr>=1.0.0
+# P9.OCR: 可选依赖(本地 PaddleOCR + 阿里云 OCR 兜底)
+# 为不阻塞核心依赖安装,已移到 requirements-ocr.txt。
+# 用法:需要 OCR 再 `pip install -r requirements-ocr.txt`;缺本地 OCR 时降级到阿里云,agent 主体仍可运行。
+# 若 python 版本无 paddlepaddle wheel(如 3.13/3.14),跳过本文件,靠阿里云 OCR 兜底。
+# 详见 requirements-ocr.txt
 
 # 测试
 pytest>=8.0.0

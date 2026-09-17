@@ -82,8 +82,17 @@
             focusIndex = 0;
         }
 
-        // P6.S.24 + Bug16: 只渲染 SVG + 高德静态图(已完全移除 Leaflet)
-        // 单一渲染路径,无任何外部 CDN 依赖(unpkg/leafletjs/cartocdn/osm 都不用)
+        // P6.S.x: 高德 JS API 可用 → 交互地图(可拖拽/缩放,点卡片重画高亮);否则降级静态图
+        if (typeof window.AMap !== 'undefined' && window.AMap && AMap.Map) {
+            try {
+                renderAMap(containerEl, toolResult, focusIndex);
+                return true;
+            } catch (e) {
+                console.error('[TravelMap] AMap 渲染失败,降级静态图:', e);
+            }
+        }
+
+        // P6.S.24 + Bug16: 静态图 + SVG 兜底(无外部 CDN 依赖)
         try {
             renderSVGMap(containerEl, toolResult, routes, focusIndex);
         } catch (e) {
@@ -93,6 +102,67 @@
         }
 
         return true;
+    }
+
+    // P6.S.x: 高德 JS API 交互地图 —— 可拖拽/缩放,点卡片重画并高亮该方案
+    var _amapInstances = {};
+    function renderAMap(containerEl, toolResult, focusIndex) {
+        var routes = toolResult.routes || [];
+        var key = containerEl.getAttribute('data-message-id') || 'default';
+        var center = (toolResult.origin_coord && toolResult.origin_coord.lng) ? toolResult.origin_coord
+            : (toolResult.destination_coord || { lat: 39.9, lng: 116.4 });
+        var map;
+        if (_amapInstances[key]) {
+            map = _amapInstances[key];
+            // 显式移除所有 overlay(clearMap 在某些版本下清不干净,导致切卡片不刷新)
+            try { map.remove(map.getAllOverlays()); } catch (e) { map.clearMap(); }
+        } else {
+            containerEl.style.height = '320px';
+            containerEl.style.width = '100%';
+            map = new AMap.Map(containerEl, {
+                zoom: 13,
+                center: [center.lng, center.lat],
+                mapStyle: 'amap://styles/normal',
+            });
+            _amapInstances[key] = map;
+        }
+        // A/B 标记
+        if (toolResult.origin_coord) {
+            new AMap.Marker({
+                position: [toolResult.origin_coord.lng, toolResult.origin_coord.lat],
+                map: map, title: toolResult.origin || '起点',
+                label: { content: 'A', offset: new AMap.Pixel(-10, -10) },
+            });
+        }
+        if (toolResult.destination_coord) {
+            new AMap.Marker({
+                position: [toolResult.destination_coord.lng, toolResult.destination_coord.lat],
+                map: map, title: toolResult.destination || '终点',
+                label: { content: 'B', offset: new AMap.Pixel(10, -10) },
+            });
+        }
+        // 路线折线:每条一个颜色(切换方案时颜色/粗细明显变化),聚焦=亮绿粗线
+        var palette = ['#11998e', '#f59e0b', '#6366f1', '#dc2626', '#0ea5e9'];
+        routes.forEach(function (r, idx) {
+            if (!r.polyline) return;
+            var pts = decodeAmapPolyline(r.polyline).map(function (p) { return [p.lng, p.lat]; });
+            if (!pts.length) return;
+            var isFocus = (typeof focusIndex === 'number' && focusIndex === idx);
+            var color = isFocus ? '#11998e' : palette[idx % palette.length];
+            new AMap.Polyline({
+                path: pts, map: map,
+                strokeColor: color,
+                strokeWeight: isFocus ? 8 : 4,
+                strokeOpacity: isFocus ? 1 : 0.7,
+                lineJoin: 'round', lineCap: 'round',
+                zIndex: isFocus ? 60 : 30,
+                showDir: isFocus
+            });
+        });
+        try { map.setFitView(); } catch (e) {}
+        // 供点卡片重画时复用(存到容器上,index.html selectTravelRoute 会再调 renderTravelMap)
+        containerEl._amapMap = map;
+        containerEl._amapToolResult = toolResult;
     }
 
     /**
@@ -180,13 +250,13 @@
             pathsParam += weight + ',' + color + ',1,' + ptsStr;  // 1 = solid
         }
 
-        // 静态图 URL(走代理)
+        // 静态图 URL(走代理) —— 只要真实路网底图;路线折线与 A/B 标记由下方 SVG overlay 绘制。
+        // (amap 静态图的 paths 参数报 UNKNOWN_ERROR,且 markers 会与 SVG 标记重复,故都不传)
         var bboxStr = minLng + ',' + minLat + ',' + maxLng + ',' + maxLat;
         var staticMapUrl = '/api/staticmap?bbox=' + encodeURIComponent(bboxStr) +
             '&size=800*500' +
             '&zoom=' + zoom +
-            '&markers=' + encodeURIComponent(markersParam) +
-            (pathsParam ? '&paths=' + encodeURIComponent(pathsParam) : '');
+            '&scale=1';
 
         // viewBox 尺寸
         var W = 800, H = 500;
@@ -244,9 +314,8 @@
 
         // 组装 HTML: 高德静态图作底图,SVG overlay 路线 + 标记
         var html = '<div class="travel-svg-map" data-message-id="' + escapeHtml(containerEl.getAttribute('data-message-id') || '') + '">' +
-            '<div class="travel-staticmap-wrap">' +
-                '<img class="travel-staticmap-bg" src="' + staticMapUrl + '" alt="高德地图:' + headerText + '" />' +
-                '<svg class="travel-overlay-svg" viewBox="0 0 ' + W + ' ' + H + '" preserveAspectRatio="xMidYMid meet" xmlns="http://www.w3.org/2000/svg">' +
+            '<div class="travel-staticmap-wrap" style="background-image:url(' + staticMapUrl + '); background-size:cover; background-position:center; background-repeat:no-repeat; width:100%; height:320px; position:relative;">' +
+                '<svg class="travel-overlay-svg" viewBox="0 0 ' + W + ' ' + H + '" preserveAspectRatio="xMidYMid meet" xmlns="http://www.w3.org/2000/svg" style="position:absolute;top:0;left:0;width:100%;height:100%;pointer-events:none;">' +
                     '<g class="svg-routes">' + pathsSvg + '</g>' +
                     '<g class="svg-markers">' + startMarker + endMarker + '</g>' +
                 '</svg>' +

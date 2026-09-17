@@ -21,7 +21,7 @@ from typing import Dict, List, Optional
 from paths import HOUSEHOLDS_DB
 
 from .delegation import get_delegation_level
-from .models import EnergyPlan, HouseholdProfile, PlanStatus
+from .models import EnergyPlan, EnergyAction, HouseholdProfile, PlanStatus
 
 logger = logging.getLogger(__name__)
 
@@ -109,6 +109,8 @@ def save_plan_variant(
             effective_status = "blocked"
         else:
             effective_status = status or "draft"
+        if effective_status == "active":
+            conn.execute("UPDATE household_plans SET status='completed' WHERE user_id=? AND status='active' AND plan_id<>?", (user_id, plan.id))
         conn.execute(
             """
             INSERT INTO household_plans
@@ -140,7 +142,7 @@ def load_plan(plan_id: str) -> Optional[EnergyPlan]:
     try:
         conn = _get_conn()
         row = conn.execute(
-            "SELECT plan_json, user_id FROM household_plans WHERE plan_id = ?",
+            "SELECT plan_json, user_id, status FROM household_plans WHERE plan_id = ?",
             (plan_id,),
         ).fetchone()
         if not row:
@@ -153,11 +155,11 @@ def load_plan(plan_id: str) -> Optional[EnergyPlan]:
             id=data["id"],
             user_id=data.get("user_id", row["user_id"]),
             profile_snapshot=HouseholdProfile.from_dict(data["profile_snapshot"]),
-            actions=[],
+            actions=[EnergyAction(**a) for a in data.get("actions", [])],
             total_estimated_saving_cny=data.get("total_estimated_saving_cny", 0),
             total_estimated_saving_co2_kg=data.get("total_estimated_saving_co2_kg", 0),
             created_at=data.get("created_at", ""),
-            status=data.get("status", "draft"),
+            status=row["status"],
             warning=warning,
             blocked=blocked,
         )

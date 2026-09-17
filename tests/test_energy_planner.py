@@ -82,15 +82,11 @@ def test_planner_returns_5_to_10_actions(profile_beijing):
     assert 5 <= n <= 12, f"actions count should be 5-12, got {n}"
 
 
-def test_planner_each_category_min_two(profile_beijing):
-    planner = EnergyPlanner()
-    plan = planner.generate_plan(profile_beijing)
-    cats = {a.category for a in plan.actions}
-    assert cats == {"water", "electricity", "gas"}, f"missing category: {cats}"
-    from collections import Counter
-    cnt = Counter(a.category for a in plan.actions)
-    for cat in ("water", "electricity", "gas"):
-        assert cnt[cat] >= 2, f"category {cat} has only {cnt[cat]} actions"
+def test_planner_only_recommends_applicable_categories(profile_beijing):
+    plan = EnergyPlanner().generate_plan(profile_beijing)
+    assert {a.category for a in plan.actions} == {"water", "electricity"}
+    assert not any(a.id.startswith("gas_") for a in plan.actions)
+    assert not any(a.id == "led_replace_incandescent" for a in plan.actions)
 
 
 def test_planner_total_saving_is_sum(profile_beijing):

@@ -493,76 +493,35 @@ def _register_all_tools_and_skills() -> None:
     """
     try:
         from agent.tools import get_registry as get_tool_registry
-        from agent.tools.extended import (
-            TravelPlanningTool,
-            KnowledgeRetrievalTool,
-            CarbonFootprintTool,
-            ReportExportTool,
-        )
-        from agent.tools.registry import ToolMetadata
-
         tool_reg = get_tool_registry()
-        # 注册到全局 tool registry(失败不阻塞启动)
-        for ToolCls, category, tags in [
-            (TravelPlanningTool, "travel", ["navigation", "carbon", "weather"]),
-            (KnowledgeRetrievalTool, "knowledge", ["rag", "search"]),
-            (CarbonFootprintTool, "carbon", ["calculation", "footprint"]),
-            (ReportExportTool, "report", ["export", "pdf"]),
-        ]:
-            try:
-                tool_inst = ToolCls()
-                meta = ToolMetadata(
-                    name=tool_inst.name,
-                    description=tool_inst.description,
-                    category=category,
-                    tags=tags,
-                    version="1.0",
-                )
-                tool_reg.register(tool_inst, meta, overwrite=True)
-            except Exception as e:
-                import logging
 
-                logging.getLogger(__name__).warning(
-                    "[P6.S.15] tool 注册失败 %s: %s",
-                    ToolCls.__name__,
-                    e,
-                )
+        # (节能 3 工具已迁至 plugins/core_tools.py)
 
-        # 注册 Skills
         from agent.skills import get_skill_executor
-        from agent.skills.builtin import (
-            LowCarbonTravelSkill,
-            PolicyQuerySkill,
-            ProfileUpdateSkill,
-            EnergyPlanningSkill,
-        )
-
         skill_exec = get_skill_executor()
-        for SkillCls in [LowCarbonTravelSkill, PolicyQuerySkill, ProfileUpdateSkill, EnergyPlanningSkill]:
-            try:
-                skill_inst = SkillCls()
-                skill_exec.register(skill_inst)
-                # P10.A:注册后自动生成 SKILL.md(失败不阻塞启动)
-                try:
-                    skill_inst.write_skill_md()
-                except Exception as we:
-                    import logging
-
-                    logging.getLogger(__name__).warning(
-                        "[P10.A] SKILL.md 写入失败 %s: %s",
-                        skill_inst.name,
-                        we,
-                    )
-            except Exception as e:
-                import logging
-
-                logging.getLogger(__name__).warning(
-                    "[P6.S.15] skill 注册失败 %s: %s",
-                    SkillCls.__name__,
-                    e,
-                )
 
         import logging
+
+        # (内置 Skill 已迁至 plugins/core_skills.py)
+
+        # 插件式: 自动发现项目根 plugins/ 目录,插件经 api 注册工具/技能/路由
+        try:
+            from plugin_system.loader import load_plugins, PluginAPI
+
+            api = PluginAPI(
+                tool_registry=tool_reg,
+                skill_executor=skill_exec,
+                router_registry=get_registry(),
+                agent_getter=None,
+            )
+            plugin_result = load_plugins(api)
+            logging.getLogger(__name__).info(
+                "[plugins] 加载结果: loaded=%s errors=%s",
+                plugin_result.get("loaded") or [],
+                plugin_result.get("errors") or [],
+            )
+        except Exception as e:
+            logging.getLogger(__name__).warning("[plugins] 插件系统加载失败(非致命): %s", e)
 
         logging.getLogger(__name__).info(
             "[P6.S.15] tools/skills 注册完成: %d tools, %d skills",

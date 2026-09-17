@@ -228,7 +228,7 @@ class AchievementSystem:
         }
 
         # 检查里程碑
-        milestone = self._check_milestone(user.total_points)
+        milestone = self._check_milestones(user.total_points)
         if milestone:
             result["milestone"] = milestone
 
@@ -279,12 +279,10 @@ class AchievementSystem:
         return new_badges
 
     def _check_milestones(self, total_points: int) -> Optional[Dict]:
-        """检查里程碑"""
-        for threshold, milestone in self.MILESTONES.items():
+        """检查里程碑(取满足条件的最高档)"""
+        for threshold in sorted(self.MILESTONES, reverse=True):
             if total_points >= threshold:
-                continue
-            if total_points >= threshold:
-                return milestone
+                return self.MILESTONES[threshold]
         return None
 
     def get_user_profile(self, user_id: str) -> Dict:

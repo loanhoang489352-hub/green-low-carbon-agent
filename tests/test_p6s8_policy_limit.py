@@ -126,8 +126,8 @@ def test_policy_latest_upper_bound_capped():
     print("✅ test_policy_latest_upper_bound_capped PASSED")
 
 
-def test_profile_routes_public():
-    """P6.S.7: profile/personalization/stats 路由 auth_required=False"""
+def test_profile_routes_require_auth():
+    """鉴权落地(P5-D/P6): profile/personalization/stats 路由 auth_required=True"""
     from server.routers import register_all_routes
     from server.router import get_registry, reset_registry
 
@@ -145,12 +145,12 @@ def test_profile_routes_public():
             None,
         )
         assert route is not None, f"{desc} 路由未注册"
-        assert route.auth_required is False, f"{desc} 应 auth_required=False(前端无 token)"
-        print(f"  ✓ {desc} auth_required=False")
+        assert route.auth_required is True, f"{desc} 应 auth_required=True(用户隐私数据)"
+        print(f"  ✓ {desc} auth_required=True")
 
 
-def test_personalization_context_post_public():
-    """P6.S.7: POST /api/personalization/context 应 public"""
+def test_personalization_context_post_requires_auth():
+    """鉴权落地: POST /api/personalization/context 需 auth(用户隐私)"""
     from server.routers import register_all_routes
     from server.router import get_registry, reset_registry
 
@@ -160,12 +160,12 @@ def test_personalization_context_post_public():
 
     route = reg.find("POST", "/api/personalization/context")
     assert route is not None
-    assert route.auth_required is False, "personalization/context POST 应 public"
-    print("✅ test_personalization_context_post_public PASSED")
+    assert route.auth_required is True, "personalization/context POST 应需 auth"
+    print("✅ test_personalization_context_post_requires_auth PASSED")
 
 
-def test_chat_routes_still_require_auth():
-    """P6.S.7 回归: chat 路由应仍需 auth(只开放了 profile/policy)"""
+def test_chat_routes_auth_split():
+    """鉴权落地: /api/chat 保持匿名(False),enhanced/reset 需 auth(True)"""
     from server.routers import register_all_routes
     from server.router import get_registry, reset_registry
 
@@ -173,11 +173,17 @@ def test_chat_routes_still_require_auth():
     reg = get_registry()
     register_all_routes(reg)
 
-    for path in ["/api/chat", "/api/chat/enhanced", "/api/conversation/reset"]:
-        route = reg.find("POST", path)
-        assert route is not None
-        assert route.auth_required is True, f"{path} 应保持 auth_required=True"
-    print("✅ test_chat_routes_still_require_auth PASSED")
+    # 基础聊天保持匿名(浏览器无 token 兜底)
+    route = reg.find("POST", "/api/chat")
+    assert route is not None
+    assert route.auth_required is False, "/api/chat 应保持匿名(False)"
+
+    # 增强聊天(走 RAG+个性化,涉及隐私)/ 会话重置需 auth
+    for path in ["/api/chat/enhanced", "/api/conversation/reset"]:
+        r = reg.find("POST", path)
+        assert r is not None
+        assert r.auth_required is True, f"{path} 应 auth_required=True"
+    print("✅ test_chat_routes_auth_split PASSED")
 
 
 if __name__ == "__main__":
@@ -185,7 +191,7 @@ if __name__ == "__main__":
     test_policy_latest_respects_limit_query()
     test_policy_latest_invalid_limit_falls_back()
     test_policy_latest_upper_bound_capped()
-    test_profile_routes_public()
-    test_personalization_context_post_public()
-    test_chat_routes_still_require_auth()
+    test_profile_routes_require_auth()
+    test_personalization_context_post_requires_auth()
+    test_chat_routes_auth_split()
     print("\n🎉 All P6.S.8 tests PASSED")

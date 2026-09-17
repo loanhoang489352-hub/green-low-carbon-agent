@@ -46,6 +46,11 @@ if env_file.exists():
 else:
     print(f"[环境] .env 文件不存在: {env_file}", flush=True)
 
+# P5-I.B: 启动时校验 API key(占位符/空值/激活 provider)。
+# 开发环境仅告警;生产环境(ENV=production 或 STRICT_API_KEYS=true)会 raise 阻断启动。
+from config import _check_api_keys
+_check_api_keys()
+
 print("[DEBUG] Encoding setup done", flush=True)
 
 import uuid
@@ -183,10 +188,34 @@ def run_server(host="0.0.0.0", port=8000):
     server = ThreadingHTTPServer((host, port), HandlerClass)
     print(f"[DEBUG] HTTPServer created on {(host, port)}", flush=True)
 
+    # P6.S.x: 可选 HTTPS —— 若 certs/ 下有 mkcert 生成的证书(或 env SSL_CERT/SSL_KEY),自动启用
+    scheme = "http"
+    import ssl as _ssl
+    import os as _os
+
+    certfile = _os.environ.get("SSL_CERT", "")
+    keyfile = _os.environ.get("SSL_KEY", "")
+    certs_dir = Path(__file__).resolve().parent.parent / "certs"
+    if (not certfile or not keyfile) and certs_dir.exists():
+        certs = [str(p) for p in certs_dir.glob("*.pem") if "key" not in p.name]
+        if certs:
+            certfile = certs[0]
+            key_cand = certs_dir / (Path(certfile).stem + "-key.pem")
+            keyfile = str(key_cand) if key_cand.exists() else (str(certs_dir / (Path(certfile).stem + "+key.pem")) if (certs_dir / (Path(certfile).stem + "+key.pem")).exists() else "")
+    if certfile and keyfile and Path(certfile).exists() and Path(keyfile).exists():
+        try:
+            ssl_ctx = _ssl.SSLContext(_ssl.PROTOCOL_TLS_SERVER)
+            ssl_ctx.load_cert_chain(certfile, keyfile)
+            server.socket = ssl_ctx.wrap_socket(server.socket, server_side=True)
+            scheme = "https"
+            print(f"[SSL] HTTPS 已启用 (cert={Path(certfile).name})", flush=True)
+        except Exception as e:
+            print(f"[SSL] HTTPS 启用失败,降级 http: {e}", flush=True)
+
     print("\n" + "=" * 50, flush=True)
     print("[AGENT] 绿色低碳智能体 v2.0 启动成功！", flush=True)
     print("=" * 50, flush=True)
-    print(f"   服务地址: http://localhost:{port}", flush=True)
+    print(f"   服务地址: {scheme}://localhost:{port}", flush=True)
     print("   按 Ctrl+C 停止服务", flush=True)
     print("=" * 50 + "\n", flush=True)
 

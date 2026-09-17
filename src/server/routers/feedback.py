@@ -9,6 +9,7 @@ def register_feedback_routes(registry) -> None:
     """注册反馈相关路由"""
 
     from server.errors import APIError
+    from server.identity import resolve_user_id
 
     def feedback_submit(handler, data):
         message_id = data.get("message_id")
@@ -20,7 +21,7 @@ def register_feedback_routes(registry) -> None:
         fm = get_feedback_manager()
         result = fm.add_feedback(
             message_id=message_id,
-            user_id=data.get("user_id", "anonymous"),
+            user_id=resolve_user_id(handler, data),
             conversation_id=data.get("conversation_id"),
             feedback_type=feedback_type,
             reason=data.get("reason"),
@@ -39,7 +40,7 @@ def register_feedback_routes(registry) -> None:
 
         fm = get_feedback_manager()
         stats = fm.get_message_feedback(message_id)
-        user_status = fm.check_user_feedback(message_id, data.get("user_id", "anonymous"))
+        user_status = fm.check_user_feedback(message_id, resolve_user_id(handler, data))
         stats["user_status"] = user_status
         handler.send_json(stats)
 
@@ -54,13 +55,8 @@ def register_feedback_routes(registry) -> None:
         handler.send_json(fm.get_feedback_stats(days))
 
     def feedback_history(handler, data):
-        # 路径: /api/feedback/history/{user_id}  或直接 body
-        parts = handler.path.strip("/").split("/")
-        user_id = (
-            parts[-1]
-            if len(parts) > 3 and parts[-1] != "history"
-            else data.get("user_id", "anonymous")
-        )
+        # 历史只返回当前登录用户自己的反馈,禁止通过路径/body 指定他人(IDOR 修复)
+        user_id = resolve_user_id(handler, data)
         try:
             limit = int(parse_qs(urlparse(handler.path).query).get("limit", ["50"])[0])
         except (ValueError, TypeError):

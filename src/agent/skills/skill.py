@@ -69,6 +69,7 @@ class Skill(ABC):
 
     # ---- 基础元数据(子类必须覆盖 name / description)----
     name: str = ""
+    name_cn: str = ""   # 中文名称(技能库展示用,如 low_carbon_travel → 低碳出行规划)
     description: str = ""
     category: str = "general"
 

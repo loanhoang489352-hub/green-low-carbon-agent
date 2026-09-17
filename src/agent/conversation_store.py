@@ -16,6 +16,15 @@ from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 from typing import Dict, List, Optional
 
+# 统一时间格式:与 utils.helpers.get_current_datetime()("%Y-%m-%d %H:%M:%S") 一致。
+# cleanup_expired 做字符串比较,格式不一致(isoformat 的 'T' vs 空格)会导致
+# 同一天内 core.py 写入的会话被误判更早而提前过期。
+_DATETIME_FMT = "%Y-%m-%d %H:%M:%S"
+
+
+def _now_str() -> str:
+    return datetime.now().strftime(_DATETIME_FMT)
+
 
 @dataclass
 class ConversationContext:
@@ -23,9 +32,14 @@ class ConversationContext:
 
     user_id: str
     conversation_id: str
+    last_domain: str = ""
     turn_count: int = 0
-    created_at: str = field(default_factory=lambda: datetime.now().isoformat())
-    last_updated: str = field(default_factory=lambda: datetime.now().isoformat())
+    created_at: str = field(default_factory=_now_str)
+    last_updated: str = field(default_factory=_now_str)
+
+
+class ConversationOwnershipError(PermissionError):
+    """会话所有权校验失败(水平越权:用户试图复用/访问他人的 conversation_id)"""
 
 
 class ConversationStore:
@@ -66,8 +80,15 @@ class ConversationStore:
             if conversation_id:
                 if conversation_id in self._conversations:
                     ctx = self._conversations[conversation_id]
-                    ctx.last_updated = datetime.now().isoformat()
+                    # 水平越权防护:conversation_id 属于他人时,禁止复用(不返回、不覆盖)
+                    if ctx.user_id != user_id:
+                        raise ConversationOwnershipError(
+                            f"conversation {conversation_id} 属于 {ctx.user_id},"
+                            f"当前用户 {user_id} 无权复用"
+                        )
+                    # 复用已有会话 → 计一轮
                     ctx.turn_count += 1
+                    ctx.last_updated = _now_str()
                     return ctx
                 # 指定 ID 但不存在 → 用该 ID 创建
                 ctx = ConversationContext(
@@ -82,9 +103,10 @@ class ConversationStore:
             if user_id in self._user_index and self._user_index[user_id]:
                 last_conv_id = self._user_index[user_id][-1]
                 if last_conv_id in self._conversations:
+                    # 复用最近会话 → 计一轮
                     ctx = self._conversations[last_conv_id]
-                    ctx.last_updated = datetime.now().isoformat()
                     ctx.turn_count += 1
+                    ctx.last_updated = _now_str()
                     return ctx
 
             # 创建新会话
@@ -100,6 +122,19 @@ class ConversationStore:
     def get(self, conversation_id: str) -> Optional[ConversationContext]:
         """获取会话(不创建)"""
         return self._conversations.get(conversation_id)
+
+    def assert_owner(self, conversation_id: str, user_id: str) -> None:
+        """校验 conversation_id 归属 user_id(水平越权防护)
+
+        会话在内存中且属于他人 → 抛 ConversationOwnershipError。
+        会话不在内存(如重启后仅存在于 SQLite)→ 此处不拦截,由持久层/业务层兜底。
+        """
+        ctx = self._conversations.get(conversation_id)
+        if ctx is not None and ctx.user_id != user_id:
+            raise ConversationOwnershipError(
+                f"conversation {conversation_id} 属于 {ctx.user_id},"
+                f"当前用户 {user_id} 无权访问"
+            )
 
     def list_user_conversations(self, user_id: str) -> List[ConversationContext]:
         """列出用户所有活跃会话"""
@@ -131,11 +166,11 @@ class ConversationStore:
             删除的会话数
         """
         cutoff = datetime.now() - timedelta(days=self.CONVERSATION_TTL_DAYS)
-        cutoff_iso = cutoff.isoformat()
+        cutoff_str = cutoff.strftime(_DATETIME_FMT)
         removed = 0
         with self._lock:
             expired_ids = [
-                cid for cid, ctx in self._conversations.items() if ctx.last_updated < cutoff_iso
+                cid for cid, ctx in self._conversations.items() if ctx.last_updated < cutoff_str
             ]
             for cid in expired_ids:
                 ctx = self._conversations.pop(cid)

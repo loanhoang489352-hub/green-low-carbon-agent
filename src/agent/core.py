@@ -14,6 +14,9 @@ except Exception:
 
     _logger = logging.getLogger("agent.core")
 
+# 别名(兼容历史代码使用 _log)
+_log = _logger
+
 # Windows UTF-8 encoding setup
 import sys
 
@@ -97,6 +100,7 @@ class AgentResponse:
     timestamp: str = ""
     personalization_info: Dict = field(default_factory=dict)
     tool_result: Optional[Dict] = None  # P6.S.3: 工具调用结果(地图+天气+碳排)
+    trace: List[Dict] = field(default_factory=list)  # 节点透明度:执行轨迹(意图/RAG/记忆/LLM/工具/skill)
 
 
 @dataclass
@@ -175,7 +179,11 @@ class GreenAgent:
                     enable_rag=enable_rag,
                     use_llm=use_llm,
                 )
-                print("   - LangGraph 模式: 已启用")
+                print("   - LangGraph 模式: 已启用 (实验特性)")
+                print(
+                    "     ⚠ 注意: LangGraph 分支尚未与 chat_enhanced 功能对等"
+                    "(无 LLM 响应、无多轮上下文、缺早返)。生产建议保持 USE_LANGGRAPH=false。"
+                )
             except Exception as e:
                 print(f"   - LangGraph 模式: 启用失败 ({e})")
                 self.use_langgraph = False
@@ -188,31 +196,26 @@ class GreenAgent:
         print(f"   - LangGraph: {'已启用' if self.use_langgraph else '未启用'}")
 
     def _init_rag_engine(self, knowledge_base_path: str):
-        """初始化 RAG 引擎"""
+        """初始化 RAG 引擎(统一使用 get_rag_engine 单例,不再自建实例)
+
+        修复:聊天与调度/订阅者共用同一个引擎实例 + 同一 collection,
+        否则政策更新重建的是单例,聊天用的实例永不重建。
+        调参(collection=green_agent_knowledge、min_similarity=0.05、
+        hybrid_search、semantic_weight=0.6、post_filter_threshold=0.005、
+        initial_fetch_multiplier=4)统一在 rag_engine.get_rag_engine 工厂默认值里。
+        """
         try:
-            from rag.rag_engine import RAGEngine, RAGConfig
+            from rag.rag_engine import get_rag_engine
 
-            config = RAGConfig(
-                enabled=True,
-                provider="sentence-transformers",
-                embedding_model="paraphrase-multilingual-MiniLM-L12-v2",
-                vector_store_type="chroma",
-                persist_directory=str(project_root / "data" / "vector_db"),
-                collection_name="green_agent_knowledge",
-                default_top_k=5,
-                # P6.S.9: 预过滤(滤掉明显噪声) + 后置 score>=0.005 兜底
-                # 真实召回分常在 0.01-0.04, 0.005 仅挡完全不相关
-                min_similarity=0.05,
-                hybrid_search=True,
-                semantic_weight=0.6,
-                post_filter_threshold=0.005,
-                initial_fetch_multiplier=4,
-            )
-
-            self.rag_engine = RAGEngine(config)
+            self.rag_engine = get_rag_engine()
+            if self.rag_engine.is_enabled:
+                # 调度器/订阅者可能已初始化同一单例,直接复用,避免重复初始化
+                self.rag_enabled = True
+                print("[OK] RAG 引擎已就绪(单例)")
+                return
             if self.rag_engine.initialize(knowledge_base_path):
                 self.rag_enabled = True
-                print("[OK] RAG 引擎初始化成功")
+                print("[OK] RAG 引擎初始化成功(单例)")
         except Exception as e:
             _logger.warning(f"RAG 引擎初始化失败: {e}")
             self.rag_enabled = False
@@ -417,15 +420,218 @@ class GreenAgent:
         else:
             return "专业"
 
+    def apply_onboarding_to_profile(self, user_id: str, user_info: Dict = None) -> str:
+        """已登录用户完成引导:把 user_info 合并进其账号关联画像,而非新建游离的独立 user_id。
+
+        解决"引导创建的 user_id_U 与登录账号的 user_id_L 不一致 → 画像页空白"的问题。
+        返回实际写入的 user_id(即账号关联 id)。
+        """
+        user_info = user_info or {}
+        # 1) 基础信息
+        self.profile_manager.update_basic_info(
+            user_id,
+            {
+                "age_group": user_info.get("age_group"),
+                "gender": user_info.get("gender"),
+                "region": user_info.get("region"),
+                "income_level": user_info.get("income_level"),
+                "family_type": user_info.get("family_type"),
+            },
+        )
+        # 2) 环保画像
+        eco_updates = {}
+        if user_info.get("eco_awareness") or user_info.get("eco_knowledge"):
+            eco_updates["knowledge_level"] = self._estimate_knowledge_level(user_info)
+            eco_updates["awareness_level"] = user_info.get("eco_awareness", "medium")
+        interests = list(user_info.get("interests", []) or [])
+        if interests:
+            existing = (
+                self.profile_manager.get_profile(user_id)
+                .get("eco_profile", {})
+                .get("primary_interests", [])
+                or []
+            )
+            eco_updates["primary_interests"] = list(set(existing) | set(interests))
+        if eco_updates:
+            self.profile_manager.update_eco_profile(user_id, eco_updates)
+        # 3) 沟通风格 + 完成标记
+        self.profile_manager.update_profile(
+            user_id,
+            {
+                "communication_style": self._detect_communication_style(user_info),
+                "onboarding_completed": True,
+                "onboarding_step": 8,
+            },
+        )
+        # 4) 长期偏好
+        if interests:
+            try:
+                self.long_term_memory.update_preference(
+                    user_id, "topics", interests, confidence=0.9
+                )
+            except Exception:
+                pass
+        return user_id
+
     # ========== 个性化聊天 (RAG + 推荐) ==========
 
     def chat_enhanced(
-        self, user_id: str, message: str, conversation_id: str = None
+        self, user_id: str, message: str, conversation_id: str = None, trace=None, user_city=None,
+        user_location=None,
     ) -> EnhancedAgentResponse:
-        """增强版聊天 - 使用 RAG 和个性化推荐"""
+        """增强版聊天 - 使用 RAG 和个性化推荐
 
-        if self.use_langgraph and self.langgraph_agent:
+        user_city: 调用方解析的用户城市(实时定位/画像),供出行规划 geocode 消歧。
+        user_location: 用户真实定位 dict(含 city/lat/lng/source),供出行规划精确消歧/起点。
+        """
+        # 由 user_location 推导城市(若未显式给 user_city)
+        if user_location and not user_city:
+            user_city = (user_location or {}).get("city", "") or ""
+        from agent.trace import Trace
+
+        if trace is None:
+            trace = Trace()
+
+        # 快捷指令:以 / 开头的命令直接路由到对应 skill/工具/处理器(对标 Claude Code / DSH 的 /command)
+        if message.strip().startswith("/"):
+            command, _, arguments = message.strip().partition(" ")
+            if command == "/energy":
+                message = "家庭节能规划 " + arguments
+            else:
+                return self._handle_command(user_id, message, conversation_id, trace=trace)
+
+        from agent.understanding import DialogueStateStore, DemandInterpreter, advance_state
+        from agent.intent import IntentType
+        from utils.helpers import get_current_datetime
+        import logging as _logging_p14
+        import os as _os_p14
+        _log_p14 = _logging_p14.getLogger(__name__)
+
+        # P14 修复: 检查是否有真实可用的 LLM(非 mock)
+        # 没有 API key 时不应假装使用 LLM,直接告诉用户"AI 推理暂不可用"
+        # 修正 env 名(与 llm/client.py 实际读取的 key 名一致)+ 用 config 的占位符判定(含 sk-xxx)
+        from config import _is_placeholder as _is_ph
+        _llm_truly_available = False
+        _api_key_envs = [
+            "OPENAI_API_KEY", "ZHIPU_API_KEY", "BAIDU_API_KEY",
+            "ALI_API_KEY", "MINIMAX_API_KEY", "DEEPSEEK_API_KEY",
+        ]
+        for _ek in _api_key_envs:
+            _v = _os_p14.environ.get(_ek, "")
+            if _v and not _is_ph(_v):
+                _llm_truly_available = True
+                break
+
+        conversation_id = self._manage_conversation(user_id, conversation_id)
+        conversation = self.active_conversations[conversation_id]
+        store = getattr(self, "_dialogue_store", None)
+        if store is None:
+            store = self._dialogue_store = DialogueStateStore()
+        state = store.load(user_id, conversation_id)
+        manager = getattr(self, "profile_manager", None)
+        main_profile = manager.get_profile(user_id, refresh=True) if manager else {}
+        # Pass only relevant non-identifying fields, not the entire profile/wiki.
+        summary = {"family_type": (main_profile.get("basic_info") or {}).get("family_type"),
+                   "priority": ((main_profile.get("behavior_profile") or {}).get("home_energy_usage") or {}).get("priority")}
+        hints = self._parse_household_hints(message)
+
+        # ====== P14: profile_mining 在意图分类前触发(任何含画像线索的消息都挖掘) ======
+        # 这样用户分享"我家在北京,3 口人"时,即使被分类为 inform 也能被捕捉到
+        global_profile_mining_meta: dict = {"skipped": True}
+        try:
+            from agent.skills.profile_mining_skill import ProfileMiningSkill
+            from agent.skills.skill import SkillContext
+            mining_skill = ProfileMiningSkill()
+            mining_result = mining_skill.execute(SkillContext(
+                user_id=user_id, message=message,
+            ))
+            if mining_result.success and mining_result.data:
+                d = mining_result.data
+                global_profile_mining_meta = {
+                    "skipped": False,
+                    "extracted_count": d.get("extracted_count", 0),
+                    "written_to_graph": d.get("written_to_graph", 0),
+                    "obsidian_paths": d.get("obsidian_paths", []),
+                    "violations": d.get("violations", []),
+                    "reasoning": d.get("reasoning", ""),
+                }
+                _log.info("[chat_enhanced] profile_mining extracted=%d, written=%d",
+                          d.get("extracted_count", 0), d.get("written_to_graph", 0))
+        except Exception as e:
+            _log.warning("[chat_enhanced] profile_mining 集成失败(降级): %s", e)
+
+        interpreter = DemandInterpreter(self.intent_recognizer, getattr(self, "_understanding_model", None))
+        demand = interpreter.understand(message, state, summary, hints)
+        intent_result = demand.intent_result()
+        state = advance_state(state, demand, message)
+        store.save(user_id, conversation_id, state)
+        conversation.last_domain = intent_result.intent.value
+        trace.add("intent", "理解本轮需求", {"domain": demand.domain, "act": demand.act,
+                  "relation": demand.relation, "source": demand.source})
+        if demand.act == "cancel" or demand.act == "clarify":
+            # P14 修复: 如果 domain=energy(意图分类器识别为节能),
+            # 不要走 clarify 反问,直接生成方案(用户画像已够或 mining 会补)
+            # 注意: DemandInterpreter 会因 act=clarify 把 intent 覆盖成 UNKNOWN,
+            #       所以要用 demand.domain 判断,不用 intent_result.intent
+            is_energy_intent = (demand.domain == "energy")
+            if is_energy_intent:
+                _log.info("[chat_enhanced] domain=energy 但 act=clarify,跳过澄清直接生成方案")
+                # 不return,继续走到下面的 ENERGY_PLANNING 分支
+                pass
+            else:
+                reply = "已取消当前任务。你可以开始新的话题。" if demand.act == "cancel" else demand.question or "请补充一下你希望我做什么。"
+                state["recent"] = (state.get("recent", []) + [{"role": "assistant", "content": reply}])[-6:]
+                store.save(user_id, conversation_id, state)
+                return EnhancedAgentResponse(message=reply,
+                    conversation_id=conversation_id, intent=intent_result.intent.value,
+                    timestamp=get_current_datetime(),
+                    personalization_info={"understanding": intent_result.context["understanding"],
+                                         "profile_mining": global_profile_mining_meta},
+                    trace=trace.to_dict())
+        if (intent_result.intent == IntentType.ENERGY_PLANNING
+                or (demand.domain == "energy" and demand.act in ("plan", "update", "advise", "clarify"))):
+            effective_message = demand.message
+            # 强制把 intent 设回 ENERGY_PLANNING(避免下游看到 UNKNOWN)
+            if intent_result.intent != IntentType.ENERGY_PLANNING:
+                try:
+                    intent_result.intent = IntentType.ENERGY_PLANNING
+                except Exception:
+                    pass
+            if state.get("expected_slot") == "family_size":
+                import re
+                if re.fullmatch(r"[一二三四五六七八九十两\d]+(?:个人|个|人|口)?[。\s]*", effective_message):
+                    effective_message = re.sub(r"[个人口。\s]+$", "", effective_message) + "人"
+            # P14: 把全局 profile_mining_meta + llm 状态传给 _handle_energy_planning(供 HTML 报告用)
+            response = self._handle_energy_planning(
+                user_id, effective_message, conversation_id, intent_result,
+                profile_mining_meta=global_profile_mining_meta,
+                llm_truly_available=_llm_truly_available,
+            )
+            from agent.energy.household_store import load_profile
+            household = load_profile(user_id)
+            state["expected_slot"] = "family_size" if not household or not household.family_size else "appliances" if not household.appliances else None
+            state["recent"] = (state.get("recent", []) + [{"role": "assistant", "content": response.message[:1500]}])[-6:]
+            if state.get("pending_tasks"):
+                response.message += "\n你还有出行需求待处理，可以回复‘继续出行’。"
+            store.save(user_id, conversation_id, state)
+            response.trace = trace.to_dict()
+            return response
+        message = demand.message
+        # Explanations and concrete planning share the same routing in all engines.
+        # ReAct 模式: LLM 自主选工具(USE_REACT=true 时),每步调用全程写进 trace,透明
+        if demand.act in ("advise", "greet") and os.environ.get("USE_REACT", "false").lower() in ("1", "true", "yes", "on"):
+            react_response = self.chat_react(
+                user_id, message, conversation_id, trace=trace, user_city=user_city,
+                user_location=user_location,
+            )
+            state["recent"] = (state.get("recent", []) + [{"role": "assistant", "content": react_response.message[:1500]}])[-6:]
+            store.save(user_id, conversation_id, state)
+            return react_response
+
+        if demand.act in ("advise", "greet") and self.use_langgraph and self.langgraph_agent:
             langgraph_response = self.langgraph_agent.chat(user_id, message, conversation_id)
+            state["recent"] = (state.get("recent", []) + [{"role": "assistant", "content": langgraph_response.message[:1500]}])[-6:]
+            store.save(user_id, conversation_id, state)
             return EnhancedAgentResponse(
                 message=langgraph_response.message,
                 conversation_id=langgraph_response.conversation_id,
@@ -439,21 +645,15 @@ class GreenAgent:
                 recommendations=langgraph_response.recommendations,
                 rag_context=langgraph_response.metadata.get("rag_context", ""),
                 tool_result=getattr(langgraph_response, "tool_result", None),  # P6.S.23
+                trace=trace.to_dict(),
             )
 
         IntentRecognizer, IntentType, IntentResult = _get_module("intent")
         ResponseGenerator, ResponseContext = _get_module("response")
         get_current_datetime = _get_module("helpers")[1]
 
-        conversation_id = self._manage_conversation(user_id, conversation_id)
-        conversation = self.active_conversations[conversation_id]
-        conversation.turn_count += 1
         conversation.last_updated = get_current_datetime()
-
-        user_profile = self.profile_manager.get_profile(user_id)
-
-        # P6.S.10: 意图前置 — 让 RAG 知道本次要不要查
-        intent_result = self.intent_recognizer.recognize(message)
+        user_profile = main_profile
 
         # P6.S.20: 记录意图分布 + 活跃 user
         try:
@@ -473,7 +673,13 @@ class GreenAgent:
                 message,
                 conversation_id,
                 intent_result,
+                user_city=user_city,
+                user_location=user_location,
             )
+            state["recent"] = (state.get("recent", []) + [{"role": "assistant", "content": travel_resp.message[:1500]}])[-6:]
+            if state.get("pending_tasks"):
+                travel_resp.message += "\n你还有家庭节能需求待处理，可以回复‘继续家庭节能’。"
+            store.save(user_id, conversation_id, state)
             return EnhancedAgentResponse(
                 message=travel_resp.message,
                 conversation_id=travel_resp.conversation_id,
@@ -486,6 +692,7 @@ class GreenAgent:
                 recommendations=[],
                 profile_updates={},
                 tool_result=travel_resp.tool_result,  # P6.S.23: 透出 tool_result 给前端渲染地图
+                trace=trace.to_dict(),
             )
 
         # P6.S.23: 位置查询早返 — 调 best_location() 直接答 city,不让 LLM 瞎说
@@ -537,13 +744,35 @@ class GreenAgent:
         knowledge_refs = []
         rag_results = []
         if not skip_rag and self.rag_enabled and self.rag_engine:
-            rag_results = self.rag_engine.retrieve(message, top_k=5)
+            try:
+                rag_results = self.rag_engine.retrieve(message, top_k=5)
+            except Exception as e:
+                _logger.warning(f"[GreenAgent] RAG 检索失败(降级为空): {e}")
+                rag_results = []
         if rag_results:
             context_parts = []
             for i, r in enumerate(rag_results, 1):
-                context_parts.append(f"[来源 {i}]: {r.get_summary()}")
-                knowledge_refs.append(f"{r.metadata.get('source', '')} (相似度: {r.score:.2f})")
+                grade = r.metadata.get("evidence_status", "unverified")
+                evidence_rule = {
+                    "verified_current": "可用于事实结论",
+                    "verified_historical": "可用于对应历史年份，不代表当前年份",
+                    "source_linked": "有来源但有效期未核验，具体数值需谨慎",
+                    "unverified": "仅作背景线索，不可据此断言具体数值、政策或标准",
+                }.get(grade, "仅作背景线索")
+                context_parts.append(
+                    f"[来源 {i} | 证据级别:{grade} | 使用限制:{evidence_rule}]: {r.get_summary()}"
+                )
+                ref_source = r.metadata.get("source_url") or r.metadata.get("source", "")
+                knowledge_refs.append(
+                    f"{ref_source} (证据:{grade}, 相似度:{r.score:.2f})"
+                )
             rag_context = "\n\n".join(context_parts)
+
+        trace.add(
+            "rag", "检索知识库" if rag_results else "跳过知识库检索",
+            {"top_k": 5, "hits": len(rag_results)},
+            status="done" if rag_results else "skipped",
+        )
 
         message_analysis = self.dynamic_updater.analyze_message(
             user_id, message, intent_result.intent.value, intent_result.entities
@@ -592,10 +821,15 @@ class GreenAgent:
 
             logging.getLogger(__name__).warning("[GreenAgent] 记忆召回失败: %s", e)
 
-        conversation_history = self.short_term_memory.get_conversation_history(conversation_id)
+        conversation_history = self._compact_history(
+            self.short_term_memory.get_conversation_history(conversation_id)
+        )
+        trace.add("memory", "召回记忆", {"count": len(recent_memories)})
 
         personalization_ctx = self.profile_manager.get_personalization_context(user_id)
-        strategy = self.profile_manager.get_suggestion_strategy(user_id)
+        strategy = dict(self.profile_manager.get_suggestion_strategy(user_id))
+        if demand.act == "explain":
+            strategy["focus"] = "解释本轮问题；不启动规划，不把假设或咨询记为用户事实。"
 
         # P4-D: 合并 strategy 字段到 personalization_ctx,供 LLM prompt 注入
         personalization_ctx = {
@@ -605,10 +839,18 @@ class GreenAgent:
             "action_complexity": strategy.get("action_complexity"),
             "tone": strategy.get("tone"),
             "example_focus": strategy.get("example_focus"),
+            # P14: profile_mining 元数据(画像挖掘结果)
+            "profile_mining": global_profile_mining_meta,
         }
 
         recommendations = []
-        if intent_result.intent in [IntentType.ADVICE_REQUEST, IntentType.GREETING]:
+        # 放宽:知识查询 / 一般问题 / 建议 / 问候 都附上推荐,避免新用户拿 0 条推荐(P4-G e2e 修复)
+        if intent_result.intent in [
+            IntentType.ADVICE_REQUEST,
+            IntentType.GREETING,
+            IntentType.KNOWLEDGE_QUERY,
+            IntentType.QUESTION,
+        ] and demand.act != "explain":
             recs = self.recommendation_engine.generate_recommendations(user_profile, count=2)
             recommendations = [
                 {
@@ -620,6 +862,7 @@ class GreenAgent:
                 }
                 for r in recs
             ]
+        trace.add("recommendations", "生成个性化推荐", {"count": len(recommendations)})
 
         # 将 RAG 检索结果转换为 ResponseContext 格式
         retrieved_knowledge = []
@@ -630,7 +873,9 @@ class GreenAgent:
                         "title": r.metadata.get("title", ""),
                         "content": r.content,
                         "source": r.metadata.get("source", ""),
+                        "source_url": r.metadata.get("source_url", ""),
                         "category": r.metadata.get("category", ""),
+                        "evidence_status": r.metadata.get("evidence_status", "unverified"),
                     }
                 )
 
@@ -685,7 +930,8 @@ class GreenAgent:
             }
         else:
             response_data = self._generate_personalized_response(
-                message, context, intent_result, rag_context, personalization_ctx, strategy
+                message, context, intent_result, rag_context, personalization_ctx, strategy,
+                trace=trace,
             )
             # 写缓存(失败不致命)
             try:
@@ -705,6 +951,8 @@ class GreenAgent:
                     "[GreenAgent] QueryCache.set 异常(非致命): %s", e
                 )
 
+        state["recent"] = (state.get("recent", []) + [{"role": "assistant", "content": response_data["message"][:1500]}])[-6:]
+        store.save(user_id, conversation_id, state)
         self._save_conversation(conversation_id, user_id, message, response_data["message"])
         self.profile_manager.update_conversation_count(user_id)
 
@@ -730,6 +978,11 @@ class GreenAgent:
 
             logging.getLogger(__name__).warning("[GreenAgent] 记忆整合失败(非致命): %s", e)
 
+        trace.add(
+            "done", "生成回答",
+            {"cached": bool(cached_response), "chars": len(response_data["message"])},
+        )
+
         return EnhancedAgentResponse(
             message=response_data["message"],
             conversation_id=conversation_id,
@@ -742,7 +995,402 @@ class GreenAgent:
             rag_context=rag_context,
             personalization_info=personalization_ctx,
             recommendations=recommendations,
+            trace=trace.to_dict(),
         )
+
+    def _handle_command(
+        self, user_id: str, message: str, conversation_id: str, trace=None
+    ) -> "EnhancedAgentResponse":
+        """快捷指令解析 — 对标 Claude Code / DSH 的 /command。
+
+        支持:
+          /help          列出命令
+          /energy        家庭节能规划(复用 _handle_energy_planning)
+          /profile       查看当前用户画像摘要
+          /skills        列出已注册技能
+          /tools         列出已注册工具
+          /tool <name> [ JSON]  直接调用某个工具(走 ToolRegistry / dispatch)
+          /skill <name>  直接调用某个技能(走 SkillExecutor)
+        调用全程记录进 trace,前端"🔍 思考过程"可见。
+        """
+        from utils.helpers import get_current_datetime
+        from agent.trace import Trace
+
+        if trace is None:
+            trace = Trace()
+        parts = (message or "").strip().split()
+        cmd = (parts[0].lstrip("/") or "help").lower() if parts else "help"
+        args = parts[1:]
+        trace.add("command", "识别快捷指令", {"cmd": "/" + cmd, "args": args}, status="done")
+
+        def _resp(msg, suggestions=None, trace_extra=None):
+            return EnhancedAgentResponse(
+                message=msg,
+                conversation_id=conversation_id,
+                intent="command",
+                suggestions=suggestions or [],
+                timestamp=get_current_datetime(),
+                trace=trace.to_dict(),
+            )
+
+        # /help
+        if cmd == "help":
+            trace.add("command", "返回命令帮助", status="done")
+            return _resp(
+                self._command_help(),
+                ["/energy", "/skills", "/tools", "/tool daily_eco_tip", "/profile"],
+            )
+
+        # /energy → 家庭节能规划
+        if cmd == "energy":
+            trace.add("command", "调用节能规划(skill=energy_planning)", status="running")
+            return self._handle_energy_planning(
+                user_id, (" ".join(args) if args else "家庭节能规划"), conversation_id, None
+            )
+
+        # /profile → 画像摘要
+        if cmd == "profile":
+            try:
+                profile = self.profile_manager.get_profile(user_id)
+                basic = profile.get("basic_info", {})
+                eco = profile.get("eco_profile", {})
+                lines = [
+                    "👤 你的画像摘要：",
+                    f"- 地区: {basic.get('region') or '未填'}",
+                    f"- 年龄段: {basic.get('age_group') or '未填'}",
+                    f"- 收入: {basic.get('income_level') or '未填'}",
+                    f"- 家庭: {basic.get('family_type') or '未填'}",
+                    f"- 行为阶段: {eco.get('behavior_stage') or '意向'}",
+                    f"- 关注领域: {', '.join(eco.get('primary_interests') or []) or '未填'}",
+                    f"- 已完成引导: {'是' if profile.get('onboarding_completed') else '否'}",
+                ]
+                trace.add("command", "读取用户画像", status="done")
+                return _resp("\n".join(lines), ["/energy", "帮我做家庭节能规划"])
+            except Exception as e:
+                import logging
+
+                logging.getLogger(__name__).warning("[command] profile 失败: %s", e)
+                return _resp(f"读取画像失败: {e}", ["/help"])
+
+        # /skills → 列出已注册技能(含中文名 + 用途 + 类别)
+        if cmd == "skills":
+            try:
+                from agent.skills import get_skill_executor
+
+                exec_ = get_skill_executor()
+                names = exec_.list_all()
+                lines = ["🎯 已注册技能:"]
+                for n in names:
+                    sk = exec_.get(n)
+                    name_cn = getattr(sk, "name_cn", "") or ""
+                    desc = getattr(sk, "description", "") or ""
+                    cat = getattr(sk, "category", "") or ""
+                    lines.append(
+                        f"· {n}{'（' + name_cn + '）' if name_cn else ''} — {desc}"
+                        + (f"  [{cat}]" if cat else "")
+                    )
+                lines.append("\n（/skill <name> 查看详情并调用）")
+                trace.add("command", "列出已注册技能", {"count": len(names)}, status="done")
+                return _resp("\n".join(lines), ["/skill energy_planning", "/skills"])
+            except Exception as e:
+                return _resp(f"列技能失败: {e}", ["/help"])
+
+        # /tools → 列出已注册工具
+        if cmd == "tools":
+            try:
+                from agent.tools import get_registry
+
+                names = get_registry().list_all()
+                trace.add("command", "列出已注册工具", {"count": len(names)}, status="done")
+                return _resp(
+                    "🔧 已注册工具:\n" + "\n".join(f"· {n}" for n in names)
+                    + "\n\n（可用 /tool <name> 调用）",
+                    ["/tool daily_eco_tip"],
+                )
+            except Exception as e:
+                return _resp(f"列工具失败: {e}", ["/help"])
+
+        # /tool <name> → 直接调用某个工具
+        if cmd == "tool":
+            name = args[0] if args else ""
+            tool_args = " ".join(args[1:]) if len(args) > 1 else "{}"
+            if not name:
+                return _resp("用法: /tool <工具名> [JSON参数]", ["/tools", "/help"])
+            try:
+                from agent.tool_dispatcher import dispatch_tool_call
+
+                trace.add("command", "调用工具", {"tool": name}, status="running")
+                result = dispatch_tool_call(name, tool_args)
+                out = result.get("output") if result.get("success") else str(result.get("error"))
+                trace.add("command", "工具执行结果", {"success": result.get("success")}, status="done")
+                return _resp(f"🔧 /tool {name} 结果:\n\n{out}", ["/tools", "/energy"])
+            except Exception as e:
+                import logging
+
+                logging.getLogger(__name__).warning("[command] tool 调用失败: %s", e)
+                return _resp(f"工具调用失败: {e}", ["/help"])
+
+        # /skill <name> → 直接调用某个技能
+        if cmd == "skill":
+            name = args[0] if args else ""
+            if not name:
+                return _resp("用法: /skill <技能名>", ["/skills", "/help"])
+            try:
+                from agent.skills import get_skill_executor
+
+                exec_ = get_skill_executor()
+                skill = exec_.get(name)
+                if not skill:
+                    return _resp(f"未找到技能: {name}。可用: {', '.join(exec_.list_all())}", ["/skills"])
+                trace.add("command", "调用技能", {"skill": name}, status="running")
+                from agent.skills.skill import SkillContext
+
+                ctx = SkillContext(user_id=user_id, metadata={"operation": "plan"})
+                result = skill.execute(ctx)
+                out = result.data if result.success else str(result.error)
+                trace.add("command", "技能执行结果", {"success": result.success}, status="done")
+                return _resp(f"🎯 /skill {name} 结果:\n\n{out}", ["/energy", "/skills"])
+            except Exception as e:
+                import logging
+
+                logging.getLogger(__name__).warning("[command] skill 调用失败: %s", e)
+                return _resp(f"技能调用失败: {e}", ["/help"])
+
+        # 未知命令
+        return _resp(f"未知命令 /{cmd}。输入 /help 查看可用命令。", ["/help"])
+
+    def _command_help(self) -> str:
+        return (
+            "📋 可用快捷指令:\n"
+            "/help                    查看命令列表\n"
+            "/energy                  家庭节能规划(节水/节电/节气)\n"
+            "/profile                 查看我的画像摘要\n"
+            "/skills                  列出已注册技能\n"
+            "/tools                   列出已注册工具\n"
+            "/tool <名字> [JSON]      直接调用某个工具\n"
+            "/skill <名字>            直接调用某个技能\n\n"
+            "也可以直接用自然语言聊天。"
+        )
+
+    def chat_react(
+        self, user_id: str, message: str, conversation_id: str = None, trace=None, user_city=None,
+        user_location=None,
+    ) -> "EnhancedAgentResponse":
+        """ReAct 主聊天:LLM 根据工具列表自主选择调用哪个工具,每步透明(写进 trace)。
+
+        仅当 USE_REACT=true 时由 chat_enhanced 调用;否则仍走确定性管线。
+        trace 由 SSE 实时流传入(携带 on_step),使每步都实时推给前端。
+        user_city/user_location: 用户真实城市/定位(实时坐标),经 ctx 注入工具(如 travel_planning)。
+        """
+        from agent.trace import Trace
+        from utils.helpers import get_current_datetime
+        from llm import get_llm_client
+        from agent.tool_dispatcher import run_react_loop
+        from observability.trace import new_trace_id
+
+        if trace is None:
+            trace = Trace()
+        trace.add("react", "进入 ReAct(LLM 自主选工具)模式", status="done")
+
+        # 解析用户城市:优先调用方传入 user_city,其次 user_location.city,再画像/默认
+        city = (user_city or "").strip()
+        if not city and user_location:
+            city = (user_location.get("city") or "").strip()
+        if not city:
+            try:
+                from utils.geolocate import best_location
+                geo = best_location(handler=None, user_id=user_id)
+                if geo and geo.city:
+                    city = geo.city
+            except Exception:
+                city = ""
+        tool_ctx = {"user_id": user_id, "city": city, "location": user_location or {}}
+
+        profile = self.profile_manager.get_profile(user_id)
+
+        # 知识库上下文(尽力而为)
+        rag_context = ""
+        try:
+            if self.rag_enabled and self.rag_engine:
+                rags = self.rag_engine.retrieve(message, top_k=5)
+                if rags:
+                    rag_context = "\n\n".join(
+                        f"[来源 {i}]: {r.get_summary()}" for i, r in enumerate(rags, 1)
+                    )
+                    trace.add("rag", "检索知识库", {"hits": len(rags)})
+                else:
+                    trace.add("rag", "知识库无命中", status="skipped")
+            else:
+                trace.add("rag", "跳过知识库检索", status="skipped")
+        except Exception as e:
+            import logging
+
+            logging.getLogger(__name__).warning("[react] RAG 检索失败: %s", e)
+            trace.add("rag", "知识库检索失败", status="skipped")
+
+        react_instruction = self._react_system_prompt()
+        messages = [
+            {"role": "system", "content": react_instruction},
+        ]
+        # 用户画像上下文(让 LLM 知道"这是谁")
+        try:
+            basic = profile.get("basic_info", {})
+            eco = profile.get("eco_profile", {})
+            prof_lines = [
+                f"用户地区: {basic.get('region') or '未知'}",
+                f"年龄段: {basic.get('age_group') or '未知'}",
+                f"行为阶段: {eco.get('behavior_stage') or '意向'}",
+                f"关注领域: {', '.join(eco.get('primary_interests') or []) or '无'}",
+            ]
+            messages.append({"role": "system", "content": "[用户画像]\n" + "\n".join(prof_lines)})
+        except Exception:
+            pass
+        # 身份上下文:让 LLM 知道当前 user_id,调用需要 user_id 的工具时直接填入,不要向用户索要
+        messages.append(
+            {
+                "role": "system",
+                "content": (
+                    f"[身份上下文] 当前用户 user_id = {user_id}。"
+                    "凡工具参数要求 user_id 的,直接填这个值,不要向用户询问。"
+                ),
+            }
+        )
+        # 位置上下文:让 LLM 知道用户当前定位(浏览器/IP/画像解析),回答"我当前位置/出发地"或出行时直接用
+        try:
+            loc = user_location or {}
+            loc_parts = []
+            if loc.get("detail"):
+                loc_parts.append(f"具体位置={loc.get('detail')}")
+            if loc.get("city"):
+                loc_parts.append(f"城市={loc.get('city')}")
+            if loc.get("lat") and loc.get("lng"):
+                loc_parts.append(f"坐标=({float(loc['lng']):.4f},{float(loc['lat']):.4f})")
+            if loc.get("source"):
+                loc_parts.append(f"来源={loc.get('source')}")
+            if loc_parts:
+                messages.append({
+                    "role": "system",
+                    "content": ("[位置上下文] 当前用户定位: " + "、".join(loc_parts)
+                                + "。若用户问「我当前位置/我在哪/出发地」,直接用这个城市回答;"
+                                  "出行时 origin 可填'当前位置',系统用该坐标。"),
+                })
+        except Exception:
+            pass
+        if rag_context:
+            messages.append({"role": "system", "content": f"[参考知识]\n{rag_context}"})
+        messages.append({"role": "user", "content": message})
+
+        llm = get_llm_client()
+        from agent.tools import get_registry
+
+        tool_names = get_registry().list_all()
+        mcp_tool_count = sum(1 for n in tool_names if str(n).startswith("mcp_"))
+        trace.add(
+            "llm", "LLM 自主选择工具",
+            {"tools": len(tool_names), "mcp_tools": mcp_tool_count},
+            status="done",
+        )
+
+        result = run_react_loop(
+            messages,
+            llm,
+            tool_names=tool_names,
+            max_steps=4,
+            trace_id=new_trace_id(),
+            ctx=tool_ctx,
+            reflect=True,
+        )
+
+        # 回填 travel_planning 工具输出为 tool_result(前端出行地图需要 origin/dest/routes/坐标)
+        travel_tool_result = None
+
+        # 展示模型链式推理(DeepSeek R1 reasoner 的 reasoning_content)
+        for i, raz in enumerate(result.get("reasonings", []) or []):
+            if isinstance(raz, str) and raz.strip():
+                trace.add("llm", f"模型推理 #{i+1}", raz[:600], status="done")
+
+        # 每步工具调用写进 trace(透明,含中间输出)
+        for tc in result.get("tool_calls", []):
+            out = tc.get("output")
+            # 取最后一次成功的 travel_planning 结构化数据作为 tool_result,供前端渲染地图
+            if tc.get("name") == "travel_planning" and tc.get("success") and isinstance(out, dict):
+                travel_tool_result = out
+            # 构造 trace 展示串:出行工具显示"数据来源 + 线路",而非 150 字截断原始 dict
+            if tc.get("name") == "travel_planning" and tc.get("success") and isinstance(out, dict):
+                out_str = self._summarize_travel_output(out)
+            elif isinstance(out, str):
+                out_str = out[:150]
+            elif isinstance(out, dict):
+                out_str = str(out)[:150]
+            else:
+                out_str = ""
+            trace.add(
+                "tool", f"调用工具 {tc.get('name', '?')}",
+                {"success": tc.get("success"), "elapsed_ms": tc.get("elapsed_ms"),
+                 "result": out_str},
+                status="done" if tc.get("success") else "error",
+            )
+        trace.add(
+            "react", "ReAct 循环结束",
+            {
+                "steps": result.get("steps", 0),
+                "tool_calls": len(result.get("tool_calls", [])),
+                "success": result.get("success"),
+            },
+            status="done" if result.get("success") else "error",
+        )
+
+        return EnhancedAgentResponse(
+            message=result.get("content", "（ReAct 返回为空）"),
+            conversation_id=conversation_id,
+            intent="react",
+            suggestions=[],
+            timestamp=get_current_datetime(),
+            tool_result=travel_tool_result,
+            trace=trace.to_dict(),
+        )
+
+    @staticmethod
+    def _summarize_travel_output(out: dict) -> str:
+        """把 travel_planning 工具输出浓缩成 trace 可读串:数据来源 + 各线路摘要。"""
+        src = out.get("source", "高德地图API")
+        routes = out.get("routes", []) or []
+        lines = []
+        for r in routes[:4]:
+            t = r.get("type", "?")
+            ln = r.get("line", "")
+            km = r.get("distance_km", "?")
+            lines.append(f"{t}:{ln}({km}km)")
+        if lines:
+            return f"来源[{src}] " + " | ".join(lines)
+        return f"来源[{src}]"
+
+    def _react_system_prompt(self) -> str:
+        """ReAct 的 system prompt —— 委托统一人格+护栏底座(system_prompt.py),
+        再拼接动态工具列表,提高 LLM 调对工具的概率。"""
+        from agent.system_prompt import build_react_system_prompt
+
+        tool_lines = []
+        try:
+            from agent.tools import get_registry
+
+            reg = get_registry()
+            for name in reg.list_all():
+                inst = reg.get(name)
+                desc = getattr(inst, "description", "") or ""
+                params = getattr(inst, "parameters", None) or []
+                if params:
+                    param_str = ", ".join(
+                        f"{p.get('name')}({p.get('type')}{'·必填' if p.get('required') else ''})"
+                        for p in params
+                    )
+                else:
+                    param_str = "无参数"
+                tool_lines.append(f"- **{name}**: {desc}  参数: {param_str}")
+        except Exception:
+            tool_lines.append("(工具列表读取失败,按描述选择)")
+
+        return build_react_system_prompt(tool_lines)
 
     def _map_intent_to_interaction(self, intent_result) -> str:
         """映射意图到交互类型"""
@@ -828,6 +1476,468 @@ class GreenAgent:
             tool_result={"location": location_dict},
         )
 
+    def _handle_energy_planning(
+        self, user_id: str, message: str, conversation_id: str, intent_result,
+        profile_mining_meta: Optional[dict] = None,
+        llm_truly_available: bool = False,
+    ) -> "EnhancedAgentResponse":
+        """P12: 家庭节能规划 — 在聊天里识别并生成节水/节电/节气方案。
+
+        流程:
+          1. 读取最新主画像，并合并已有家庭记录;
+          2. 从本次消息抽取线索(city/人数/费用/电器)并合并;
+          3. 关键信息缺失 → 反问收集(下轮继续补);
+          4. 足够 → EnergyPlanner 生成方案 + 今日卡,以聊天回复 + 推荐卡片呈现。
+        """
+        from utils.helpers import get_current_datetime
+        from agent.energy.models import HouseholdProfile
+        from agent.energy.household_store import load_profile, save_profile
+        from agent.energy.planner import EnergyPlanner
+        from agent.trace import Trace
+
+        trace = Trace()
+        trace.add("energy_planning", "识别为家庭节能规划", status="running")
+
+        from agent.energy.household_store import save_plan_variant
+        from agent.energy.weekly import WeeklyEnergy
+        from agent.energy.personalization import resolve_profile, remember_confirmed, describe_basis
+        profile, profile_sources = resolve_profile(user_id, self.profile_manager.get_profile(user_id, refresh=True), load_profile(user_id))
+        hints = self._parse_household_hints(message)
+        profile = self._merge_household_hints(profile, hints)
+        profile_sources.update({key: "本轮对话明确提供" for key in hints if key != "removed_appliances"})
+        profile.intake_pending = not bool(profile.family_size and profile.appliances)
+        profile.excluded_actions = list(set(profile.excluded_actions or []) | set(WeeklyEnergy().exclusions(user_id)))
+        from agent.energy.delegation import get_delegation_level
+        can_save = get_delegation_level(user_id) != 3
+        planner = EnergyPlanner()
+        plan = planner.generate_plan(profile)
+        profile_saved = False
+
+        # ====== P14: profile_mining 在 chat_enhanced 顶层已跑过;此处复用结果 ======
+        # 由 caller 通过 profile_mining_meta 注入;若没注入(直接调本函数)则为空
+        if profile_mining_meta is None:
+            profile_mining_meta = {"skipped": True}
+
+        # 如果 mining 刚写了图谱,刷新 profile 让 plan 用新数据
+        if profile_mining_meta.get("written_to_graph", 0) > 0 and not profile_mining_meta.get("skipped", False):
+            try:
+                profile, profile_sources = resolve_profile(
+                    user_id,
+                    self.profile_manager.get_profile(user_id, refresh=True),
+                    load_profile(user_id),
+                )
+                # 重 resolve 会丢本轮的 hints,需重新合并(否则 family_size 等又回到旧值)
+                profile = self._merge_household_hints(profile, hints)
+                profile_sources.update({key: "本轮对话明确提供" for key in hints if key != "removed_appliances"})
+                profile.intake_pending = not bool(profile.family_size and profile.appliances)
+                profile.excluded_actions = list(set(profile.excluded_actions or []) | set(WeeklyEnergy().exclusions(user_id)))
+                plan = planner.generate_plan(profile)
+                _log.info("[_handle_energy_planning] 用了 mining 刷新的 profile,重生成 plan")
+            except Exception as e:
+                _log.warning("[_handle_energy_planning] 刷新 profile 失败: %s", e)
+
+        if can_save and "GUARD_EXTREME_VALUES" not in (plan.warning or ""):
+            # 保留用户的委托级别,避免 save_profile 用默认值 1 覆盖 DB 里的 level(0/2)
+            profile.delegation_level = get_delegation_level(user_id)
+            profile_saved = remember_confirmed(self.profile_manager, user_id, profile, hints)
+            save_profile(user_id, profile)
+        if plan.blocked:
+            missing = []
+            if not profile.family_size: missing.append("家里几个人？")
+            if not profile.appliances: missing.append("有哪些主要设备？例如冰箱、电热水器或燃气灶。")
+            msg = "先了解一点你家的情况：" + " ".join(missing) if missing else "请检查提供的信息：" + str(plan.warning)
+            return EnhancedAgentResponse(message=msg, conversation_id=conversation_id,
+                intent="energy_planning", timestamp=get_current_datetime(),
+                suggestions=["家里3人，有冰箱和电热水器，不用燃气"], recommendations=[],
+                rag_context="", personalization_info={"missing_fields": missing}, knowledge_refs=[], profile_updates={})
+        plan.status = "draft"
+        saved = save_plan_variant(user_id, plan, status="draft") if can_save else False
+        card = planner.generate_today_card(plan)
+
+        # ====== P13 Step 6: 集成 LLM 推理层(解释 + 反问,数字仍走模板) ======
+        llm_explanation = ""
+        llm_follow_up: list = []
+        llm_reasoner_meta: dict = {}
+
+        # P14 修复: 若无真实 LLM,直接告诉用户"AI 推理暂不可用",不假装
+        if not llm_truly_available:
+            llm_reasoner_meta = {
+                "llm_used": False,
+                "llm_real": False,
+                "reason": "未配置任何 LLM API Key(请在 .env 设置 OPENAI_API_KEY / DEEPSEEK_API_KEY / MINIMAX_API_KEY 等)",
+                "action_required": "set_api_key",
+            }
+            _log.info("[handle_energy_planning] 无真实 LLM,跳过推理层")
+        else:
+            try:
+                from agent.context_builder import ContextBuilder, ContextOptions
+                from agent.llm_reasoner import make_reasoner, LLMReasonerResult
+
+                # 1) 组装 LLM context
+                action_ids = [a.id for a in plan.actions]
+                ctx_builder = ContextBuilder()
+                built_ctx = ctx_builder.build(user_id, action_ids=action_ids, options=ContextOptions(
+                    include_profile=True, include_knowledge=True, include_schema=True,
+                    profile_hop=2, knowledge_hop=1, max_chars=8000,
+                ))
+                ctx_text = built_ctx.render()
+
+                # 2) 初始化真实 LLM 客户端(尊重 API_PROVIDER,默认 deepseek)
+                #    不再用 BayesianLLMClient:其 select_model 首次会命中 openai(__SET_ME__ 占位符),
+                #    导致真正可用的 DeepSeek 永远轮不到。
+                llm_client = None
+                try:
+                    from llm import get_llm_client
+                    llm_client = get_llm_client()
+                except Exception as e:
+                    _log.warning("[handle_energy_planning] get_llm_client 初始化失败: %s", e)
+                    llm_client = None
+
+                if llm_client is None:
+                    llm_reasoner_meta = {"llm_used": False, "reason": "客户端初始化失败"}
+                else:
+                    # 3) 适配器:把 src/llm/client.py 的 chat(messages, **kwargs) → LLMReasoner.chat(system, user)
+                    #    超时/重试由 provider 客户端内部的 _call_openai_sdk 统一管(30s + 3 次退避),
+                    #    不再额外套 8s 线程壳(会误杀 deepseek-reasoner 等慢推理模型)。
+                    from agent.llm_reasoner import LLMClient as _ReasonerLLMClient
+                    class _Adapter(_ReasonerLLMClient):
+                        def __init__(self, real):
+                            self._real = real
+                        def chat(self, system: str, user: str) -> str:
+                            resp = self._real.chat([
+                                {"role": "system", "content": system},
+                                {"role": "user", "content": user},
+                            ])
+                            # 配置/鉴权/网络错误 → 返回空串,让 reasoner 走 template fallback,
+                            # 而不是把 "[错误] 调用失败..." 当作个性化解释展示给用户。
+                            if getattr(resp, "error", None):
+                                _log.warning("[handle_energy_planning] LLM 返回错误: %s", resp.error)
+                                return ""
+                            if hasattr(resp, "content"):
+                                return resp.content or ""
+                            return str(resp) if resp else ""
+
+                    reasoner = make_reasoner(llm_client=_Adapter(llm_client))
+                    plan_dict = plan.to_dict()
+                    reason_result = reasoner.explain(
+                        profile_section=built_ctx.profile_section,
+                        knowledge_section=built_ctx.knowledge_section,
+                        schema_section=built_ctx.schema_section,
+                        plan_dict=plan_dict,
+                        user_message=message,
+                    )
+
+                    # 检测响应是否真的是 LLM 生成(而非 mock 兜底字符串)
+                    is_mock_response = (
+                        not reason_result.raw_llm_response
+                        or "作为绿色低碳助手" in reason_result.raw_llm_response
+                        or "我很乐意帮助你" in reason_result.raw_llm_response
+                        or len(reason_result.raw_llm_response) < 20
+                    )
+
+                    if not reason_result.used_template_fallback and reason_result.explanation and not is_mock_response:
+                        llm_explanation = reason_result.explanation
+                        llm_follow_up = reason_result.follow_up_questions
+                        llm_reasoner_meta = {
+                            "llm_used": True,
+                            "llm_real": True,
+                            "llm_class": llm_client.__class__.__name__,
+                            "confidence": reason_result.confidence,
+                            "context_chars": built_ctx.char_count(),
+                            "context_truncated": built_ctx.meta.get("truncated", False),
+                        }
+                    else:
+                        # LLM 真调用了但响应是 mock 兜底 → 不算真用
+                        llm_reasoner_meta = {
+                            "llm_used": False,
+                            "llm_real": False,
+                            "reason": "客户端已连接,但 provider 返回 mock 兜底(可能 API key 无效或网络受限)",
+                            "llm_class": llm_client.__class__.__name__,
+                        }
+            except Exception as e:
+                _log.exception("[_handle_energy_planning] LLM 推理失败: %s", e)
+                llm_reasoner_meta = {"llm_used": False, "error": str(e)}
+
+        # ====== 组装聊天回复 ======
+        lines = [describe_basis(profile)]
+
+        # P13 Step 6: LLM 个性化解释(在方案明细之前)
+        if llm_explanation:
+            lines.append(f"\n💡 个性化分析(LLM 推理):\n{llm_explanation}")
+        elif not llm_truly_available:
+            # 没 API key — 显式告知,不假装使用
+            lines.append(
+                "\n⚠️ **AI 推理功能暂未启用**\n\n"
+                "  当前未在 .env 配置任何 LLM API Key(OPENAI_API_KEY / DEEPSEEK_API_KEY / MINIMAX_API_KEY 等)。\n"
+                "  本回复由模板生成,不含 LLM 个性化推理。\n"
+                "  配置 API Key 重启服务后即可启用 AI 个性化分析。"
+            )
+        else:
+            lines.append("先从一件容易执行的事开始。下面的数字是年度参考或按你提供的参数计算的估算，不是已经省下的费用。")
+
+        lines.append(f"📋 方案 ID: `{plan.id}`（后续标记完成 / 调优都引用这个 ID）")
+
+        # 字段级来源溯源(让用户看到"我从哪儿读到这些信息")
+        if profile_sources:
+            source_items = list(profile_sources.items())[:6]
+            source_lines = [f"  · {k} ← {v}" for k, v in source_items]
+            lines.append("📌 画像字段来源:")
+            lines.extend(source_lines)
+
+        # 全部 actions(不再只展示前 3 个)
+        lines.append(f"\n🎯 完整方案（{len(plan.actions)} 项):")
+        for action in plan.actions:
+            estimate = (f"约 ¥{action.estimated_saving_cny}/年" if action.estimate_kind != "qualitative" else "暂不估算金额")
+            lines.append(f"· [{action.id}] {action.title}：{action.description}（{estimate}）")
+            lines.append(f"  依据与假设：{action.estimate_note}")
+            lines.append(f"  数据源: {action.source_ref[:120]}{'...' if len(action.source_ref) > 120 else ''}")
+
+        # 今日行动卡(从全部 actions 里挑 3 个最容易执行的)
+        if card and card.actions:
+            lines.append(f"\n🔥 今日行动卡(从方案挑 {len(card.actions)} 个最容易执行):")
+            for a in card.actions:
+                lines.append(f"  · [{a.id}] {a.title}（难度 {a.difficulty}/3）")
+
+        # P13 Step 6: LLM 反问(基于 ontology 不变量 + 画像缺失)
+        # 仅在 LLM 真用时才显示 LLM 生成的反问;否则从 ontology 自动推
+        if llm_follow_up and llm_reasoner_meta.get("llm_used"):
+            lines.append(f"\n❓ 我还想了解:")
+            for q in llm_follow_up[:3]:
+                lines.append(f"  · {q}")
+        elif not llm_truly_available:
+            # 从 ontology 不变量推必填字段,自动生成反问
+            missing_questions = []
+            if not profile.city or profile.city == "beijing":
+                missing_questions.append("你家在哪个城市?不同城市阶梯电价不同")
+            if not profile.appliances:
+                missing_questions.append("家里有哪些主要设备?如空调、热水器、冰箱等")
+            if not profile.monthly_electricity_bill:
+                missing_questions.append("月电费大概多少?可以更精确推荐")
+            if missing_questions:
+                lines.append(f"\n❓ 补充信息可让方案更精准:")
+                for q in missing_questions[:3]:
+                    lines.append(f"  · {q}")
+
+        # 本周已排除项(用户说过不想做的)
+        if profile.excluded_actions:
+            lines.append(f"\n🚫 本周已排除: {', '.join(profile.excluded_actions[:5])}")
+
+        recs = []
+        for action in plan.actions[:3]:
+            estimate = (f"约 ¥{action.estimated_saving_cny}/年" if action.estimate_kind != "qualitative" else "暂不估算金额")
+            recs.append({"action": action.title, "category": action.category,
+                         "action_id": action.id,
+                         "reason": action.description, "carbon_saving": "未实测",
+                         "difficulty": action.difficulty, "source_ref": action.source_ref,
+                         "estimate": estimate})
+        lines.append("\n你可以直接回复‘保持舒适优先’‘我已经一直满桶洗衣’或‘不想缩短洗澡时间’，我会记住并调整之后的建议。")
+        if hints and not profile_saved: lines.append("这次信息尚未写入长期画像；本次建议仍会使用你提供的信息。")
+        if not saved: lines.append("当前方案仅供预览，尚未保存。")
+
+        # ====== P14: 渲染 HTML 报告(独立分支,不影响默认文本回复) ======
+        html_report_path: Optional[str] = None
+        html_report_url: Optional[str] = None
+        try:
+            from agent.html_reporter import HTMLReporter
+            html_reporter = HTMLReporter()
+            html_content = html_reporter.render_energy_plan(
+                user_id=user_id,
+                profile=profile.to_dict(),
+                profile_sources=profile_sources,
+                plan=plan.to_dict(),
+                today_card=card.to_dict(),
+                llm_explanation=llm_explanation,
+                llm_follow_up=llm_follow_up,
+                llm_meta=llm_reasoner_meta,
+                obsidian_writes=profile_mining_meta.get("obsidian_paths", []),
+                anti_hallu_passed=llm_reasoner_meta.get("llm_used", False),
+                profile_field_count=len(profile_sources),
+            )
+            # 结构化目录: data/reports/by-user/<uid>/YYYY/MM/energy_plan_<plan_id>_<secret>.html
+            # 文件名含随机 secret → capability URL(不可枚举,拿到链接才能看,浏览器可直接点开)
+            from datetime import datetime as _dt
+            from pathlib import Path
+            from paths import REPORTS_DIR
+            now = _dt.now()
+            _secret = uuid.uuid4().hex[:16]
+            reports_dir = REPORTS_DIR / "by-user" / user_id / f"{now.year:04d}" / f"{now.month:02d}"
+            reports_dir.mkdir(parents=True, exist_ok=True)
+            report_filename = f"energy_plan_{plan.id}_{_secret}.html"
+            report_path = reports_dir / report_filename
+            report_path.write_text(html_content, encoding="utf-8")
+            html_report_path = str(report_path)
+            # 同时按日期存一份(便于按时间清理过期报告)
+            by_date_dir = REPORTS_DIR / "by-date" / f"{now.year:04d}-{now.month:02d}-{now.day:02d}"
+            by_date_dir.mkdir(parents=True, exist_ok=True)
+            (by_date_dir / f"{user_id[:8]}_{report_filename}").write_text(html_content, encoding="utf-8")
+
+            # 协议自动探测:与 main.py 的 HTTPS 逻辑一致(certs/ 有证书或设了 SSL_CERT → https)
+            # 优先取 PUBLIC_BASE_URL(公网/隧道部署时设置),否则用 {scheme}://localhost:{port}
+            html_report_url = f"/api/reports/by-user/{user_id}/{now.year:04d}/{now.month:02d}/{report_filename}"
+            _scheme = "http"
+            try:
+                _certs_dir = Path(__file__).resolve().parent.parent.parent / "certs"
+                if os.environ.get("SSL_CERT") or (
+                    _certs_dir.exists() and any(p for p in _certs_dir.glob("*.pem") if "key" not in p.name)
+                ):
+                    _scheme = "https"
+            except Exception:
+                pass
+            base_url = (os.environ.get("PUBLIC_BASE_URL") or f"{_scheme}://localhost:{os.environ.get('PORT', '8000')}").rstrip("/")
+            html_report_full_url = f"{base_url}{html_report_url}"
+            lines.append(
+                f"\n📊 **HTML 可视化报告**: {html_report_full_url}\n\n"
+                f"   [👉 点击此处直接打开报告]({html_report_full_url})\n\n"
+                f"   — 交互式方案(可勾选 TODO / 切 3 个 variant / 看饼图 / 看反幻觉护栏)"
+            )
+        except Exception as e:
+            _log.warning("[_handle_energy_planning] HTML 渲染失败(降级): %s", e)
+
+        return EnhancedAgentResponse(message="\n".join(lines), conversation_id=conversation_id,
+            intent="energy_planning", timestamp=get_current_datetime(),
+            suggestions=["节能建议少折腾优先", "节能建议保持舒适优先"], recommendations=recs,
+            rag_context="", personalization_info={
+                "energy_plan": plan.to_dict(),
+                "today_card": card.to_dict(),
+                "profile_sources": profile_sources,
+                "llm_reasoner": llm_reasoner_meta,
+                "llm_follow_up": llm_follow_up,
+                "profile_mining": profile_mining_meta,
+                "html_report_path": html_report_path,
+                "html_report_url": html_report_url,
+            },
+            knowledge_refs=[], profile_updates={})
+
+    def _parse_household_hints(self, message: str) -> dict:
+        """从用户消息里抽取家庭画像线索(city/人数/费用/电器) — 最佳努力"""
+        import re
+
+        hints = {}
+        msg = message or ""
+        if re.search(r"假如|假设|如果我家|如果有", msg):
+            return hints
+
+        # 城市
+        try:
+            from agent.energy.policies import CITY_TIER_PRICING
+
+            for key, pricing in CITY_TIER_PRICING.items():
+                if key == "default":
+                    continue
+                for alias in pricing.city_aliases:
+                    if alias and alias.lower() in msg.lower():
+                        hints["city"] = key
+                        break
+                if "city" in hints:
+                    break
+        except Exception:
+            pass
+
+        # 家庭人数(中文数字/阿拉伯数字 + 口/人)
+        cn = {"一": 1, "二": 2, "两": 2, "三": 3, "四": 4, "五": 5, "六": 6, "七": 7, "八": 8, "九": 9, "十": 10}
+
+        def _num(tok):
+            if not tok:
+                return None
+            try:
+                return int(tok)
+            except (ValueError, TypeError):
+                return cn.get(tok)
+
+        m = re.search(r"([一二三四五六七八九十两]|[0-9]+)\s*口", msg)
+        if m:
+            n = _num(m.group(1))
+            if n:
+                hints["family_size"] = n
+        else:
+            m = re.search(r"([一二三四五六七八九十两]|[0-9]+)\s*(?:个)?人", msg)
+            if m:
+                n = _num(m.group(1))
+                if n:
+                    hints["family_size"] = n
+
+        # 费用
+        m = re.search(r"电费[^\d]{0,4}(\d+(?:\.\d+)?)\s*元?", msg)
+        if m:
+            hints["monthly_electricity_bill"] = float(m.group(1))
+        m = re.search(r"水费[^\d]{0,4}(\d+(?:\.\d+)?)\s*元?", msg)
+        if m:
+            hints["monthly_water_bill"] = float(m.group(1))
+        m = re.search(r"(?:燃气费|煤气费)[^\d]{0,4}(\d+(?:\.\d+)?)\s*元?", msg)
+        if m:
+            hints["monthly_gas_bill"] = float(m.group(1))
+
+        appliances = ["燃气热水器", "电热水器", "热水器", "空调", "冰箱", "洗衣机", "洗碗机", "燃气灶", "电饭煲", "灯"]
+        found, removed = [], []
+        device_pattern = "(?:" + "|".join(appliances) + ")"
+        negatives = re.findall(r"(?:没有|不用|不使用|无)\s*(" + device_pattern + r"(?:[和、与及\s]+" + device_pattern + r")*)", msg)
+        for name in appliances:
+            if name == "热水器" and ("电热水器" in msg or "燃气热水器" in msg):
+                continue
+            if any(name in group for group in negatives):
+                removed.append(name)
+            elif name in msg:
+                # Questions and rejected suggestions are not evidence of ownership.
+                clause = next((c for c in re.split(r"[，,。；;]", msg) if name in c), "")
+                declarative = bool(re.search(r"(?:有|我家|家里|家中|使用)", clause)) and not re.search(r"(?:有没有|是否有|想买|打算买)", clause)
+                device_list = re.sub("|".join(appliances), "", msg)
+                list_only = not re.sub(r"[、和与及\s，,。]", "", device_list)
+                if declarative or list_only or re.search(r"空调.*?\d{2}\s*度", clause):
+                    found.append(name)
+        if found: hints["appliances"] = found
+        if removed: hints["removed_appliances"] = removed
+        if re.search(r"(?:没有|不用|不使用|无)\s*燃气", msg):
+            hints["uses_gas"] = False
+        elif "燃气灶" in found or "燃气热水器" in found:
+            hints["uses_gas"] = True
+        if re.search(r"空调.*?(\d{2})\s*度", msg):
+            hints["ac_temp_setting"] = int(re.search(r"空调.*?(\d{2})\s*度", msg).group(1))
+        feedback_actions = {"washer_full_load": ("满桶洗衣", "满载洗衣"),
+                            "water_bathing_shorter": ("缩短洗澡", "缩短淋浴"),
+                            "ac_temp_up_1c": ("调高空调温度", "空调升温")}
+        for action_id, aliases in feedback_actions.items():
+            for alias in aliases:
+                if re.search(r"(?:现在可以|愿意尝试|不再).{0,5}" + alias, msg):
+                    hints.setdefault("restored_actions", []).append(action_id)
+                elif re.search(r"(?:不想|不愿意|不要|不接受).{0,5}" + alias, msg):
+                    hints.setdefault("excluded_actions", []).append(action_id)
+                elif re.search(r"(?:已经|一直).{0,5}" + alias, msg):
+                    hints.setdefault("already_doing", []).append(action_id)
+        if "少折腾" in msg: hints["priority"] = "easy"
+        elif "舒适" in msg: hints["priority"] = "comfort"
+        elif "省钱优先" in msg: hints["priority"] = "money"
+        return hints
+
+    def _merge_household_hints(self, profile, hints: dict):
+        for key in ("city", "family_size", "monthly_electricity_bill", "monthly_water_bill",
+                    "monthly_gas_bill", "uses_gas", "priority", "ac_temp_setting"):
+            if key in hints:
+                setattr(profile, key, hints[key])
+        for key in ("already_doing", "excluded_actions"):
+            if key in hints:
+                setattr(profile, key, list(dict.fromkeys((getattr(profile, key) or []) + hints[key])))
+        for key in ("already_doing", "excluded_actions"):
+            setattr(profile, key, [a for a in (getattr(profile, key) or []) if a not in hints.get("restored_actions", [])])
+        removed = set(hints.get("removed_appliances", []))
+        profile.appliances = [a for a in dict.fromkeys((profile.appliances or []) + hints.get("appliances", [])) if a not in removed]
+        if profile.uses_gas is False:
+            profile.appliances = [a for a in profile.appliances if "燃气" not in a]
+        profile.confirmed_fields = sorted(set(profile.confirmed_fields or []) | (set(hints) - {"removed_appliances", "restored_actions"}))
+        return profile
+
+    def _energy_explain_block(self, warning: str) -> str:
+        """把 GUARD 警告转成面向用户的『还缺什么』提示"""
+        mapping = {
+            "GUARD_NO_APPLIANCES": "我还不知道你家有哪些电器，",
+            "GUARD_UNKNOWN_CITY": "我还不确定你在哪个城市（不同城市电价差别较大），",
+            "GUARD_ZERO_USAGE": "我还不知道你家的大致水电燃气用量，",
+            "GUARD_EXTREME_VALUES": "你给的信息有点超出常规范围，",
+        }
+        for k, v in mapping.items():
+            if k in warning:
+                return v
+        return "还缺一些信息，"
+
     def _apply_dynamic_updates(self, user_id: str, analysis: Dict) -> Dict:
         """应用动态更新"""
         updates = {}
@@ -862,6 +1972,39 @@ class GreenAgent:
                     self.profile_manager.update_preference_learning(
                         user_id, action=action.get("type"), accepted=True
                     )
+            # P4-G 修复:把具体行为(如"骑自行车")写入 action_history,
+            # 经 _sync_profile_to_graph 落到画像图谱的 actions 节点(之前只写类型,图谱永远没有具体行为)
+            try:
+                action_history_updates = [
+                    {
+                        "action": act.get("action", act.get("type", "")),
+                        "context": act.get("original_text", ""),
+                        "sentiment": "positive",
+                        "type": act.get("type", ""),
+                        "source": act.get("source", "chat_inferred"),
+                        "confidence": act.get("confidence", 0.5),
+                        "observed_at": act.get("observed_at"),
+                    }
+                    for act in analysis["action_reports"]
+                    if act.get("sentiment") == "positive" and act.get("action")
+                ]
+                if action_history_updates:
+                    cur = (
+                        self.profile_manager.get_profile(user_id)
+                        .get("eco_profile", {})
+                        .get("action_history", [])
+                    )
+                    current_actions = {a.get("action") for a in cur if isinstance(a, dict)}
+                    merged = list(cur) + [
+                        a for a in action_history_updates if a["action"] not in current_actions
+                    ]
+                    self.profile_manager.update_eco_profile(user_id, {"action_history": merged})
+            except Exception as e:
+                import logging
+
+                logging.getLogger(__name__).warning(
+                    "[GreenAgent] action_history 写回图谱失败(非致命): %s", e
+                )
 
         return updates
 
@@ -873,6 +2016,7 @@ class GreenAgent:
         rag_context: str,
         personalization: Dict,
         strategy: Dict,
+        trace=None,
     ) -> Dict:
         """生成个性化响应"""
         IntentType = _get_module("intent")[1]
@@ -903,8 +2047,12 @@ class GreenAgent:
                 print(f"LLM生成失败，回退到模板: {e}")
 
         if llm_response:
+            if trace is not None:
+                trace.add("llm", "调用大语言模型生成回答", status="done")
             return {"message": llm_response, "suggestions": [], "response_type": "llm_generated"}
 
+        if trace is not None:
+            trace.add("llm", "LLM 不可用,使用本地模板", status="skipped")
         # 回退到模板生成
         base_response = self.response_generator.generate_response(message, context)
 
@@ -986,12 +2134,13 @@ class GreenAgent:
 
     # ========== 基础聊天 (保持向后兼容) ==========
 
-    def _handle_travel_planning(self, user_id, message, conversation_id, intent_result):
+    def _handle_travel_planning(self, user_id, message, conversation_id, intent_result, user_city=None, user_location=None):
         """P6.S.3: 出行规划专用流程 — 调高德地图 + 天气 + 碳排对比
 
         提取 origin/destination → 调 TravelPlanningTool → 返结构化结果
         若提取不到 origin/destination,降级为 advice(让用户补充)
         P6.S.22: 用 3 层 fallback 解析用户真实位置(origin 不再是字面量" 当前位置")
+        user_city: 用户真实城市(实时定位/画像),传给工具作 geocode 消歧。
         """
         from utils.helpers import get_current_datetime
 
@@ -1141,7 +2290,10 @@ class GreenAgent:
         # 2) 调工具
         try:
             tool = TravelPlanningTool()
-            result = tool.execute(origin=origin, destination=destination, mode="all")
+            result = tool.execute(
+                origin=origin, destination=destination, mode="all",
+                user_id=user_id, city=user_city or "", location=user_location or {},
+            )
         except Exception as e:
             return AgentResponse(
                 message=f"出行规划工具调用失败: {type(e).__name__}: {str(e)[:200]}",
@@ -1153,65 +2305,29 @@ class GreenAgent:
 
         # 3) 格式化响应
         if not result.success:
-            # 工具调用失败(可能没高德 API key / 限流 / 解析失败) — 降级给 RAG 知识库
-            # P6.S.26 fix:
-            # 1) 把 error 透传到 tool_result,前端能区分"无 key"vs"限流"vs"无路线"
-            # 2) 高德 QPS 限流时,回退到 RAG 知识库检索真实出行建议(避免 LLM 自由生成幻觉)
+            # 路线工具失败时只报告失败。知识库只能提供一般知识，不能替代
+            # 路径服务生成具体路线、时长、票价或导航。
             error_text = result.error or "路线查询失败"
-            error_category = "missing_api_key" if "GAODE_API_KEY" in error_text else "no_route"
-
-            fallback_message = ""
-            rag_suggestions: List[str] = []
-            try:
-                # 检测高德限流 — 走 RAG 知识库
-                # P6.S.26 fix: 检测 "QPS 配额耗尽" / "CUQPS" / "限流" 关键词
-                is_rate_limited = (
-                    "QPS" in error_text
-                    or "CUQPS" in error_text
-                    or "限流" in error_text
-                    or "QUOTA" in error_text.upper()
-                )
-                if is_rate_limited:
-                    # 从知识库找真实出行建议(guide/ 出差/通勤/北京出行 等)
-                    rag_query = f"{origin}到{destination} 低碳出行建议"
-                    try:
-                        rag_results = self._retrieve_knowledge(rag_query, intent_result)
-                    except Exception:
-                        rag_results = []
-                    if rag_results:
-                        # 取前 2 条,每条摘 200 字
-                        snippets = []
-                        for k in rag_results[:2]:
-                            title = k.get("title", "出行建议")
-                            content = (k.get("content", "") or "")[:200]
-                            if content:
-                                snippets.append(f"📚 {title}: {content}…")
-                        if snippets:
-                            fallback_message = "\n\n".join(snippets)
-                            rag_suggestions = [k.get("title", "") for k in rag_results[:3]]
-                    error_category = "rate_limited"
-            except Exception:
-                # 知识库查询失败不阻塞
-                pass
-
-            if not fallback_message:
-                fallback_message = (
-                    f"💡 既然你要去 **{destination}**,以下是一些通用建议:\n"
-                    f"• 优先选公交/地铁(碳排约为私家车的 1/5)\n"
-                    f"• 短途(<5km) 骑行或步行最环保\n"
-                    f"• 长途选高铁优于飞机(碳排约 1/4)"
-                )
+            provider_code = (result.data or {}).get("code", "")
+            error_category = {
+                "ROUTE_PROVIDER_NOT_CONFIGURED": "missing_api_key",
+                "ROUTE_PROVIDER_RATE_LIMITED": "rate_limited",
+                "MODE_ROUTE_UNAVAILABLE": "mode_unavailable",
+            }.get(provider_code, "no_route")
 
             return AgentResponse(
-                message=f"⚠️ {error_text}\n\n{fallback_message}",
+                message=(f"⚠️ {error_text}\n\n"
+                         "本次没有取得可核验的路线，因此不会展示路线、时间、费用或碳排。"),
                 conversation_id=conversation_id,
                 intent="travel_planning",
-                suggestions=rag_suggestions or ["查询附近公交站", "推荐低碳餐厅", "电动车充电桩位置"],
+                suggestions=["重新输入更完整的起点和终点", "稍后重试路线查询"],
                 tool_result={
                     "origin": origin,
                     "destination": destination,
                     "error": error_text,
                     "error_category": error_category,
+                    "provider_code": provider_code,
+                    "routes": [],
                 },
                 timestamp=get_current_datetime(),
             )
@@ -1222,25 +2338,6 @@ class GreenAgent:
         weather = data.get("weather", {})
         recommended = data.get("recommended", {})
         weights = data.get("weights", {})
-
-        # P6.S.15: 给短途(<3km)补一个步行选项
-        try:
-            distance_km = min((r.get("distance_km") or 99) for r in routes) if routes else 0
-        except Exception:
-            distance_km = 0
-        if 0 < distance_km <= 5 and not any(r.get("type") == "步行" for r in routes):
-            # 步行 5km/h 估算
-            walking_min = int(distance_km * 12)  # 5km/h = 12 min/km
-            routes.append(
-                {
-                    "type": "步行",
-                    "line": "全程步行",
-                    "distance_km": distance_km,
-                    "duration_min": walking_min,
-                    "carbon_kg": 0.0,
-                    "cost_yuan": 0,
-                }
-            )
 
         # 格式化路线(注意:实际 key 是 'type' 不是 'mode')
         route_lines = []
@@ -1255,8 +2352,10 @@ class GreenAgent:
             breakdown = r.get("score_breakdown", {})
             score_info = ""
             if breakdown:
+                carbon_score_text = ("缺失" if breakdown.get("carbon") is None
+                                     else breakdown.get("carbon"))
                 score_info = (
-                    f" [碳:{breakdown.get('carbon', '?')} "
+                    f" [碳:{carbon_score_text} "
                     f"费:{breakdown.get('cost', '?')} "
                     f"时:{breakdown.get('duration', '?')} "
                     f"天:{breakdown.get('weather', '?')}]"
@@ -1267,16 +2366,22 @@ class GreenAgent:
             if r.get("type") != "自驾" and r.get("carbon_kg") is not None:
                 # 找到自驾那条
                 driving = next((x for x in routes if x.get("type") == "自驾"), None)
-                if driving:
-                    saved = (driving.get("carbon_kg") or 0) - (r.get("carbon_kg") or 0)
+                if driving and driving.get("carbon_kg") is not None:
+                    saved = float(driving["carbon_kg"]) - float(r["carbon_kg"])
                     if saved > 0.01:
                         carbon_savings = f"  ⬇️ -碳{saved:.2f}kg"
 
+            fare_text = (f"¥{float(r['cost_yuan']):.1f}"
+                         if r.get("cost_yuan") is not None else "费用未知")
+            carbon_text = (f"{float(r['carbon_kg']):.2f} kg"
+                           if r.get("carbon_kg") is not None else "暂不可核验")
+            carbon_note = r.get("carbon_note")
             route_lines.append(
                 f"{i}. **{r.get('type', r.get('mode', '?'))}**{line_str} — "
                 f"{r.get('distance_km', '?')}km, 约 {r.get('duration_min', '?')} 分钟, "
-                f"碳排 {r.get('carbon_kg', '?')} kg, ¥{r.get('cost_yuan', '?')}"
+                f"碳排 {carbon_text}, {fare_text}"
                 f"{carbon_savings}{score_info}"
+                f"{('（' + carbon_note + '）') if carbon_note else ''}"
             )
         route_text = "\n".join(route_lines) if route_lines else "(暂无路线数据)"
 
@@ -1288,7 +2393,7 @@ class GreenAgent:
             # 构造详细理由
             bd = recommended.get("score_breakdown", {})
             reason_parts = []
-            if bd.get("carbon", 0) > 0.7:
+            if bd.get("carbon") is not None and bd.get("carbon", 0) > 0.7:
                 reason_parts.append("碳排最低")
             if bd.get("cost", 0) > 0.7:
                 reason_parts.append("性价比高")
@@ -1332,7 +2437,7 @@ class GreenAgent:
             f"{rec_text}"
             f"{weather_text}"
             f"{weight_text}\n\n"
-            f"💡 综合考虑 **碳排 + 费用 + 时长 + 天气** 4 维因素,推荐最优方案"
+            f"💡 按当前可核验的碳排、费用、时长和天气数据进行综合推荐；缺失维度不会按 0 计算"
         )
 
         # 5) 持久化(记忆 + 对话)
@@ -1363,7 +2468,8 @@ class GreenAgent:
 
         conversation_id = self._manage_conversation(user_id, conversation_id)
         conversation = self.active_conversations[conversation_id]
-        conversation.turn_count += 1
+        # turn_count 由 ConversationStore.get_or_create 在复用会话时递增(store 是唯一所有者),
+        # 这里不再手动 +1,避免双倍计数。
         conversation.last_updated = get_current_datetime()
 
         intent_result = self.intent_recognizer.recognize(message)
@@ -1379,7 +2485,6 @@ class GreenAgent:
                 user_id, conversation_id, message, intent_result, realtime_response
             )
             self._increment_conversation_count(user_id)
-            self._save_conversation(conversation_id, user_id, message, realtime_response)
 
             return AgentResponse(
                 message=realtime_response,
@@ -1392,7 +2497,9 @@ class GreenAgent:
         retrieved_knowledge = self._retrieve_knowledge(message, intent_result)
         user_profile = self.profile_manager.get_profile(user_id)
         recent_memories = self._get_recent_memories(user_id)
-        conversation_history = self.short_term_memory.get_conversation_history(conversation_id)
+        conversation_history = self._compact_history(
+            self.short_term_memory.get_conversation_history(conversation_id)
+        )
 
         context = ResponseContext(
             user_profile=user_profile,
@@ -1447,7 +2554,6 @@ class GreenAgent:
             user_id, conversation_id, message, intent_result, response_data["message"]
         )
         self._update_user_profile(user_id, intent_result, profile_updates)
-        self._save_conversation(conversation_id, user_id, message, response_data["message"])
 
         # P4-B.1: 接入记忆整合器(短→长)
         try:
@@ -1540,7 +2646,7 @@ class GreenAgent:
         semantic: List[Dict[str, Any]] = []
         if query and query.strip():
             try:
-                semantic = self.long_term_memory.search_memories(user_id, query, top_k=limit)
+                semantic = self.long_term_memory.search_memories(user_id, query, limit=limit)
             except Exception:
                 semantic = []
         if len(semantic) >= limit:
@@ -1638,6 +2744,25 @@ class GreenAgent:
     def get_conversation_history(self, conversation_id: str) -> List[Dict]:
         """获取对话历史"""
         return self.short_term_memory.get_conversation_history(conversation_id)
+
+    def _compact_history(self, history: List[Dict]) -> List[Dict]:
+        """P16: 按 token 预算压缩对话历史,防长对话爆窗。
+
+        仅做"保留最近轮次、折叠更早轮次"的纯逻辑截断;滚动摘要(需 LLM)
+        由调用方按 needs_summary 标志异步补做。失败回退为原历史(不阻塞主路径)。
+        """
+        if not history:
+            return history
+        try:
+            from agent.context_compactor import compact_history, ContextBudget
+
+            budget = ContextBudget()
+            return compact_history(history, budget.history).kept
+        except Exception:
+            import logging
+
+            logging.getLogger(__name__).warning("[P16] context 压缩失败,回退原历史")
+            return history
 
     def get_user_profile(self, user_id: str) -> Dict[str, Any]:
         """获取用户画像"""

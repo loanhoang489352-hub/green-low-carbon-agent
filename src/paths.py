@@ -26,6 +26,7 @@ LONG_TERM_MEMORY_DB: Path = DATA_DIR / "long_term_memory.db"
 BEHAVIOR_TRACKER_DB: Path = DATA_DIR / "behavior_tracker.db"
 ENERGY_ACTIONS_DB: Path = DATA_DIR / "energy_actions.db"  # P12.1: 节能行动 & streak
 HOUSEHOLDS_DB: Path = DATA_DIR / "households.db"  # P12.2: 家庭画像 + 节能方案
+REPORTS_DIR: Path = DATA_DIR / "reports"  # P14: HTML 报告目录
 
 
 def ensure_data_dirs() -> None:

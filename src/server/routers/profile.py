@@ -8,19 +8,29 @@ def register_profile_routes(registry) -> None:
 
     from server.errors import APIError
 
+    def _require_owner(handler, user_id) -> None:
+        """P0: 校验 URL/body 中的 user_id 属于当前登录用户(防 IDOR 水平越权)"""
+        current = getattr(handler, "current_user", None) or {}
+        if not current.get("user_id"):
+            raise APIError("UNAUTHORIZED", "需要登录")
+        if user_id != current["user_id"]:
+            raise APIError("FORBIDDEN", "无权访问该用户数据")
+
     def profile_get(handler):
-        # /api/profile/{user_id}
-        parts = handler.path.strip("/").split("/")
-        user_id = parts[-1] if len(parts) >= 3 else "anonymous"
+        # /api/profile/{user_id} — 直接用 token 身份,避免前端 userId 与 token 不一致导致 403
+        current = getattr(handler, "current_user", None) or {}
+        user_id = current.get("user_id")
+        if not user_id:
+            raise APIError("UNAUTHORIZED", "需要登录")
         profile = handler.agent.get_user_profile(user_id)
         handler.send_json({"user_id": user_id, "profile": profile})
 
     def personalization_get(handler):
-        # /api/personalization/{user_id}  (GET)
-        parts = handler.path.strip("/").split("/")
-        user_id = parts[-1] if len(parts) >= 3 else None
+        # /api/personalization/{user_id}  (GET) — 用 token 身份
+        current = getattr(handler, "current_user", None) or {}
+        user_id = current.get("user_id")
         if not user_id:
-            raise APIError("BAD_REQUEST", "user_id required")
+            raise APIError("UNAUTHORIZED", "需要登录")
         ctx = handler.agent.get_personalization_context(user_id)
         handler.send_json({"user_id": user_id, "context": ctx})
 
@@ -29,13 +39,16 @@ def register_profile_routes(registry) -> None:
         user_id = data.get("user_id")
         if not user_id:
             raise APIError("BAD_REQUEST", "user_id required")
+        _require_owner(handler, user_id)
         ctx = handler.agent.get_personalization_context(user_id)
         handler.send_json({"context": ctx})
 
     def user_stats(handler):
-        # /api/stats/{user_id}
-        parts = handler.path.strip("/").split("/")
-        user_id = parts[-1] if len(parts) >= 3 else "anonymous"
+        # /api/stats/{user_id} — 用 token 身份
+        current = getattr(handler, "current_user", None) or {}
+        user_id = current.get("user_id")
+        if not user_id:
+            raise APIError("UNAUTHORIZED", "需要登录")
         stats = handler.agent.get_user_stats(user_id)
         handler.send_json({"user_id": user_id, "stats": stats})
 
@@ -45,6 +58,18 @@ def register_profile_routes(registry) -> None:
         conv_id = parts[-1] if len(parts) >= 3 else None
         if not conv_id:
             raise APIError("BAD_REQUEST", "conversation_id required")
+        current = getattr(handler, "current_user", None) or {}
+        if not current.get("user_id"):
+            raise APIError("UNAUTHORIZED", "需要登录")
+        try:
+            store = handler.agent.conversation_store
+            ctx = store.get(conv_id) if hasattr(store, "get") else None
+            if ctx is not None and ctx.user_id != current["user_id"]:
+                raise APIError("FORBIDDEN", "无权访问该对话")
+        except APIError:
+            raise
+        except Exception:
+            pass
         history = handler.agent.get_conversation_history(conv_id)
         handler.send_json({"history": history})
 

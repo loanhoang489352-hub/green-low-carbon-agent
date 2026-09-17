@@ -139,7 +139,7 @@ def _is_retryable_error(exc: Exception) -> bool:
     # 4xx 不重试
     if any(code in exc_str for code in ["401", "403", "404", "400"]):
         return False
-    return True  # 默认重试
+    return False  # 未知异常不重试(避免编程错误被重试 3 次)
 
 
 def _classify_error(exc: Exception) -> str:
@@ -161,6 +161,24 @@ def _classify_error(exc: Exception) -> str:
     if any(code in exc_str for code in ["500", "502", "503", "504"]):
         return "5xx"
     return f"exception: {type(exc).__name__}: {str(exc)[:100]}"
+
+
+def _is_config_error(exc: Exception) -> bool:
+    """
+    判断是否属于"配置/参数/依赖类"错误(认证失败、参数错误、缺 SDK 依赖等)。
+
+    返回 True  → 不应降级 mock,应返回 error 标记的 LLMResponse,
+                让上层能区分"没配 key / 配错 key / 参数错"与"真失败"
+    返回 False → 网络/超时/限流/5xx 等可重试类错误,保持降级 mock
+    """
+    if isinstance(exc, ImportError):
+        return True
+    exc_str = str(exc).lower()
+    if _classify_error(exc) == "auth_error":
+        return True
+    if "400" in exc_str or "bad request" in exc_str or "invalid request" in exc_str:
+        return True
+    return False
 
 
 def _with_retry(fn, max_retries: int, base_delay: float = 1.0, label: str = "llm"):
@@ -233,8 +251,8 @@ class LLMClient:
         """
         provider = _provider_name(type(self).__name__)
         start = time.time()
-        timeout_s = _llm_timeout()
-        max_retries = _llm_max_retries()
+        timeout_s = float(kwargs.get("timeout", _llm_timeout()))
+        max_retries = int(kwargs.get("max_retries", _llm_max_retries()))
         # P6.S.17: tools 透传给 SDK(OpenAI function calling 格式)
         tools_param = kwargs.get("tools")
         tool_choice = kwargs.get("tool_choice", "auto")
@@ -295,6 +313,8 @@ class LLMClient:
                 request_id=trace_id,
                 # P6.S.17: 解析 OpenAI tool_calls
                 tool_calls=_parse_openai_tool_calls(response.choices[0].message),
+                # DeepSeek R1/reasoner 的链式推理(content 之外)
+                reasoning=getattr(response.choices[0].message, "reasoning_content", None) or "",
             )
         except Exception as e:
             latency_ms = round((time.time() - start) * 1000, 2)
@@ -320,7 +340,18 @@ class LLMClient:
                 error=error_class,
             )
             _logger.warning(f"{error_label} API调用失败 [{error_class}]: {e}")
-            # P5-C: 即使 fallback 到 mock,LLMResponse.error 也填 error_class
+            # P5-C + 错误分级: 配置/参数/依赖类错误不降级 mock,返回 error 标记响应
+            if _is_config_error(e):
+                return LLMResponse(
+                    content="",
+                    model=self.model,
+                    usage={"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0},
+                    finish_reason="error",
+                    latency_ms=latency_ms,
+                    request_id=trace_id,
+                    error=f"{error_class}: {e}",
+                )
+            # 网络/超时/限流/5xx → 保持降级 mock(即使 fallback 到 mock,error 也填 error_class)
             mock_resp = self._mock_response(messages, trace_id=trace_id)
             mock_resp.error = error_class
             mock_resp.finish_reason = "error"
@@ -351,7 +382,7 @@ class OpenAIClient(LLMClient):
         try:
             from openai import OpenAI
 
-            self._client = OpenAI(api_key=self.api_key)
+            self._client = OpenAI(api_key=self.api_key, max_retries=0)
             print(f"[OK] OpenAI客户端初始化成功 (模型: {self.model})")
         except ImportError:
             _logger.warning("openai 包未安装,请运行: pip install openai")
@@ -493,6 +524,17 @@ class OpenAIClient(LLMClient):
             success=False,
             error=error_class,
         )
+        if last_error is not None and _is_config_error(last_error):
+            # 配置/参数/依赖类错误不降级 mock
+            return LLMResponse(
+                content="",
+                model=self.model,
+                usage={"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0},
+                finish_reason="error",
+                latency_ms=latency_ms,
+                request_id=trace_id,
+                error=f"async_config_error: {last_error}",
+            )
         mock_resp = self._mock_response(messages, trace_id=trace_id)
         mock_resp.error = f"async_max_retries_exceeded: {last_error}"
         mock_resp.finish_reason = "error"
@@ -729,6 +771,18 @@ class BaiduClient(LLMClient):
                 success=False,
                 error=error_class,
             )
+            if response.status_code in (400, 401, 403):
+                # 认证/参数错误不降级 mock
+                return LLMResponse(
+                    content="",
+                    model=self.model,
+                    usage={"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0},
+                    finish_reason="error",
+                    latency_ms=latency_ms,
+                    request_id=trace_id,
+                    error=error_class,
+                )
+            # 5xx/限流等可重试类 → 保持降级 mock
             mock_resp = self._mock_response(messages, trace_id=trace_id)
             mock_resp.error = error_class
             mock_resp.finish_reason = "error"
@@ -757,6 +811,17 @@ class BaiduClient(LLMClient):
                 error=error_class,
             )
             _logger.warning(f"百度文心一言 API调用失败 [{error_class}]: {e}")
+            if _is_config_error(e):
+                # 配置/参数/依赖类错误不降级 mock
+                return LLMResponse(
+                    content="",
+                    model=self.model,
+                    usage={"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0},
+                    finish_reason="error",
+                    latency_ms=latency_ms,
+                    request_id=trace_id,
+                    error=f"{error_class}: {e}",
+                )
             mock_resp = self._mock_response(messages, trace_id=trace_id)
             mock_resp.error = error_class
             mock_resp.finish_reason = "error"
@@ -787,7 +852,9 @@ class AliClient(LLMClient):
             from openai import OpenAI
 
             self._client = OpenAI(
-                api_key=self.api_key, base_url="https://dashscope.aliyuncs.com/compatible-mode/v1"
+                api_key=self.api_key,
+                base_url="https://dashscope.aliyuncs.com/compatible-mode/v1",
+                max_retries=0,
             )
             print(f"[OK] 阿里通义千问客户端初始化成功 (模型: {self.model})")
         except ImportError:
@@ -850,7 +917,11 @@ class MiniMaxClient(LLMClient):
                 "yes",
                 "on",
             )
-            kwargs = {"api_key": self.api_key, "base_url": "https://api.minimax.chat/v1"}
+            kwargs = {
+                "api_key": self.api_key,
+                "base_url": "https://api.minimax.chat/v1",
+                "max_retries": 0,  # 禁用 SDK 内置重试,由 MiniMax 自有循环管
+            }
             if insecure:
                 import httpx
 
@@ -983,6 +1054,17 @@ class MiniMaxClient(LLMClient):
                         error=error_class,
                     )
                     print(f"MiniMax API 调用失败 [{error_class}]: {e}")
+                    if _is_config_error(e):
+                        # 配置/参数/依赖类错误不降级 mock
+                        return LLMResponse(
+                            content="",
+                            model=self.model,
+                            usage={"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0},
+                            finish_reason="error",
+                            latency_ms=latency_ms,
+                            request_id=trace_id,
+                            error=f"{error_class}: {e}",
+                        )
                     mock_resp = self._mock_response(messages, trace_id=trace_id)
                     mock_resp.error = error_class
                     mock_resp.finish_reason = "error"
@@ -1013,6 +1095,17 @@ class MiniMaxClient(LLMClient):
             error=error_class,
         )
         print(f"MiniMax API 重试 {self._max_retries} 次后仍失败 [{error_class}]: {last_error}")
+        if last_error is not None and _is_config_error(last_error):
+            # 配置/参数/依赖类错误不降级 mock
+            return LLMResponse(
+                content="",
+                model=self.model,
+                usage={"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0},
+                finish_reason="error",
+                latency_ms=latency_ms,
+                request_id=trace_id,
+                error=f"{error_class}: {last_error}",
+            )
         mock_resp = self._mock_response(messages, trace_id=trace_id)
         mock_resp.error = error_class
         mock_resp.finish_reason = "error"
@@ -1042,7 +1135,9 @@ class DeepSeekClient(LLMClient):
         try:
             from openai import OpenAI
 
-            self._client = OpenAI(api_key=self.api_key, base_url="https://api.deepseek.com")
+            self._client = OpenAI(
+                api_key=self.api_key, base_url="https://api.deepseek.com", max_retries=0
+            )
             print(f"[OK] DeepSeek客户端初始化成功 (模型: {self.model})")
         except ImportError:
             _logger.warning("openai 包未安装,请运行: pip install openai")
@@ -1170,25 +1265,14 @@ class BetaDistribution:
 
         Args:
             success: 请求是否成功
-            cost_ms: 响应耗时（毫秒），用于成本感知
+            cost_ms: 保留未使用(位置参数兼容: ModelStats.record_call 以位置
+                     参数传入 latency_ms,函数体不消费;勿删,否则调用崩)
             confidence: 响应置信度（0-1），由LLM输出质量评估
         """
         if success:
             self.alpha += confidence
         else:
             self.beta += 1.0
-
-    def probability_of_beating(self, other: "BetaDistribution") -> float:
-        """
-        计算本分布均值优于另一个分布的概率
-        使用蒙特卡洛采样估算 P(theta_a > theta_b)
-        """
-        count = 0
-        trials = 1000
-        for _ in range(trials):
-            if self.sample() > other.sample():
-                count += 1
-        return count / trials
 
     def to_dict(self) -> Dict:
         return {"alpha": self.alpha, "beta": self.beta, "mean": round(self.mean(), 4)}
@@ -1201,7 +1285,6 @@ class ModelStats:
         self.model_name = model_name
         self.provider = provider
         self.success_dist = BetaDistribution(1.0, 1.0)
-        self.cost_dist = BetaDistribution(1.0, 100.0)  # 成本分布，高beta=低cost偏好
         self.total_calls = 0
         self.success_calls = 0
         self.failed_calls = 0
@@ -1741,22 +1824,26 @@ def create_llm_client(provider: str = "openai", **kwargs) -> LLMClient:
 
 # 全局LLM客户端实例
 _llm_client: Optional[LLMClient] = None
+_llm_client_lock = threading.Lock()
 
 
 def get_llm_client() -> LLMClient:
-    """获取全局LLM客户端"""
+    """获取全局LLM客户端(线程安全: 双重检查锁定)"""
     global _llm_client
 
     if _llm_client is None:
-        # 从环境变量读取配置
-        provider = os.environ.get("API_PROVIDER", os.environ.get("LLM_PROVIDER", "openai"))
-        api_key = os.environ.get("API_KEY", os.environ.get("OPENAI_API_KEY"))
-        model = os.environ.get("API_MODEL", os.environ.get("LLM_MODEL", "gpt-4o-mini"))
-        temperature = float(os.environ.get("LLM_TEMPERATURE", "0.7"))
+        with _llm_client_lock:
+            if _llm_client is None:
+                # 从环境变量读取配置
+                provider = os.environ.get("API_PROVIDER", os.environ.get("LLM_PROVIDER", "openai"))
+                model = os.environ.get("API_MODEL", os.environ.get("LLM_MODEL", "gpt-4o-mini"))
+                temperature = float(os.environ.get("LLM_TEMPERATURE", "0.7"))
 
-        _llm_client = create_llm_client(
-            provider=provider, api_key=api_key, model=model, temperature=temperature
-        )
+                # 关键修复:不再传通用 api_key(它来自 OPENAI_API_KEY=占位符,会覆盖各 provider 的真实 key)。
+                # 让 create_llm_client 里的具体客户端用各自的 <PROVIDER>_API_KEY 环境变量。
+                _llm_client = create_llm_client(
+                    provider=provider, model=model, temperature=temperature
+                )
 
     return _llm_client
 
@@ -1784,7 +1871,8 @@ def get_bayesian_client(
 def reset_llm_client():
     """重置LLM客户端（重新初始化）"""
     global _llm_client
-    _llm_client = None
+    with _llm_client_lock:
+        _llm_client = None
 
 
 # ========== Prompt 模板 ==========

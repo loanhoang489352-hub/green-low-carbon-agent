@@ -4,6 +4,174 @@
 
 ## [Unreleased] — P6 上线 + 质量收口
 
+### 修复(2026-07-20)— 高德坐标双重编码导致的"高德不可用"误判
+
+- **问题**:出行规划一直显示"估算数据(高德不可用/未找到路线)",但 `scripts/diag_amap.py` 直连高德
+  地理编码/公交换乘都 `status=1` 正常返回。定位到 `_gaode_route` **双重编码**:坐标先
+  `urllib.parse.quote(coord, safe="")` **再** `urllib.parse.urlencode(params)`,逗号 `,` 被二次编码成
+  `%252C`,高德解析不出 lng,lat → `status!=1` → 返回 None → 降级估算。
+- **修复**(`src/agent/tools/extended.py`):公交换乘与骑行 URL 的坐标**直接交 `urlencode` 只编一次**
+  (逗号正确编码为 `%2C`),高德能正常解析 → 返回真实公交/骑行数据,来源显示"高德地图API"。
+- **新增** `scripts/diag_amap.py`:一键诊断高德地质编码/公交换乘,打印真实 status/info/infocode。
+- 效果:出行规划用真实高德数据,不再误降级;trace 显示真实来源与线路。
+
+### 修复(2026-07-20)— 思考过程"真·实时"流式(ReAct 下可逐步刷新)
+
+- **问题①(不实时)**:前端已接 SSE `/api/chat/stream-trace`(登录后),但 `sendMessage` 在响应完成后
+  `liveTraceBox.remove()`,改用 `addMessage` 渲染**静态** `<details>` 面板;更关键的是
+  `chat_react`(ReAct 分支)**不接收 trace 参数**,内部自建 `Trace()`,导致 SSE 的 `live_trace.on_step`
+  **根本不被喂**——ReAct 下实时框收不到任何 trace 事件。用户只能看到"最终答案打字、思考过程是快照"。
+- **修复**:
+  - `src/agent/core.py`:`chat_react(..., trace=None)` 使用传入 trace(默认自建);`chat_enhanced` 的
+    ReAct 分支把 `trace` 传给 `chat_react`。于是每步 `trace.add` 经 `on_step` 实时推给前端。
+  - `web/index.html`:`appendLiveTrace` 跳过无 label 的控制事件(start/end);响应完成后**保留实时框**
+    (不删除),并把 `addMessage` 的 trace 参数置 `null`,避免"实时框被静态面板替代"。
+- **问题②(不透明)**:`src/agent/core.py` `chat_react` trace 增强——"LLM 自主选择工具"标注 MCP 工具数;
+  `travel_planning` 的 trace 显示**数据来源**(高德真实 vs 估算)与**各线路**(如 `地铁:4号线→6号线(5km)`),
+  而非 150 字截断原始 dict。用户能看出是否调了高德/用了 MCP、看到线路。
+- **说明**:改 Python + 前端,需**重启 server**;我无法在本会话浏览器实测,请本地刷新验证。
+
+### 质量(2026-07-20)— 全量回归 266 passed, 0 failed(完全健康大通)
+
+- `python scripts/verify_energy_and_e2e.py` 全绿:语法自检 23 个改动文件通过;
+  pytest 逐文件隔离跑 **266 passed, 0 failed**。
+- 覆盖:P4-G e2e(10)/ P4-B 记忆(8)/ P4-H 工作记忆(15)/ 家庭节能 planner(31)/ energy api(29)/
+  energy e2e(56)/ 无幻觉(34)/ 鉴权 e2e(19)/ P5-I 安全(19)/ Query Cache(14)/ 连接池(9)/
+  P6.S.15 工具技能(6)/ P6.S.16 MCP(8)/ P6.S.22 定位(8)。
+- 遗留仅限前端(web/index.html/energy.html)需在浏览器手测,脚本不代替真实浏览器联调。
+
+### 架构(2026-07-20)— 启用 agentic 编排(LLM 选工具)+ 确定性工具(混合架构)
+
+- **决策**:采用"**agentic 编排 + 确定性工具**"混合架构(对标 DeepSeek Harness):LLM 作为编排者,
+  在工具里**自主选择**;碳排/节能/路线等**硬事实由确定性工具计算**并保留 source_ref,LLM 只组织叙述。
+  这保证了流程灵活性 + 数字可溯源(不引入幻觉)。
+- **实施**:
+  - `.env` `USE_REACT=true` —— 主聊天走 `chat_react`(LLM 自主选工具,每步进 trace 透明)。
+  - `src/agent/tools/extended.py` —— `TravelPlanningTool` 在**高德失败 / 无 key** 时降级到 `_mock_route`
+    估算数据 + `_recommend_route` 打分(响应始终是完整"多因素评分 + 深度线路"格式,`source` 标明估算);
+    并把"短途(<5km)自动加步行"下沉到**工具层**,任何模式(含 ReAct/前端)都能拿到。
+  - `tests/test_p6s15_tools_skills.py` —— 6 个"断言固定排版"的用例改为**工具层数据断言**
+    (评分 0-1 / 评分明细[碳费时天] / 自驾对比减排 / 评分权重 / 线路名 / 短途步行):
+    因为这些结构化数据才是 ReAct 下 LLM 叙述的基础,测工具层(确定性、模式无关)才是真正该测的。
+  - `src/agent/core.py`(chat_react) —— 回填**最后一次 `travel_planning` 工具的 output** 为 `tool_result`,
+    让 ReAct 下前端出行地图也能拿到 `origin/destination/routes/origin_coord/destination_coord` 渲染。
+- **说明**:改 `.env` + Python,需**重启 server**;我无法在本会话实跑,请本地验证。
+
+### 修复(2026-07-20)— USE_REACT 默认改 false(确定性管线,修复 test_p6s15)
+
+- **问题**:`.env` 里 `USE_REACT=true`,导致运行中的 server 里 `chat_enhanced` 直接走 `chat_react`(LLM 自主选工具),
+  **完全绕过** `_handle_travel_planning` 的**确定性**出行规划格式(综合评分/评分明细/碳减排对比/权重/线路名)。
+  于是 `test_p6s15` 的 **6 个 travel 格式断言全挂**(含"短途加步行");verify 脚本给 pytest 子进程设的
+  `USE_REACT=false` **不影响独立运行的 server**。
+- **修复**(`.env`):`USE_REACT=false`(确定性管线,测试与稳定生产预期路径)。ReAct 仍是可选开关:
+  临时改 `true` 并重启 server 即进入 LLM 自主选工具。
+- 效果:重启 server 后 `test_p6s15` 全部通过。
+
+### 修复(2026-07-20)— test_p6s16 MCP 配置测试 print 越界(修复 test_mcp_registry_loads_config)
+
+- **问题**:`test_mcp_registry_loads_config` 的所有 `load_config` **断言都通过**,但末尾诊断
+  `print` 对 `configs` 里的每一项访问 `c.command`——而 `configs` 同时含 stdio 的
+  `MCPClientConfig`(有 command)和 HTTP 的 `StreamableHTTPClientConfig`(**没有 command,只有 url**),
+  读到 HTTP 配置便抛 `AttributeError`。测试以"失败"收场。
+- **修复**(`tests/test_p6s16_mcp_integration.py`):print 改用 `getattr(c, 'command', getattr(c, 'url', '?'))`,
+  兼容两种配置类型。断言本身未变。
+- 效果:`test_mcp_registry_loads_config` 通过。
+
+### 修复(2026-07-20)— 出行规划深度响应(高德失败/无 key 时估算降级,修复 test_p6s15)
+
+- **问题**:`TravelPlanningTool` 里 `_mock_route` 是**死代码**(从不被调用)。`execute` 在高德查询失败
+  (无 key/限流/没找到路线)时直接 `return success=False`,core.py 便走**通用降级文案**——
+  不含"综合评分 X.X/10"、"碳/费/时/天"评分明细、"碳减排对比"、"评分权重"、"具体线路名"。
+  导致 `test_p6s15` 的 4 个出行格式断言失败(而"短途加步行"因降级文案恰好含"步行"而误通过)。
+- **修复**(`src/agent/tools/extended.py`):`execute` 在**高德失败或无 GAODE_API_KEY** 时都降到 `_mock_route`
+  估算数据,仍走 `_recommend_route` 打分 + `_fetch_weather` + 权重,响应保持完整"多因素评分 + 深度线路"格式;
+  `source` 用 `setdefault` 保留"估算数据(...)"标记,真实高德路径则标"高德地图API"。
+- 效果:高德正常返回真数据;高德不可用/无 key 时给估算但**格式完整**的方案,前端不空白,`test_p6s15` 通过。
+
+### 修复(2026-07-20)— ConversationStore.turn_count 归位(修复 test_p4b 单测)
+
+- **问题**:`test_p4b_memory::test_conversation_store_singleton` 断言 `get_or_create("user_A")` 复用同一会话时
+  `turn_count` 应递增(新建 0 → 复用 1 → 复用 2),但 store 的复用分支**只更新 `last_updated`,不曾递增 `turn_count`**,
+  导致第二次访问仍返回 0,单测失败。
+- **修复**(`src/agent/conversation_store.py`):`get_or_create` 在**复用已有会话**时(按 id 复用 + 复用用户最近会话)
+  递增 `ctx.turn_count`;新建会话(`_new_conversation`)仍从 0 起。
+- **配套**(`src/agent/core.py`):移除 `chat` 与 `chat_enhanced` 中重复的手动 `conversation.turn_count += 1`,
+  避免与新 store 递增**双倍计数**;`turn_count` 由 `ConversationStore` 作为唯一所有者统一递增。
+- **效果**:`test_p4b_memory::test_conversation_store_singleton` 通过;多轮 turn_count 语义由 store 统一
+  (新建=0,每复用 +1),LangGraphAgent 复用路径同样受惠。
+
+### 功能(2026-07-20)— 思考过程透明化增强(A 版定型)
+
+- **① 实时执行过程透明**:新增 SSE 端点 `/api/chat/stream-trace`,后端逐步 push trace 事件;前端实时渲染"🔍 思考过程(实时)"面板
+  (看到"当前在哪个阶段"),并展示**工具调用的中间结果**(`run_react_loop` 记录工具 output → trace)。
+- **② 思考在上、结论在下**:`addMessage` 模板调整——`🔍 思考过程` 移到内容**之前**(先思考后结论)。
+- **③ 假打字**:`addMessage(typewrite=true)` 让最终回答**逐字打出**(每 18ms 加 2 字,打完再格式化)。
+- **④ 打通两套画像**(`energy_planning_skill.py`):`household_profile` 读不到家庭画像时,
+  **从聊天画像自动推导**(地区→城市 key、家庭类型→人数),不再报"用户尚未建立画像"。
+- **⑤ 技能库中文名**:4 个 Skill 加 `name_cn`(低碳出行规划/政策查询/画像管理/家庭节能规划);
+  `/skills` 命令显示 `英文名(中文名)— 用途 [类别]`。
+- **⑥ 画像防膨胀**(`user_profile.py`):`_trim_profile()` 对 `action_history(≤50)/completed_actions(≤100)/
+  rejected_actions(≤50)/engagement_history(≤30)/topic_interactions(≤30)/behavior_profile(≤20)` 设上限,
+  在 `update_profile`/`update_eco_profile` 写库前裁剪,防止无限增长。
+- **⑦ 命令面板**:输入 `/` 弹出快捷指令下拉(可点选),Esc/点外部关闭。
+- **说明**:改动 Python+前端,需**重启服务** + 强制刷新;我无法在本会话实跑,请本地验证。
+
+### 功能(2026-07-20)— 命令面板(输入 / 自动补全快捷指令)
+
+- **需求**:对标 Claude Code / DSH,输入 `/` 应弹出快捷指令清单,而不是只有发送后才识别。
+- **实现**(`web/index.html`):在输入框敲 `/`(尚未加空格)时,输入框上方弹出**命令面板**,列出
+  `/help /energy /profile /skills /tools /tool /skill`,可用鼠标点选(点选后填入 `/命令 ` 供你回车发送),
+  按 `Esc` 或点击外部关闭。Ctrl+F5 生效。
+- 说明:前端改动,强制刷新;我无法实跑,请本地验证。
+
+### 功能(2026-07-20)— ReAct 主聊天版(LLM 自主选工具,全程透明)
+
+- **目的**:让主聊天也能像 DeepSeek Harness 这类 agent 一样,由 LLM 自主选择工具,并**全程透明**(每步工具调用可见)。
+- **实现**(`src/agent/core.py`):
+  - 新增 `chat_react(user_id, message, conversation_id)`:构建上下文 prompt(用户画像 + RAG 知识库 + ReAct 指令),
+    用 `run_react_loop` + 全部已注册工具跑 ReAct 循环;每步 `tool_calls` 写进 `trace`("🔍 思考过程"可见"调用工具 X → 成功/耗时")。
+  - 新增 `_react_system_prompt()`:**动态列出全部工具的用法/参数/时机** + 使用规则 + 多步调用示例(如 household_profile → energy_planner),
+    显著提高 LLM 调对工具的概率。
+  - `chat_enhanced` 加开关:当 `USE_REACT=true`(或 1/yes/on)时走 `chat_react`,否则仍走确定性管线。
+  - 命令(`/xxx`)优先级仍高于 ReAct。
+- **用法**:在 `.env` 设 `USE_REACT=true` 后重启,主聊天即由 LLM 自主选工具;聊天里可看到它逐步调用工具。
+- **说明**:改动 Python,需**重启服务**;我无法在本会话实跑,请本地验证。ReAct 依赖 LLM 支持 function-calling(DeepSeek 支持)。
+
+### 功能(2026-07-20)— 快捷指令 /command(对标 Claude Code / DSH)
+
+- **目的**:让用户能像 Claude Code / DeepSeek Harness 那样用**快捷指令**直接调 skill/工具。
+- **实现**(`src/agent/core.py`):
+  - `chat_enhanced` 识别以 `/` 开头的消息,优先路由到 `_handle_command`。
+  - `_handle_command` 支持:`/help`、`/energy`(家庭节能规划)、`/profile`(画像摘要)、
+    `/skills`(列技能)、`/tools`(列工具)、`/tool <name> [JSON]`(经 `dispatch_tool_call` 直调工具)、
+    `/skill <name>`(经 `SkillExecutor` 直调技能)。
+  - 命令调用全程记录进 `trace`,前端"🔍 思考过程"可见。
+- **效果**:在聊天框输入 `/energy`、`/tool daily_eco_tip`、`/skills`、`/profile` 等即可直接触发对应能力。
+- 说明:改动 Python,需**重启服务**;我无法在本会话实跑,请本地验证。
+
+### 功能(2026-07-20)— 执行过程透明化(思考流程 trace)
+
+- **目的**:让用户看到智能体"完整思考流程"——识别了什么意图、检索了什么知识、调用了什么工具/skill、LLM 在干嘛。
+- **后端**:
+  - 新增 `src/agent/trace.py`(`Trace` 记录器,`add(step, label, detail, status)` → `to_dict()`)。
+  - `src/agent/core.py`:`AgentResponse` 加 `trace` 字段;`chat_enhanced` 逐步记录 `intent/rag/memory/recommendations/done`;
+    `_handle_energy_planning` 记录 `energy_planning`(识别 + 调节能规划器,含人数/电器/动作数/月省额)。
+  - `src/server/routers/chat.py`:`chat/enhanced` 响应透出 `trace` 字段。
+- **前端**(`web/index.html`):`addMessage` 新增参数 `trace`,把执行轨迹渲染成**可展开的 "🔍 思考过程" 面板**
+  (每步图标 + 中文标签 + 明细,"思考中"高亮闪烁,"跳过"灰显);`sendMessage` 把 `data.trace` 传入。
+- **效果**:每条助手回复下方可点开"🔍 思考过程",看到它实际经历了哪些步骤,真正"透明"。
+- 说明:改动 Python+前端,需**重启服务** + 强制刷新;我无法在本会话实跑,请本地验证。
+
+### 整改 4 项(2026-07-20)— 插件化闭环 / 清死代码 / 前端鉴权统一 / 文档同步
+
+- **① 插件化闭环**(核心零硬编码能力):
+  - 新增 `plugins/core_tools.py`(迁移 4 基础工具 + 3 节能工具)与 `plugins/core_skills.py`(迁移 4 技能),均提供 `register(api)` 契约。
+  - `src/server/app.py::_register_all_tools_and_skills` 精简为**纯插件加载**(去掉全部硬编码工具/技能注册),工具/技能统一经 `load_plugins(api)` 注册。
+- **② 清死代码**:`src/user_profile/personalized_recommender.py::generate_recommendations` 删除前半段从不 append 的死循环(复制粘贴残留),现函数只有唯一生效逻辑。
+- **③ 前端 token 统一**:`web/index.html` 抽 `getAuthHeaders()`(登录则带 `Authorization: Bearer <sessionId>`),`loadProfile` 与 `sendMessage`(chat/enhanced)共用同一来源。
+- **④ 文档同步**:`CLAUDE.md` 更新——概述补 P12 节能 + plugin_system + 修复说明,意图类型列表补 ENERGY_PLANNING/TRAVEL_PLANNING/LOCATION_QUERY 等;并标注"文档曾描述旧结构,实际 user_profile 在 src/user_profile/"。
+- 说明:改动 Python+前端+文档,需**重启服务** + 强制刷新;我无法在本会话实跑,请本地验证。
+
 ### P12 节能规划(2026-07-19)— 家庭能源节约规划(直接服务知行鸿沟)
 
 - **A. 核心引擎**(`src/agent/energy/`):
@@ -28,6 +196,126 @@
 - **E. 文档**:
   - `docs/learning/p12-energy-planning.md` — 实习生 30 分钟入门
   - `docs/operations/p12-energy-planning.md` — 运维排查手册
+
+### 依赖修复(2026-07-19)— OCR 依赖可选化,解除 paddlepaddle 安装失败
+
+- **根因**:`requirements.txt` 把 P9 OCR 的 `paddlepaddle>=2.5.0` 列为硬依赖,
+  而该包对较新 Python(如 3.13/3.14)通常**无发布 wheel** → `pip install -r` 整条失败。
+- **修法**:OCR 依赖移到可选文件 `requirements-ocr.txt`(paddlepaddle/paddleocr/pdfplumber/Pillow/aliyun-*);
+  `requirements.txt` 只保留核心依赖,+ 注释说明可选用法。
+- **影响**:核心 agent(聊天/RAG/画像/节能规划)不依赖 OCR,`pip install -r requirements.txt` 即可跑;
+  需要 OCR 才额外装 `requirements-ocr.txt`,缺本地 OCR 时降级到阿里云云端。
+
+### 插件式改造(2026-07-20)— 插件系统核心
+
+- **新增 `src/plugin_system/loader.py`**(+ `__init__.py`):
+  - `PluginAPI`:给插件用的注册适配器 —— `register_tool(instance, category, tags)` / `register_skill(skill)` /
+    `add_route(method, path, handler, auth_required)` / `get_agent()`。
+  - `load_plugins(api)`:扫描**项目根 `plugins/` 目录**下的 `.py`,逐模块加载(单个失败只记日志,不阻塞启动)。
+  - 插件契约:模块提供 `register(api)` 函数,或 `PLUGIN` 对象(含 `.register(api)` 或 `.tools/.skills` 字段)。
+- **新增示例插件 `plugins/example_plugin.py`**:丢进去即挂载(`DailyEcoTipTool`,`register(api)` 注册进 ToolRegistry)。
+- **`src/server/app.py`**:`_register_all_tools_and_skills` 末尾接入 `load_plugins`,插件注册的 tool/skill 计入统计日志。
+- **效果**:今后新增能力 = 往 `plugins/` 放一个 `.py`,重启即挂载,无需改核心。内置 tool/skill 仍保留在核心注册(可选后续迁移为插件)。
+- 说明:改动 Python,需**重启服务**;我无法在本会话实跑,请本地验证 `[plugins] 已加载插件: example_plugin` 日志。
+
+### 修复(2026-07-19)— agent 全是 mock,没调真 LLM
+
+- **根因**:`src/llm/client.py::get_llm_client` 读的是通用 `api_key`(来源 `API_KEY` 或 `OPENAI_API_KEY`),
+  而 `.env` 里 `OPENAI_API_KEY=__SET_ME__`(占位符)且无 `API_KEY` → 它把 `__SET_ME__` 传给所有 provider,
+  **覆盖了真实的 `DEEPSEEK_API_KEY`** → DeepSeekClient 拿到占位符 key → 调 DeepSeek 失败 → 回退 mock/模板。
+- **修复**:`get_llm_client` 不再传通用 `api_key`,改为让 `create_llm_client` 里的具体客户端各自读 `<PROVIDER>_API_KEY`
+  (DeepSeekClient 读 `DEEPSEEK_API_KEY`=真实 key)。`LLM_MOCK=false` 本就强制真实调用,现在用的是真 key。
+- **效果**:`API_PROVIDER=deepseek` + 真实 `DEEPSEEK_API_KEY` → agent 真正调 DeepSeek,不再 mock/模板。
+- 说明:改动 Python,需**重启服务**;我无法在本会话实跑,请本地用下面的命令自测。
+
+### 修复(2026-07-19)— 画像页不加载(401/403 越权)
+
+- **根因**:`web/index.html::loadProfile` 调 `/api/personalization/{userId}` 时**没带 Bearer token**(聊天请求带了,唯独画像没带);
+  而该接口 `auth_required=True` → 返回 401 → 前端走 `renderProfileGuestGate()`("完成注册后即可查看完整画像").
+  且 `_require_owner` 要求 URL 的 userId 必须等于 token 的 `current_user.user_id`,若两者不一致(前端 userId 用错)会更 403。
+- **修复**:
+  - `web/index.html::loadProfile`:fetch 带 `Authorization: Bearer <sessionId>`;已登录但 userId 为空时也不再前置拦截。
+  - `src/server/routers/profile.py`:三个 GET 处理器(`profile_get`/`personalization_get`/`user_stats`)改为**直接用 token 身份**
+    (`current_user.user_id`),不再校验 URL 里的 userId —— 更安全(永远只返回 token 本人数据),也不依赖前端 userId 猜对。
+- **效果**:登录后「画像」页即可加载;要显示真实引导数据,请**登录后重新完成环保引导**(写入账号关联 user_id)。
+- 说明:改动 Python+前端,需**重启服务** + 强制刷新;我无法在本会话实跑,请本地验证。
+
+### 修复(2026-07-19)— 节能规划接入聊天与 ReAct(去掉"独立门户"导向)
+
+- **需求修正**:用户要的是"绿色低碳智能体本身能在对话里做家庭节能规划",而非单独做一个节能门户页面。
+- **改动**:
+  - `src/agent/intent.py`:新增 `IntentType.ENERGY_PLANNING` + 关键词(节水/节电/节气/省电/节能规划等)+ 优先级提升(节能类命中覆盖知识/建议查询)。
+  - `src/agent/core.py`:`chat_enhanced` 新增 ENERGY_PLANNING 早返分支,调 `_handle_energy_planning`:
+    优先读已存家庭画像 → 从消息抽取线索(city/人数/费用/电器)并合并 → 新用户未提供信息则反问收集 →
+    足够则 `EnergyPlanner` 生成方案 + 今日卡,以**聊天回复 + 推荐卡片**呈现。
+  - `src/server/app.py`:`_register_all_tools_and_skills` 里把 `household_profile`/`energy_planner`/`action_tracker`
+    三个节能工具注册进 ToolRegistry,供 ReAct 按名调用。
+  - `src/server/routers/chat.py`:`/api/agent/react`(ReAct)默认把**所有已注册工具**传给 LLM,节能类问题在 ReAct 下也能被 LLM 自主选中调用。
+  - `web/index.html`:移除主页「家庭节能规划」门户按钮,聊天为唯一主入口(`/energy` 路由保留为后端能力)。
+- **效果**:聊天直接问"我家怎么节水节电/省电费/节能规划"→ 智能体在对话里给出节水/节电/节气方案;ReAct/自主 tool-use 模式也能调节能工具。
+- 说明:改动 Python+前端,需**重启服务** + 强制刷新。我无法在本会话实跑,请本地验证。
+
+### 修复(2026-07-19)— 登录后画像空白(两套 user_id 不一致)
+
+- **根因**:前端 `handleLogin` 误把 `userId = accountId`(账号ID),而登录接口返回的 `user_id` 是账号关联的画像ID(另一 uuid);
+  且 `handleOnboardingSubmit` 走的 `/api/user/register` 每次新建**游离的独立画像 id**,与登录账号的画像不一致,
+  导致画像页查空/被 `_require_owner` 越权挡掉。
+- **修复**:
+  - `web/index.html::handleLogin`:改用 `data.user_id`(账号关联 id)作为全局 userId,并补写 `localStorage.green_agent_user_id`;
+  - `web/index.html::handleOnboardingSubmit`:提交引导时带 `Authorization: Bearer <sessionId>`;
+  - `src/agent/core.py::apply_onboarding_to_profile`:已登录用户完成引导时把 user_info 合并进其账号关联画像(而非新建独立 id);
+  - `src/server/routers/onboarding.py::user_register`:当请求带有效 token 时,用账号关联 user_id 写引导,否则维持原匿名新建逻辑。
+- **效果**:登录后完成引导,画像数据落在账号关联的 user_id 上,「画像」页即可显示,且与节能/记忆共用同一身份。
+- 说明:改动 Python 后端,需**重启服务**生效;前端需清 localStorage + 强制刷新。
+
+### 修复(2026-07-19)— 主页面节能入口遮挡
+
+- **问题**:上一轮把「🌿 家庭节能规划」入口做成了左上角**固定浮层**,叠在浏览器书签栏/页面边距上,遮挡内容。
+- **修复**(`web/index.html`):移除固定浮层,改为**应用头部右上角按钮**(与「⚙️ 设置」并排),完全在应用布局内,不再遮挡。
+- 说明:纯前端改动,强制刷新(Ctrl+F5)生效。
+
+### 整改 5 项(2026-07-19)— 身份打通 / 新用户推荐 / e2e 修复 / source_ref 链接 / 前端审查
+
+- **① 身份打通**(`src/server/identity.py` 新增):
+  - 统一 `resolve_user_id(handler, data)`:已登录→`current_user.user_id`(账号关联,聊天/节能/推荐共用同一 user_id);
+    未登录→guest id(anonymous/temp_ 前缀),否则兜底 anonymous。策略写在文件头,杜绝漂移。
+  - `src/server/routers/energy.py::_current_user_id` 与 `src/server/routers/chat.py::chat_enhanced`
+    改为共用 `resolve_user_id`,聊天与节能对同一登录 token 得到**同一个 user_id**。
+- **② 新用户推荐不为 0**(`src/user_profile/personalized_recommender.py`):
+  - 加 `_DEFAULT_FALLBACK`(6 条通用 default 动作) + `_find_action_data` 助手;
+    `generate_recommendations` 末尾若 `suggested_actions` 为空则回填通用推荐,保证稀疏画像也能拿到 ≥3-5 条。
+- **③ 静态修 e2e 3 处**(`src/agent/core.py` + `personalized_recommender.py`):
+  - `chat_enhanced` 推荐生成的意图门控从 `ADVICE_REQUEST/GREETING` 放宽到含 `KNOWLEDGE_QUERY/QUESTION`
+    (修 `test_chat_enhanced_knowledge_query` / `advice_request` 返回 0 推荐)。
+  - `_apply_dynamic_updates` 把正反馈行为的具体文本(如"骑自行车")并入 `eco_profile.action_history`,
+    经 `_sync_profile_to_graph` 落到画像图谱 actions(修 `test_multi_turn_profile_update`)。
+- **④ 前端静态审查**:新增 `web/energy.html` 完整接入 7 端点 + 鉴权 + 401 回登录;`web/index.html` 左上角加
+  "🌿 家庭节能规划"入口。已静态核对 JS/HTML 结构、事件绑定与 API 契约;**未真实浏览器联调**。
+- **⑤ source_ref 可核对链接**(`policies.py`):给已核实条目附官方 URL——GB/T 18870-2011(节水,
+  `openstd.samr.gov.cn ...hcno=9EBC22CB1D91BA6A583786321430CA2F`)、湖南居民阶梯电价
+  (`fgw.hunan.gov.cn ...t20240131_32641110.html`);其余保留权威标准号(可经全国标准平台检索核对),
+  **未核实链接不注入,避免"编造来源"违背防火墙**。
+- 说明:沙箱无 shell(pwsh/glob/grep 报 0xC0000142),以上均**静态交付**;① ② ⑤改动为后端代码,建议本地实跑复核。
+
+### P12 任务2/3 增强(2026-07-19)— 前端仪表盘 + 城市/电器扩围
+
+- **A. 前端可视化**(`web/energy.html` 新增,`src/server/routers/system.py` 加 `/energy` 路由):
+  - 自包含单页仪表盘:登录/注册 → 家庭画像录入(人数/面积/城市/水电气费/家电点选/峰谷/空调温度)
+    → 节能方案卡片 → 今日行动卡 → 完成度标记(full/partial/none) → 统计(元/kWh/CO₂/streak + 7 天趋势图)
+    → 委托级别(0-3)切换。
+  - 全部接入 7 个 energy 端点 + `/household/delegation` + 鉴权(`Authorization: Bearer <session_id>`),
+    token 失效自动回登录。
+  - `web/index.html` 左上角加「🌿 家庭节能规划」入口链接。
+- **B. 新增只读端点**:`GET /api/energy/profile`(`src/server/routers/energy.py`)— 读取已存家庭画像,供前端加载。
+- **C. 城市扩围**(`src/agent/energy/policies.py` `CITY_TIER_PRICING`):
+  - 7 → 14 城 + default:新增 武汉 / 长沙 / 重庆 / 西安 / 天津 / 郑州 / 青岛,均带阶梯档位 + source_ref。
+- **D. 电器扩围**(`APPLIANCE_SAVINGS` + `planner.py` 映射):
+  - 13 → 19 项:新增 洗碗机错峰、电暖器档位、抽油烟机短时运行、电饭煲提前断电、双档节水马桶、燃气灶火焰调节;
+  - `_PROFILE_TO_ACTIONS` / `_APPLIANCE_KEYWORD_MAP` 同步扩展,新电器可被 planner 真正推荐;
+  - 每个新条目均带 source_ref(GB/T 20290-2016 / GB 21455-2013 / GB 29539-2013 / GB 12021.6-2017 / GB 28377-2012 / GB 16410-2007)。
+- **E. 前端城市下拉同步更新**至 14 城,`fillProfileForm` 城市白名单一致。
+- 说明:由于当前沙箱无法执行 shell(pwsh/glob/grep 报 0xC0000142),以上为**静态交付**,
+  建议本地跑 `pytest tests/test_energy_*.py -v` 复核。
 
 ### P11.C(2026-07-18)— 接真实 MCP server(GitHub + Notion 模板)
 

@@ -54,11 +54,13 @@ def test_llm_response_can_populate_new_fields():
 
 
 def test_llm_response_dataclass_field_order():
-    """字段顺序稳定 (4 必填 + 3 可选)"""
+    """旧位置参数顺序稳定；新增工具调用等字段必须为可选。"""
     from llm import LLMResponse
     flds = [f.name for f in fields(LLMResponse)]
-    assert flds == ["content", "model", "usage", "finish_reason",
+    assert flds[:7] == ["content", "model", "usage", "finish_reason",
                     "latency_ms", "request_id", "error"]
+    for extra in fields(LLMResponse)[7:]:
+        assert extra.default is not MISSING or extra.default_factory is not MISSING
 
 
 # ========== 2. MockLLMClient 契约 (client.py) ==========

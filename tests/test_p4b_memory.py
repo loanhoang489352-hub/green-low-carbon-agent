@@ -37,6 +37,41 @@ def test_conversation_store_singleton():
     print("✅ test_conversation_store_singleton PASSED")
 
 
+def test_conversation_ownership_isolation():
+    """B.5 + 审计#2: 跨用户复用 conversation_id 必须被拒绝(水平越权防护)"""
+    import pytest
+    from agent.conversation_store import (
+        get_conversation_store,
+        ConversationOwnershipError,
+    )
+
+    s = get_conversation_store()
+    s.reset()
+
+    # A 创建会话,记录其 id 和 turn_count
+    ctx_a = s.get_or_create("user_A")
+    cid_a = ctx_a.conversation_id
+    s.get_or_create("user_A")  # turn_count → 1
+    before = s.get(cid_a).turn_count
+
+    # B 用 A 的 conversation_id 复用 → 必须抛错,且不得改动 A 的会话
+    with pytest.raises(ConversationOwnershipError):
+        s.get_or_create("user_B", cid_a)
+
+    # assert_owner 同样拦截
+    with pytest.raises(ConversationOwnershipError):
+        s.assert_owner(cid_a, "user_B")
+
+    # 本人访问不拦截
+    s.assert_owner(cid_a, "user_A")
+
+    # 越权尝试后 A 的会话原样未动(未计轮、未改 owner)
+    after = s.get(cid_a)
+    assert after.user_id == "user_A"
+    assert after.turn_count == before
+    print("✅ test_conversation_ownership_isolation PASSED")
+
+
 def test_long_term_access_heat():
     """B.3: 访问热度更新"""
     from memory.long_term import LongTermMemory
