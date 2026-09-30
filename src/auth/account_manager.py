@@ -170,17 +170,29 @@ class AccountManager:
             _init_database()
             AccountManager._initialized = True
 
-    def register(self, username: str, password: str) -> Dict[str, Any]:
+    def register(self, username: str, password: str, invite_code: str = None) -> Dict[str, Any]:
         """
         注册新账号
 
         Args:
             username: 用户名（3-20位字母数字）
             password: 密码（至少6位）
+            invite_code: 邀请码（灰度阶段开启 INVITE_CODE 后必填）
 
         Returns:
             包含状态和账号信息的字典
         """
+        # P17: 上线/灰度注册管控
+        #   REGISTRATION_OPEN=false → 完全关闭注册
+        #   INVITE_CODE=xxx        → 注册需携带该邀请码(灰度测试用)
+        import os
+
+        if os.environ.get("REGISTRATION_OPEN", "true").strip().lower() in ("false", "0", "no", "off"):
+            return {"success": False, "error": "注册暂未开放,敬请期待"}
+        invite = os.environ.get("INVITE_CODE", "").strip()
+        if invite and invite_code != invite:
+            return {"success": False, "error": "邀请码错误(灰度阶段需邀请码注册)"}
+
         # 验证用户名格式
         username = username.strip()
         if len(username) < 3 or len(username) > 20:

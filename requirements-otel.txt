@@ -1,0 +1,7 @@
+# 可选依赖:OpenTelemetry 导出(P17)
+# 安装: pip install -r requirements-otel.txt
+# 启用: export OTEL_EXPORTER_OTLP_ENDPOINT=http://<jaeger|tempo|datadog>:4318
+#        export OTEL_SERVICE_NAME=green-agent
+opentelemetry-api>=1.20.0
+opentelemetry-sdk>=1.20.0
+opentelemetry-exporter-otlp-proto-http>=1.20.0

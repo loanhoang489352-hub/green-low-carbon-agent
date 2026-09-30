@@ -28,6 +28,31 @@ def register_chat_routes(registry) -> None:
             # 会话不在 store 中(如重启后仅存在于 SQLite):允许通过,由业务层兜底
             pass
 
+    def _prepare_llm_context(handler, user_id) -> None:
+        """P17: 登录用户用自己的 LLM key;无 key 且非强 mock → 阻断(不烧服务端 token)。
+
+        匿名/游客不设上下文 → 走全局(owner 或 mock)行为。
+        """
+        current = getattr(handler, "current_user", None) or {}
+        if not current.get("user_id"):
+            return  # 匿名,保持现状
+        from llm.user_keys import has_key
+
+        if has_key(user_id):
+            from llm.client import set_llm_user
+
+            set_llm_user(user_id)
+            return
+        # 无 key 的登录用户
+        from llm import is_mock_mode
+
+        if is_mock_mode() is True:
+            return  # 强 mock 不消耗真实 token,放行(便于开发/测试)
+        raise APIError(
+            "FORBIDDEN",
+            "请先在「设置」里配置你自己的 LLM API key —— 本服务各账号使用各自 key,不共享服务端 token。",
+        )
+
     def chat(handler, data):
         # 已登录用户强制用其账号 user_id(防止 body 冒充他人);匿名走 anonymous/temp_*
         current = getattr(handler, "current_user", None) or {}
@@ -41,6 +66,8 @@ def register_chat_routes(registry) -> None:
 
         if not message:
             raise APIError("BAD_REQUEST", "Message is required")
+
+        _prepare_llm_context(handler, user_id)
 
         try:
             response = handler.agent.chat(user_id, message, conversation_id)
@@ -68,6 +95,8 @@ def register_chat_routes(registry) -> None:
 
         if not message:
             raise APIError("BAD_REQUEST", "Message is required")
+
+        _prepare_llm_context(handler, user_id)
 
         # P6.S.22: 浏览器传入的 location(前端 navigator.geolocation) → handler._browser_location
         loc = data.get("location")
@@ -249,6 +278,7 @@ def register_chat_routes(registry) -> None:
         from server.identity import resolve_user_id
         user_id = resolve_user_id(handler, data)
         conversation_id = data.get("conversation_id")
+        _prepare_llm_context(handler, user_id)
         # 用 chunked transfer + SSE 格式
         handler.send_response(200)
         handler.send_header("Content-Type", "text/event-stream; charset=utf-8")
@@ -320,6 +350,7 @@ def register_chat_routes(registry) -> None:
         user_id = resolve_user_id(handler, data)
         message = data.get("message", "")
         conversation_id = data.get("conversation_id")
+        _prepare_llm_context(handler, user_id)
 
         # P6.S.22: 读 body 的 browser location 并存到 handler._browser_location,
         # 否则 best_location 拿不到浏览器精确坐标 → 会落到默认北京。与 /api/chat/enhanced 一致。

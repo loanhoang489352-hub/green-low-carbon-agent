@@ -151,8 +151,9 @@ class EnergyPlanner:
         planner.save_plan(plan)   # 落 SQLite
     """
 
-    def __init__(self, db_path: Optional[Path] = None) -> None:
+    def __init__(self, db_path: Optional[Path] = None, ranking_transport=None) -> None:
         self.db_path = db_path or ENERGY_ACTIONS_DB
+        self.ranking_transport = ranking_transport
 
     # ========== 方案生成 ==========
 
@@ -230,6 +231,11 @@ class EnergyPlanner:
             actions.sort(key=lambda a: (-a.estimated_saving_cny, a.difficulty, a.id))
         else:
             actions.sort(key=lambda a: (a.difficulty, a.id))
+
+        # Optional semantic ranking only reorders this guarded, code-owned list.
+        # Savings values and hard applicability checks remain entirely deterministic.
+        from .jev_ranker import rank_actions
+        actions, _ranking_applied = rank_actions(actions, profile, transport=self.ranking_transport)
 
         # 5. 合计
         total_cny = sum(a.estimated_saving_cny for a in actions)
@@ -428,10 +434,13 @@ class EnergyPlanner:
     def generate_today_card(self, plan: EnergyPlan) -> TodayCard:
         """从 plan 抽今日 3 个最易执行 + 1 个安全提醒"""
         # 排序:difficulty 升序 → 按潜在节省降序
-        ranked = sorted(
-            plan.actions,
-            key=lambda a: (a.difficulty, -a.estimated_saving_cny),
-        )
+        if plan.actions and all(self._valid_ranking_metadata(a.personalization_rank) for a in plan.actions):
+            ranked = list(plan.actions)
+        else:
+            ranked = sorted(
+                plan.actions,
+                key=lambda a: (a.difficulty, -a.estimated_saving_cny),
+            )
         picked = ranked[:3]
 
         # 安全/风险提醒(根据画像中 peak_offpeak_usage)
@@ -454,6 +463,17 @@ class EnergyPlanner:
             when_to_do="今天 21:00 前完成",
             judge="点击反馈:全做/部分做/未做",
         )
+
+    @staticmethod
+    def _valid_ranking_metadata(metadata):
+        return (isinstance(metadata, dict) and metadata.get("status") == "applied"
+                and metadata.get("judgment") in ("fit", "neutral", "poor")
+                and isinstance(metadata.get("confidence"), (int, float))
+                and not isinstance(metadata.get("confidence"), bool)
+                and math.isfinite(metadata["confidence"]) and .8 <= metadata["confidence"] <= 1
+                and isinstance(metadata.get("score"), (int, float))
+                and not isinstance(metadata.get("score"), bool)
+                and math.isfinite(metadata["score"]) and 0 <= metadata["score"] <= 1)
 
     # ========== 落库 / 加载 ==========
 

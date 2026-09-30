@@ -569,27 +569,18 @@ class GreenAgent:
         trace.add("intent", "理解本轮需求", {"domain": demand.domain, "act": demand.act,
                   "relation": demand.relation, "source": demand.source})
         if demand.act == "cancel" or demand.act == "clarify":
-            # P14 修复: 如果 domain=energy(意图分类器识别为节能),
-            # 不要走 clarify 反问,直接生成方案(用户画像已够或 mining 会补)
-            # 注意: DemandInterpreter 会因 act=clarify 把 intent 覆盖成 UNKNOWN,
-            #       所以要用 demand.domain 判断,不用 intent_result.intent
-            is_energy_intent = (demand.domain == "energy")
-            if is_energy_intent:
-                _log.info("[chat_enhanced] domain=energy 但 act=clarify,跳过澄清直接生成方案")
-                # 不return,继续走到下面的 ENERGY_PLANNING 分支
-                pass
-            else:
-                reply = "已取消当前任务。你可以开始新的话题。" if demand.act == "cancel" else demand.question or "请补充一下你希望我做什么。"
-                state["recent"] = (state.get("recent", []) + [{"role": "assistant", "content": reply}])[-6:]
-                store.save(user_id, conversation_id, state)
-                return EnhancedAgentResponse(message=reply,
-                    conversation_id=conversation_id, intent=intent_result.intent.value,
-                    timestamp=get_current_datetime(),
-                    personalization_info={"understanding": intent_result.context["understanding"],
-                                         "profile_mining": global_profile_mining_meta},
-                    trace=trace.to_dict())
+            # A domain label must never override cancellation or a clarification.
+            reply = "已取消当前任务。你可以开始新的话题。" if demand.act == "cancel" else demand.question or "请补充一下你希望我做什么。"
+            state["recent"] = (state.get("recent", []) + [{"role": "assistant", "content": reply}])[-6:]
+            store.save(user_id, conversation_id, state)
+            return EnhancedAgentResponse(message=reply,
+                conversation_id=conversation_id, intent=intent_result.intent.value,
+                timestamp=get_current_datetime(),
+                personalization_info={"understanding": intent_result.context["understanding"],
+                                     "profile_mining": global_profile_mining_meta},
+                trace=trace.to_dict())
         if (intent_result.intent == IntentType.ENERGY_PLANNING
-                or (demand.domain == "energy" and demand.act in ("plan", "update", "advise", "clarify"))):
+                or (demand.domain == "energy" and demand.act in ("plan", "update", "advise"))):
             effective_message = demand.message
             # 强制把 intent 设回 ENERGY_PLANNING(避免下游看到 UNKNOWN)
             if intent_result.intent != IntentType.ENERGY_PLANNING:

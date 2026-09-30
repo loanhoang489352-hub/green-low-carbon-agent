@@ -1015,11 +1015,13 @@ class TravelPlanningTool(BaseTool):
             )
             if reason:
                 r["weather_note"] = reason
+            else:
+                r.pop("weather_note", None)
             # 严重不良天气(penalty>0.5)硬过滤露天模式,避免推荐危险出行
             r["_disqualified"] = penalty > 0.5
 
-        candidates = [r for r in routes if not r.get("_disqualified")] or routes
-        best = max(candidates, key=lambda x: x.get("score", 0))
+        candidates = [r for r in routes if not r.get("_disqualified")]
+        best = max(candidates, key=lambda x: x.get("score", 0), default={})
         # 清理临时标记
         for r in routes:
             r.pop("_disqualified", None)

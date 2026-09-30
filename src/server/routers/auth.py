@@ -11,9 +11,10 @@ def register_auth_routes(registry) -> None:
     def auth_register(handler, data):
         username = data.get("username")
         password = data.get("password")
+        invite_code = data.get("invite_code")
         if not username or not password:
             raise APIError("BAD_REQUEST", "用户名和密码必填")
-        result = handler.account_manager.register(username, password)
+        result = handler.account_manager.register(username, password, invite_code)
         if result.get("success"):
             handler.send_json(
                 {

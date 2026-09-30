@@ -115,6 +115,7 @@ class EnergyAction:
     estimate_kind: str = "qualitative"
     estimate_note: str = "缺少可核对的周期和基线，仅提供行动建议。"
     estimated_saving_water_m3: float = 0.0
+    personalization_rank: Optional[dict] = None
 
     def to_dict(self) -> dict:
         return asdict(self)

@@ -309,6 +309,10 @@ class UserProfileManager:
 
             profile["graph"] = UserProfileGraph(user_id).to_dict()
 
+        # Refresh the queryable projection from legacy profile fields as needed.
+        from user_profile.graph_store import SQLiteGraphStore
+        with conn:
+            profile["graph"] = SQLiteGraphStore(conn).sync(user_id, profile)
         self._profile_cache[user_id] = profile
         return profile
 
@@ -334,7 +338,8 @@ class UserProfileManager:
 
     def update_profile(self, user_id: str, updates: Dict[str, Any]) -> bool:
         """更新用户画像"""
-        profile = self.get_profile(user_id)
+        from copy import deepcopy
+        profile = deepcopy(self.get_profile(user_id, refresh=True))
 
         for key, value in updates.items():
             if isinstance(value, dict) and key in profile:
@@ -350,20 +355,20 @@ class UserProfileManager:
         conn = get_connection(str(self.db_path))
         cursor = conn.cursor()
 
-        cursor.execute(
-            """
-            UPDATE user_profiles
-            SET profile_data = ?, updated_at = ?
-            WHERE user_id = ?
-        """,
-            (json.dumps(profile, ensure_ascii=False), profile["updated_at"], user_id),
-        )
+        with conn:
+            from user_profile.graph_store import SQLiteGraphStore
+            profile["graph"] = SQLiteGraphStore(conn).sync(user_id, profile)
 
-        success = cursor.rowcount > 0
-        try:
-            conn.commit()
-        finally:
-            pass  # conn 池 60s TTL 自动关
+            cursor.execute(
+                """
+                UPDATE user_profiles
+                SET profile_data = ?, updated_at = ?
+                WHERE user_id = ?
+            """,
+                (json.dumps(profile, ensure_ascii=False), profile["updated_at"], user_id),
+            )
+
+            success = cursor.rowcount > 0
 
         if user_id in self._profile_cache:
             del self._profile_cache[user_id]
@@ -372,7 +377,22 @@ class UserProfileManager:
 
     def update_basic_info(self, user_id: str, basic_info: Dict[str, Any]) -> bool:
         """更新基础信息并推断画像"""
-        profile = self.get_profile(user_id)
+        from copy import deepcopy
+        profile = deepcopy(self.get_profile(user_id, refresh=True))
+
+        # Explicit form corrections must supersede earlier chat values.
+        usage = profile.setdefault("behavior_profile", {}).setdefault("home_energy_usage", {})
+        evidence = usage.setdefault("_evidence", {})
+        form_changes = {}
+        if "family_type" in basic_info:
+            family = str(basic_info["family_type"])
+            form_changes["family_size"] = int(family) if family in ("1", "2", "3", "4") else None
+        if "region" in basic_info:
+            form_changes["city"] = basic_info["region"]
+        for field, value in form_changes.items():
+            usage[field] = value
+            evidence[field] = {"source": "user_form", "value": value,
+                               "confirmed_at": datetime.now().isoformat()}
 
         current_basic = profile.get("basic_info", {})
         current_basic.update(basic_info)
@@ -390,20 +410,20 @@ class UserProfileManager:
         conn = get_connection(str(self.db_path))
         cursor = conn.cursor()
 
-        cursor.execute(
-            """
-            UPDATE user_profiles
-            SET profile_data = ?, updated_at = ?
-            WHERE user_id = ?
-        """,
-            (json.dumps(profile, ensure_ascii=False), profile["updated_at"], user_id),
-        )
+        with conn:
+            from user_profile.graph_store import SQLiteGraphStore
+            profile["graph"] = SQLiteGraphStore(conn).sync(user_id, profile)
 
-        success = cursor.rowcount > 0
-        try:
-            conn.commit()
-        finally:
-            pass  # conn 池 60s TTL 自动关
+            cursor.execute(
+                """
+                UPDATE user_profiles
+                SET profile_data = ?, updated_at = ?
+                WHERE user_id = ?
+            """,
+                (json.dumps(profile, ensure_ascii=False), profile["updated_at"], user_id),
+            )
+
+            success = cursor.rowcount > 0
 
         if user_id in self._profile_cache:
             del self._profile_cache[user_id]

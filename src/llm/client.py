@@ -1826,26 +1826,78 @@ def create_llm_client(provider: str = "openai", **kwargs) -> LLMClient:
 _llm_client: Optional[LLMClient] = None
 _llm_client_lock = threading.Lock()
 
+# P17: per-user LLM 客户端缓存(user_id -> client)与请求级用户上下文
+from contextvars import ContextVar  # noqa: E402
 
-def get_llm_client() -> LLMClient:
-    """获取全局LLM客户端(线程安全: 双重检查锁定)"""
+_current_user_ctx: ContextVar = ContextVar("llm_current_user_id", default=None)
+_user_llm_clients: Dict[str, LLMClient] = {}
+_user_clients_lock = threading.Lock()
+
+
+def set_llm_user(user_id: Optional[str]) -> None:
+    """设置当前请求的 LLM 用户上下文(get_llm_client 会据此解析 per-user key)。
+
+    在请求入口(router/chat)设置一次,ContextVar 线程/协程隔离,不跨请求泄漏。
+    """
+    _current_user_ctx.set(user_id)
+
+
+def _get_global_client() -> LLMClient:
+    """全局客户端(无用户上下文时使用,读 owner 的 .env key)"""
     global _llm_client
-
     if _llm_client is None:
         with _llm_client_lock:
             if _llm_client is None:
-                # 从环境变量读取配置
                 provider = os.environ.get("API_PROVIDER", os.environ.get("LLM_PROVIDER", "openai"))
                 model = os.environ.get("API_MODEL", os.environ.get("LLM_MODEL", "gpt-4o-mini"))
                 temperature = float(os.environ.get("LLM_TEMPERATURE", "0.7"))
-
-                # 关键修复:不再传通用 api_key(它来自 OPENAI_API_KEY=占位符,会覆盖各 provider 的真实 key)。
-                # 让 create_llm_client 里的具体客户端用各自的 <PROVIDER>_API_KEY 环境变量。
+                # 关键修复:不传通用 api_key,让各 provider 客户端读各自的 <PROVIDER>_API_KEY。
                 _llm_client = create_llm_client(
                     provider=provider, model=model, temperature=temperature
                 )
-
     return _llm_client
+
+
+def _get_user_client(user_id: str) -> Optional[LLMClient]:
+    """按 user_id 解析 per-user 客户端;无 key 返 None(严格阻断,不 fallback owner)"""
+    from llm.user_keys import get_key
+
+    info = get_key(user_id)
+    if not info:
+        return None
+    api_key, provider, model = info
+    with _user_clients_lock:
+        cached = _user_llm_clients.get(user_id)
+    if cached is not None:
+        return cached
+    temperature = float(os.environ.get("LLM_TEMPERATURE", "0.7"))
+    if not model:
+        model = os.environ.get("API_MODEL", "gpt-4o-mini")
+    client = create_llm_client(
+        provider=provider, api_key=api_key, model=model, temperature=temperature
+    )
+    with _user_clients_lock:
+        _user_llm_clients[user_id] = client
+    return client
+
+
+def get_llm_client(user_id: Optional[str] = None) -> Optional[LLMClient]:
+    """获取 LLM 客户端(线程安全)。
+
+    P17:
+      - user_id 显式传入,或当前上下文(set_llm_user 设置)→ per-user key;无 key 返 None。
+      - 无用户上下文 → 全局 owner 客户端(系统/内部调用)。
+    """
+    uid = user_id if user_id is not None else _current_user_ctx.get()
+    if uid:
+        return _get_user_client(str(uid))
+    return _get_global_client()
+
+
+def reset_user_llm_client(user_id: str) -> None:
+    """清除某用户的缓存客户端(其 key 变更后调用)"""
+    with _user_clients_lock:
+        _user_llm_clients.pop(user_id, None)
 
 
 def get_bayesian_client(

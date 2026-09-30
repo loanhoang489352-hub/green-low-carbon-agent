@@ -33,6 +33,9 @@ mcp_servers:
     command: python
     args:
       - scripts/mcp_real_server.py
+    # P17: 沙箱环境白名单 —— 只透传该 server 需要的 key(不透传 LLM key/DB 凭据)
+    env:
+      GAODE_API_KEY: ${GAODE_API_KEY}
     connect_timeout_s: 10.0
     request_timeout_s: 30.0
 

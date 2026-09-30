@@ -8,6 +8,20 @@ from agent.intent import IntentRecognizer
 from agent.understanding import DemandInterpreter, DialogueStateStore, advance_state
 
 
+@pytest.fixture(autouse=True)
+def isolated_routing_environment(monkeypatch):
+    # No external calls, real profile writes or Obsidian export in routing tests.
+    from agent.skills.profile_mining_skill import ProfileMiningSkill
+    monkeypatch.setenv('JEV_ROUTING_MODE', 'off')
+    monkeypatch.setenv('JEV_PROVIDER', 'typesafe')
+    monkeypatch.delenv('JEV_MODEL', raising=False)
+    monkeypatch.delenv('JEV_MIN_CONFIDENCE', raising=False)
+    monkeypatch.delenv('JEV_TIMEOUT_SECONDS', raising=False)
+    monkeypatch.setenv('LLM_MOCK', 'true')
+    monkeypatch.setattr(ProfileMiningSkill, 'execute',
+                        lambda *a: SimpleNamespace(success=False, data=None))
+
+
 @pytest.fixture
 def interpreter(monkeypatch):
     monkeypatch.setenv('UNDERSTANDING_MODE', 'rules')
@@ -154,7 +168,8 @@ def test_core_uses_one_entry_and_short_answer(engine, tmp_path, monkeypatch):
     agent.active_conversations = {'c': SimpleNamespace(user_id='alice', last_domain='')}
     agent._manage_conversation = lambda *a: 'c'
     seen = []
-    def energy(uid, message, *args):
+    def energy(uid, message, *args, **kwargs):
+        assert 'profile_mining_meta' in kwargs and 'llm_truly_available' in kwargs
         seen.append(message)
         return SimpleNamespace(message='家里几个人？', trace=[])
     agent._handle_energy_planning = energy
@@ -163,3 +178,216 @@ def test_core_uses_one_entry_and_short_answer(engine, tmp_path, monkeypatch):
     assert seen == ['帮我规划家庭节能', '四人']
     response = agent.chat_enhanced('alice', '取消', 'c')
     assert '取消' in response.message and len(seen) == 2
+
+
+def jev_response(choice='energy_plan', confidence=0.95):
+    from agent.routing.jev import CRITERIA
+    return {'model': 'jev-1.13.0', 'answers': {'route': {
+        'type': 'choice', 'choice': choice, 'confidence': confidence,
+        'probabilities': {k: 1.0 if k == choice else 0.0 for k in CRITERIA}}},
+        'usage': {'input_tokens': 200, 'output_tokens': 10}}
+
+
+@pytest.fixture(params=['typesafe', 'openrouter'])
+def jev_http(monkeypatch, request):
+    import httpx
+    from agent.routing import jev
+    monkeypatch.setenv('JEV_ROUTING_MODE', 'active')
+    monkeypatch.setenv('JEV_PROVIDER', request.param)
+    monkeypatch.setenv('TYPESAFE_API_KEY', 'test-secret-not-real')
+    monkeypatch.setenv('OPENROUTER_API_KEY', 'test-openrouter-secret-not-real')
+    monkeypatch.setenv('LLM_MOCK', 'false')
+    monkeypatch.setenv('UNDERSTANDING_MODE', 'hybrid')
+    calls, control = [], {'body': jev_response(), 'status': 200}
+    real_client = httpx.Client
+
+    def handle(request):
+        calls.append(request)
+        if 'error' in control:
+            raise control['error']
+        if 'content' in control:
+            return httpx.Response(control['status'], content=control['content'])
+        return httpx.Response(control['status'], json=control['body'])
+
+    monkeypatch.setattr(jev.httpx, 'Client', lambda **kwargs: real_client(
+        transport=httpx.MockTransport(handle), **kwargs))
+    return calls, control
+
+
+def test_jev_contract_and_personalized_request(jev_http):
+    import os
+    from agent.routing.jev import PROVIDERS
+    calls, _ = jev_http
+    state = {'recent': [{'role': 'user', 'content': '联系我13800001234', 'user_id': 'private'}],
+             'user_id': 'private', 'profile': {'secret': 'never-send'}}
+    demand = DemandInterpreter(IntentRecognizer()).understand('给我家个性化定制节能方案', state)
+    assert (demand.domain, demand.act, demand.intent, demand.source) == (
+        'energy', 'plan', 'energy_planning', 'jev')
+    endpoint, _, model = PROVIDERS[os.environ['JEV_PROVIDER']]
+    assert len(calls) == 1 and str(calls[0].url) == endpoint
+    payload = json.loads(calls[0].content)
+    assert payload['model'] == model
+    expected_key = 'test-openrouter-secret-not-real' if os.environ['JEV_PROVIDER'] == 'openrouter' else 'test-secret-not-real'
+    assert calls[0].headers['Authorization'] == 'Bearer ' + expected_key
+    assert payload['questions']['route']['type'] == 'choice'
+    assert 'private' not in calls[0].content.decode() and 'never-send' not in calls[0].content.decode()
+    assert '13800001234' not in calls[0].content.decode()
+    assert state['recent'][0]['content'] == '联系我13800001234'
+    assert calls[0].extensions['timeout']['read'] == 3
+
+
+@pytest.mark.parametrize('status', [401, 402, 403, 429, 500, 529, 302])
+def test_jev_http_failure_does_not_retry_or_expose_body(jev_http, caplog, status):
+    from agent.routing.jev import propose
+    calls, control = jev_http
+    control.update(status=status, content=b'test-secret-not-real sensitive-body')
+    with caplog.at_level('INFO'):
+        assert propose('给我家个性化定制节能方案', {}) is None
+    assert len(calls) == 1 and f'http_{status}' in caplog.text
+    assert 'test-secret-not-real' not in caplog.text and 'sensitive-body' not in caplog.text
+
+
+@pytest.mark.parametrize('kind', ['timeout', 'network', 'json', 'oversized', 'missing', 'choice',
+                                 'nan', 'boolean', 'negative', 'sum', 'not_max', 'low'])
+def test_jev_bad_responses_fall_back(jev_http, kind):
+    import httpx
+    from agent.routing.jev import propose
+    calls, control = jev_http
+    answer = control['body']['answers']['route']
+    if kind in ('timeout', 'network'):
+        control['error'] = (httpx.ReadTimeout if kind == 'timeout' else httpx.ConnectError)('secret')
+    elif kind == 'json':
+        control['content'] = b'not json'
+    elif kind == 'oversized':
+        control['content'] = b'x' * 65537
+    elif kind == 'missing':
+        control['body'] = {}
+    elif kind == 'choice':
+        answer['choice'] = 'execute_shell'
+    elif kind in ('nan', 'boolean', 'low'):
+        answer['confidence'] = {'nan': float('nan'), 'boolean': True, 'low': 0.3}[kind]
+    elif kind == 'negative':
+        answer['probabilities']['explain'] = -1
+    elif kind == 'sum':
+        answer['probabilities']['explain'] = 0.5
+    elif kind == 'not_max':
+        answer['choice'] = 'explain'
+    if kind == 'nan':
+        control['content'] = json.dumps(control['body']).encode()
+    assert propose('个性化用能建议', {}) is None
+    assert len(calls) == 1
+
+
+@pytest.mark.parametrize('setting,value', [('JEV_ROUTING_MODE', 'off'), ('JEV_ROUTING_MODE', 'typo'),
+    ('TYPESAFE_API_KEY', ''), ('JEV_MIN_CONFIDENCE', 'NaN'), ('JEV_MIN_CONFIDENCE', '2'),
+    ('JEV_TIMEOUT_SECONDS', '-1')])
+def test_jev_configuration_fails_closed(jev_http, monkeypatch, setting, value):
+    import os
+    from agent.routing.jev import propose
+    if setting == 'TYPESAFE_API_KEY' and os.environ['JEV_PROVIDER'] == 'openrouter':
+        setting = 'OPENROUTER_API_KEY'
+    monkeypatch.setenv(setting, value)
+    assert propose('个性化用能建议', {}) is None
+    assert not jev_http[0]
+
+
+def test_jev_shadow_and_low_confidence_keep_existing_route(jev_http, monkeypatch):
+    from agent.routing import router
+    calls, control = jev_http
+    monkeypatch.setattr(router, '_fast_classifier', lambda: None)
+    monkeypatch.setenv('JEV_ROUTING_MODE', 'shadow')
+    interpreter = DemandInterpreter(IntentRecognizer())
+    assert interpreter.understand('帮我降低电费').source == 'rules'
+    monkeypatch.setenv('JEV_ROUTING_MODE', 'active')
+    control['body'] = jev_response(confidence=0.1)
+    assert interpreter.understand('帮我降低电费').source == 'rules'
+    assert len(calls) == 2
+
+
+def test_jev_multi_turn_transition_and_update_guard(jev_http):
+    from agent.routing.jev import propose
+    _, control = jev_http
+    control['body'] = jev_response('travel_plan')
+    assert propose('换成明早到公司', {'active_domain': 'energy'}).relation == 'switch'
+    assert propose('换成明早到公司', {'active_domain': 'travel'}).relation == 'continue'
+    control['body'] = jev_response('energy_update')
+    assert propose('三人', {}) is None
+    interpreter = DemandInterpreter(IntentRecognizer())
+    # A model may not invent writable facts; existing parsed hints are required.
+    assert interpreter.understand('更新一下', {'active_domain': 'energy'}).act == 'clarify'
+
+
+@pytest.mark.parametrize('text,state', [('取消', {'active_domain': 'energy'}),
+    ('假如我家有燃气灶，如何节能', {}), ('四个', {'active_domain': 'energy', 'expected_slot': 'family_size'})])
+def test_deterministic_controls_do_not_call_jev(jev_http, text, state):
+    DemandInterpreter(IntentRecognizer()).understand(text, state)
+    assert not jev_http[0]
+
+
+def test_jev_energy_clarification_reaches_chat_ui(tmp_path, monkeypatch):
+    import agent.understanding as understanding
+    from agent.routing.demand import Demand
+    monkeypatch.setattr(understanding.DemandInterpreter, 'understand',
+                        lambda *a: Demand(domain='energy', act='clarify', question='请指定哪条建议', source='jev'))
+    agent = GreenAgent.__new__(GreenAgent)
+    agent._dialogue_store = DialogueStateStore(tmp_path / 'state.db')
+    agent.intent_recognizer = IntentRecognizer()
+    agent.active_conversations = {'c': SimpleNamespace(user_id='alice', last_domain='')}
+    agent._manage_conversation = lambda *a: 'c'
+    agent._handle_energy_planning = lambda *a, **kw: pytest.fail('clarification must not generate a plan')
+    response = agent.chat_enhanced('alice', '那个调整一下', 'c')
+    assert response.message == '请指定哪条建议'
+    assert response.personalization_info['understanding']['source'] == 'jev'
+
+
+def test_jev_input_limit_and_history_budget(jev_http):
+    from agent.routing.jev import propose
+    calls, _ = jev_http
+    assert propose('x' * 6001, {}) is None and not calls
+    propose('个性化用能建议', {'recent': [{'role': 'user', 'content': 'x' * 5000}] * 10})
+    recent = json.loads(calls[0].content)['state']['recent']
+    assert len(recent) == 4 and all(len(m['content']) == 1000 for m in recent)
+
+
+@pytest.mark.parametrize('text,state,expected', [
+    ('给我家个性化定制节能方案，尽量省事，不想换家电', {}, 'energy'),
+    ('明早从重庆北站到解放碑，公交地铁优先，不骑车', {}, 'travel'),
+    ('还是按我家现在的情况重新安排一下用能吧', {'active_domain': 'energy', 'recent': [
+        {'role': 'assistant', 'content': '刚才讨论了你家空调与热水器的节能安排。'}]}, 'energy'),
+])
+def test_jev_live_opt_in(monkeypatch, text, state, expected):
+    import os
+    from agent.routing.jev import propose
+    if os.getenv('RUN_JEV_LIVE') != '1':
+        pytest.skip('Real provider acceptance is opt-in; mock tests are not live evidence')
+    from agent.routing.jev import PROVIDERS
+    # Normal tests isolate configuration; live provider must be explicitly chosen.
+    provider = os.getenv('JEV_LIVE_PROVIDER', 'typesafe')
+    assert provider in PROVIDERS, 'Invalid JEV_LIVE_PROVIDER'
+    monkeypatch.setenv('JEV_PROVIDER', provider)
+    assert os.getenv(PROVIDERS[provider][1]), 'Configure the selected provider key locally before live acceptance'
+    monkeypatch.setenv('JEV_ROUTING_MODE', 'active')
+    monkeypatch.setenv('UNDERSTANDING_MODE', 'hybrid')
+    monkeypatch.setenv('LLM_MOCK', 'false')
+    demand = propose(text, state)
+    assert demand is not None, 'Jev did not return an accepted decision; inspect jev_route outcome'
+    assert demand.source == 'jev' and demand.act == 'plan' and demand.domain == expected
+
+
+@pytest.mark.parametrize('provider,model', [('openrouter', 'jev-1.13.0'),
+    ('openrouter', 'typesafe/jev-router'), ('typesafe', 'typesafe/jev-1.13'),
+    ('unknown', 'jev-1.13.0')])
+def test_jev_wrong_provider_model_never_sends_credentials(jev_http, monkeypatch, provider, model):
+    from agent.routing.jev import propose
+    monkeypatch.setenv('JEV_PROVIDER', provider)
+    monkeypatch.setenv('JEV_MODEL', model)
+    assert propose('帮我定制节能方案', {}) is None
+    assert not jev_http[0]
+
+
+def test_jev_no_cross_provider_credential_fallback(jev_http, monkeypatch):
+    import os
+    from agent.routing.jev import propose, PROVIDERS
+    monkeypatch.delenv(PROVIDERS[os.environ['JEV_PROVIDER']][1])
+    assert propose('帮我定制节能方案', {}) is None
+    assert not jev_http[0]

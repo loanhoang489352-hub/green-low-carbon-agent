@@ -30,13 +30,11 @@ if (-not (Test-Path $LogDir)) {
 # ========== 查 NSSM ==========
 $nssm = Get-Command nssm -ErrorAction SilentlyContinue
 if (-not $nssm) {
-    Write-Error @"
-[NSSM 未找到] 请先下载 NSSM 并加入 PATH:
-  1. 访问 https://nssm.cc/download
-  2. 解压 nssm-2.24.zip
-  3. 把 nssm-2.24\win64\nssm.exe 复制到 C:\Windows\System32\
-  4. 重新运行本脚本
-"@
+    Write-Host "[NSSM 未找到] 请先下载 NSSM 并加入 PATH:"
+    Write-Host "  1. 访问 https://nssm.cc/download"
+    Write-Host "  2. 解压 nssm-2.24.zip"
+    Write-Host "  3. 把 nssm-2.24\win64\nssm.exe 复制到 C:\Windows\System32\"
+    Write-Host "  4. 重新运行本脚本"
     exit 1
 }
 

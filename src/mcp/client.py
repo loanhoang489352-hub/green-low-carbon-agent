@@ -110,8 +110,12 @@ class MCPClient:
             return False
         try:
             # 1. 启动子进程(stdio)
-            env = os.environ.copy()
-            env.update(self.config.env)
+            # P17 沙箱:环境净化(不透传完整父环境 → 防 LLM key/DB 凭据泄漏给 MCP 子进程)
+            #          + 资源限制(POSIX preexec_fn)
+            from utils.sandbox import sandbox_env, sandbox_popen_kwargs
+
+            env = sandbox_env(extra_keys=list((self.config.env or {}).keys()))
+            env.update(self.config.env or {})
             env.setdefault("PYTHONIOENCODING", "utf-8")
             env.setdefault("PYTHONUTF8", "1")
             cmd = [self.config.command] + self.config.args
@@ -120,12 +124,12 @@ class MCPClient:
                 stdin=subprocess.PIPE,
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,
-                env=env,
                 cwd=self.config.cwd,
                 text=True,
                 encoding="utf-8",
                 errors="replace",
                 bufsize=1,  # 行缓冲
+                **sandbox_popen_kwargs(env=env),
             )
             # 2. 启动 read 后台线程(关键!否则响应回来没人接)
             self._stop_read.clear()

@@ -2498,13 +2498,8 @@
             console.log('[DEBUG] userId:', userId);
             console.log('[DEBUG] isRegistered:', isRegistered);
 
-            // Bug9: 不再自动弹引导 — 用户主动点"立即注册"或"开始设置"才显示
+            // 引导改为登录后触发(画像需绑定账号,不在匿名阶段收集)
             hideOnboardingModal();
-            if (isRegistered) {
-                console.log('[DEBUG] 已注册用户,无需 onboarding');
-            } else {
-                console.log('[DEBUG] 新用户,默认不弹引导,等用户主动点击');
-            }
 
             // 确保有用户ID
             if (!userId) {
@@ -2559,7 +2554,7 @@
                     try {
                         const response = await fetch('/api/user/register', {
                             method: 'POST',
-                            headers: { 'Content-Type': 'application/json' },
+                            headers: { 'Content-Type': 'application/json', ...getAuthHeaders() },
                             body: JSON.stringify({ user_info: userInfo })
                         });
 
@@ -2586,6 +2581,11 @@
 hideOnboardingModal();
 
                 showPersonalizationIndicator('个性化设置已完成');
+
+                // 画像收集完成 → 提示配置 LLM key(否则聊天会被"严格阻断"拦截)
+                if (!localStorage.getItem('api_key')) {
+                    showApiKeyModal();
+                }
             });
         });
 
@@ -3740,6 +3740,10 @@ hideOnboardingModal();
                             <label>确认密码</label>
                             <input type="password" id="reg-password-confirm" placeholder="再次输入密码" required autocomplete="new-password">
                         </div>
+                        <div class="auth-form-group">
+                            <label>邀请码 <span style="color:#8b8b8b;font-size:12px">(灰度阶段必填)</span></label>
+                            <input type="text" id="reg-invite-code" placeholder="请输入邀请码" autocomplete="off">
+                        </div>
                         <div id="register-error" class="auth-error hidden"></div>
                         <button type="submit" class="auth-submit-btn" id="register-submit">注册</button>
                         <p class="auth-switch">已有账号？<a onclick="switchAuthTab('login')">立即登录</a></p>
@@ -3851,6 +3855,9 @@ hideOnboardingModal();
                     renderLoggedInStatus();
                     showFeedbackToast('登录成功！欢迎回来，' + loggedInUsername, 'success');
 
+                    // 登录后触发引导收集画像(绑定账号)
+                    showOnboardingModal();
+
                     // 如果已有对话，提示用户
                     if (messageCount > 0) {
                         console.log('[Auth] 登录后用户ID已同步到: ' + userId);
@@ -3874,6 +3881,7 @@ hideOnboardingModal();
             const username = document.getElementById('reg-username').value.trim();
             const password = document.getElementById('reg-password').value;
             const passwordConfirm = document.getElementById('reg-password-confirm').value;
+            const inviteCode = (document.getElementById('reg-invite-code')?.value || '').trim();
 
             // 前端验证
             if (username.length < 3 || username.length > 20) {
@@ -3902,7 +3910,7 @@ hideOnboardingModal();
                 const response = await fetch('/api/auth/register', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ username, password })
+                    body: JSON.stringify({ username, password, invite_code: inviteCode })
                 });
 
                 const data = await response.json();
@@ -4743,7 +4751,7 @@ hideOnboardingModal();
                 // 将设置发送到后端
                 fetch('/api/settings/api-key', {
                     method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
+                    headers: { 'Content-Type': 'application/json', ...getAuthHeaders() },
                     body: JSON.stringify({
                         provider: provider,
                         api_key: apiKey,

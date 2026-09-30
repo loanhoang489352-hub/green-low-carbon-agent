@@ -478,6 +478,14 @@ def init_app():
     _register_event_subscribers()
     _start_scheduler_safe()
 
+    # P17: 可选 OpenTelemetry 导出(默认 no-op;配置 OTEL_EXPORTER_OTLP_ENDPOINT 才启用)
+    try:
+        from observability.otel import init_otel
+
+        init_otel()
+    except Exception:
+        pass
+
     return create_handler()
 
 

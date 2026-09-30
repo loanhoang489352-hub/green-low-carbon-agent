@@ -19,6 +19,7 @@ FlagEmbedding>=1.2.0
 # 数据存储 / 持久化
 pydantic>=2.12.0
 bcrypt>=5.0.0
+cryptography>=42.0.0  # P17: per-user LLM key 加密(Fernet)
 
 # 知识/政策更新
 requests>=2.33.0

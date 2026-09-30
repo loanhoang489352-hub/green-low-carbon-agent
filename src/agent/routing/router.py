@@ -100,6 +100,13 @@ class Router:
         if mode == 'rules':
             return None
         try:
+            # Injected models remain deterministic for tests and custom callers.
+            # Global shadow mode must also avoid applying a Jev proposal.
+            if self.model is None and os.getenv('LLM_MOCK', '').lower() not in ('true', '1', 'yes', 'on'):
+                from .jev import propose
+                proposal = propose(text, state)
+                if proposal is not None and not mode_is_shadow():
+                    return proposal
             model = self.model
             if model is None:
                 if os.getenv('LLM_MOCK', '').lower() in ('true', '1', 'yes', 'on'):

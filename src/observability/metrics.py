@@ -70,6 +70,23 @@ class MetricsCollector:
                     error=error,
                 )
             )
+        # P17: 可选 OpenTelemetry 导出(默认 no-op,配置了 endpoint 才生效;失败不阻塞)
+        try:
+            from observability.otel import record_llm_call
+
+            record_llm_call(
+                model=model,
+                provider=provider,
+                latency_ms=latency_ms,
+                usage={
+                    "prompt_tokens": prompt_tokens,
+                    "completion_tokens": completion_tokens,
+                    "total_tokens": total_tokens,
+                },
+                error=(error if not success else None),
+            )
+        except Exception:
+            pass
 
     def record_tool_call(self, tool_name: str) -> None:
         """P6.S.20: 记录 tool 调用"""

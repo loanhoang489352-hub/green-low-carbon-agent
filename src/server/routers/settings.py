@@ -25,95 +25,31 @@ def register_settings_routes(registry) -> None:
             if any(_c in str(_val) for _c in ("\n", "\r", "=")):
                 raise APIError("BAD_REQUEST", f"{_name} 含非法字符(换行/等号)")
 
-        os.environ["API_PROVIDER"] = provider
-        provider_key_map = {
-            "openai": "OPENAI_API_KEY",
-            "minimax": "MINIMAX_API_KEY",
-            "zhipu": "ZHIPU_API_KEY",
-            "baidu": "BAIDU_API_KEY",
-            "ali": "ALI_API_KEY",
-            "deepseek": "DEEPSEEK_API_KEY",
-        }
-        key_name = provider_key_map.get(provider, "OPENAI_API_KEY")
-        os.environ[key_name] = api_key
+        # P17: 按 user_id 存(加密落库),不再写全局 .env、不再改全局 os.environ
+        from server.identity import resolve_user_id
 
-        if model:
-            os.environ["API_MODEL"] = model
-        else:
-            default_models = {
-                "openai": "gpt-4o-mini",
-                "minimax": "abab6.5s",
-                "zhipu": "glm-4-flash",
-                "baidu": "ernie-4.0-8k",
-                "ali": "qwen-plus",
-                "deepseek": "deepseek-chat",
-            }
-            os.environ["API_MODEL"] = default_models.get(provider, "gpt-4o-mini")
+        user_id = resolve_user_id(handler, data)
+        if not user_id or user_id == "anonymous" or user_id.startswith("temp_"):
+            raise APIError("UNAUTHORIZED", "匿名用户无法保存 API key,请先登录")
 
-        # 持久化到 .env
+        from llm.user_keys import save_key
+
+        save_key(user_id, api_key, provider, model)
+
+        # 清掉该用户的缓存客户端,下次调用用新 key
         try:
-            from server.app import PROJECT_ROOT
+            from llm.client import reset_user_llm_client
 
-            env_path = PROJECT_ROOT / ".env"
-            if env_path.exists():
-                with open(env_path, "r", encoding="utf-8") as f:
-                    lines = f.readlines()
-                updated_lines = []
-                for line in lines:
-                    stripped = line.strip()
-                    if stripped.startswith("API_PROVIDER="):
-                        updated_lines.append(f"API_PROVIDER={provider}\n")
-                    elif stripped.startswith("API_MODEL="):
-                        updated_lines.append(f"API_MODEL={os.environ.get('API_MODEL')}\n")
-                    elif stripped.startswith(f"{key_name}="):
-                        updated_lines.append(f"{key_name}={api_key}\n")
-                    else:
-                        updated_lines.append(line)
-                with open(env_path, "w", encoding="utf-8") as f:
-                    f.writelines(updated_lines)
-        except Exception as e:
-            handler.send_json({"warning": f".env write failed: {e}"})
-
-        # 重置 LLM 客户端
-        try:
-            from llm import reset_llm_client
-
-            reset_llm_client()
+            reset_user_llm_client(user_id)
         except Exception:
             pass
-
-        # P6.S.6: 用户主动设了 key,自动 clear LLM_MOCK 让真 LLM 生效
-        if os.environ.get("LLM_MOCK", "").strip().lower() in ("true", "1", "yes", "on"):
-            os.environ["LLM_MOCK"] = "false"
-            try:
-                from server.app import PROJECT_ROOT
-
-                env_path = PROJECT_ROOT / ".env"
-                if env_path.exists():
-                    with open(env_path, "r", encoding="utf-8") as f2:
-                        env_lines = f2.readlines()
-                    new_env = []
-                    for ln in env_lines:
-                        if ln.strip().startswith("LLM_MOCK="):
-                            new_env.append("LLM_MOCK=false\n")
-                        else:
-                            new_env.append(ln)
-                    with open(env_path, "w", encoding="utf-8") as f2:
-                        f2.writelines(new_env)
-            except Exception:
-                pass
-            try:
-                from llm import reset_llm_client
-
-                reset_llm_client()
-            except Exception:
-                pass
 
         handler.send_json(
             {
                 "status": "saved",
-                "message": "设置已保存",
-                "model": os.environ.get("API_MODEL"),
+                "message": "已保存到你的账号(仅本人使用,加密存储)",
+                "provider": provider,
+                "model": model or "默认",
             }
         )
 
